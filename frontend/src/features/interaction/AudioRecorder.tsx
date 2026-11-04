@@ -20,6 +20,8 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [lastAudioUrl, setLastAudioUrl] = useState<string | null>(null);
+  const [lastAudioInfo, setLastAudioInfo] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -114,16 +116,22 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           type: recorder.mimeType || 'audio/webm',
         });
 
-        // 尝试转写为 16kHz WAV 保证兼容性
+        // 尝试转写为 16kHz WAV 保证兼容性与免转码直出
         try {
           const decodeCtx = new AudioCtx();
           const arrayBuf = await rawBlob.arrayBuffer();
           const audioBuf = await decodeCtx.decodeAudioData(arrayBuf);
           const wavBlob = encodeAudioBufferToWav(audioBuf);
           decodeCtx.close();
+          const url = URL.createObjectURL(wavBlob);
+          setLastAudioUrl(url);
+          setLastAudioInfo(`标准 WAV (16kHz 单声道, ${(wavBlob.size / 1024).toFixed(1)} KB)`);
           onRecordingComplete(wavBlob, 'audio/wav');
         } catch (convErr) {
           console.warn('WAV 本地转换失败，回退使用原始录音格式:', convErr);
+          const url = URL.createObjectURL(rawBlob);
+          setLastAudioUrl(url);
+          setLastAudioInfo(`原始录音 (${recorder.mimeType || 'audio/webm'}, ${(rawBlob.size / 1024).toFixed(1)} KB)`);
           onRecordingComplete(rawBlob, recorder.mimeType || 'audio/webm');
         }
       };
@@ -215,6 +223,14 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           </div>
         )}
       </div>
+
+      {lastAudioUrl && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#64748b' }}>
+          <span>🎧 录音回放:</span>
+          <audio src={lastAudioUrl} controls style={{ height: '26px', maxWidth: '200px' }} />
+          <span>{lastAudioInfo}</span>
+        </div>
+      )}
 
       {errorMsg && (
         <div
