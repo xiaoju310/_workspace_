@@ -1,9 +1,11 @@
 """A 负责接口的最小成功/失败验收。"""
 import hashlib
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app import db
 from app.main import app
@@ -20,20 +22,26 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         yield value
 
 
+def image_bytes(format: str = "PNG", color: str = "red") -> bytes:
+    """生成真正可解码的测试图，而非仅伪造文件头。"""
+    output = BytesIO()
+    Image.new("RGB", (8, 8), color).save(output, format=format)
+    return output.getvalue()
+
 def create_confirmed_book(client: TestClient) -> str:
     book = client.post("/api/books", json={"title": "示例绘本", "authorization_ref": "local-test"})
     assert book.status_code == 201
     book_id = book.json()["id"]
     assert client.post(f"/api/books/{book_id}/classify").status_code == 200
     assert client.patch(f"/api/books/{book_id}/classification", json={"confirmed_type": "picture_book"}).status_code == 200
-    png = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + b"test-image"
+    png = image_bytes()
     assert client.post(f"/api/books/{book_id}/pages?page_no=1", content=png, headers={"content-type": "image/png"}).status_code == 201
     return book_id
 
 
 def test_book_page_hash_and_duplicate_rejection(client: TestClient) -> None:
     book_id = create_confirmed_book(client)
-    payload = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + b"another-image"
+    payload = image_bytes(color="blue")
     response = client.post(f"/api/books/{book_id}/pages?page_no=2", content=payload, headers={"content-type": "image/png"})
     assert response.status_code == 201
     assert response.json()["page_no"] == 2
@@ -118,7 +126,7 @@ def test_share_expiry_and_cross_user_rejection(client: TestClient) -> None:
 
 def test_manual_page_revision_and_asset_scope(client: TestClient, tmp_path: Path) -> None:
     book_id = create_confirmed_book(client)
-    payload = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + b"test-image"
+    payload = image_bytes()
     assert client.patch(f"/api/books/{book_id}/pages/1/revision", json={}).status_code == 422
     revised = client.patch(f"/api/books/{book_id}/pages/1/revision", json={"ocr": {"text": "manual"}})
     assert revised.status_code == 200
@@ -247,6 +255,13 @@ def test_page_upload_rejects_invalid_signature_and_foreign_book(client: TestClie
     book_id = create_confirmed_book(client)
     fake = client.post(f"/api/books/{book_id}/pages?page_no=2", content=b"not a png", headers={"content-type": "image/png"})
     assert fake.status_code == 415
-    other = client.post(f"/api/books/{book_id}/pages?page_no=2", content=b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + b"test-image",
+    # 旧实现只检查签名：伪造 IHDR 或截断真图都不得保存到数据库/磁盘。
+    forged = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + b"test-image"
+    assert client.post(f"/api/books/{book_id}/pages?page_no=2", content=forged, headers={"content-type": "image/png"}).status_code == 415
+    assert client.post(f"/api/books/{book_id}/pages?page_no=2", content=image_bytes()[:-10], headers={"content-type": "image/png"}).status_code == 415
+    assert client.post(f"/api/books/{book_id}/pages?page_no=2", content=image_bytes(), headers={"content-type": "image/jpeg"}).status_code == 415
+    assert client.post(f"/api/books/{book_id}/pages?page_no=2", content=image_bytes(format="JPEG"), headers={"content-type": "image/jpeg"}).status_code == 201
+    assert len(client.get(f"/api/books/{book_id}/pages").json()) == 2
+    other = client.post(f"/api/books/{book_id}/pages?page_no=2", content=image_bytes(),
                         headers={"content-type": "image/png", "authorization": "Bearer other-secret"})
     assert other.status_code == 404

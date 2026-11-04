@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import csv
-from io import StringIO
+from io import BytesIO, StringIO
 import hashlib
 import os
 import sqlite3
@@ -11,6 +11,9 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+import warnings
+
+from PIL import Image, UnidentifiedImageError
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
@@ -116,6 +119,20 @@ async def upload_page(book_id: str, page_no: int, request: Request, actor: str =
         raise HTTPException(415, "PNG 文件头不正确")
     if content_type == "image/jpeg" and not (len(data) >= 20 and data.startswith(b"\xff\xd8\xff") and data.endswith(b"\xff\xd9")):
         raise HTTPException(415, "JPG 文件头不正确")
+    # 文件头只是初筛：完整解码，避免损坏图片进入 B 的 OCR/VLM 流程。
+    # 同时限制像素数，防止小体积压缩图造成内存耗尽。
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(data)) as image:
+                expected_format = {"image/png": "PNG", "image/jpeg": "JPEG"}[content_type]
+                if image.format != expected_format or image.width * image.height > 40_000_000:
+                    raise HTTPException(415, "图片格式与声明不符或像素数过大")
+                image.verify()  # 校验 PNG 块/校验和等完整性；verify 后需重新打开。
+            with Image.open(BytesIO(data)) as image:
+                image.load()  # 实际解码全部像素，而不只是验证文件签名。
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombWarning, Image.DecompressionBombError) as exc:
+        raise HTTPException(415, "图片无法完整解码或像素数过大") from exc
     with get_connection() as connection:
         require_owner(_row_or_404(connection, "books", book_id, "图书")["owner_id"], actor)
         if connection.execute("SELECT 1 FROM pages WHERE book_id=? AND page_no=?", (book_id, page_no)).fetchone():
