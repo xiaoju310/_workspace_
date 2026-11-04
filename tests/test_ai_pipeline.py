@@ -105,6 +105,9 @@ def test_reading_cli_writes_reviewable_json(tmp_path):
 
 
 def test_ffmpeg_timeline_and_frame_extraction(tmp_path):
+    import shutil
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        pytest.skip("ffmpeg and ffprobe are required")
     segment = tmp_path / "synthetic.mp4"
     frame = tmp_path / "frame.png"
     import subprocess
@@ -118,3 +121,32 @@ def test_ffmpeg_timeline_and_frame_extraction(tmp_path):
     assert timeline[0]["start_ms"] == 0
     assert timeline[0]["end_ms"] > timeline[0]["start_ms"]
     assert extract_frame(segment, 0, frame).is_file()
+
+
+def test_concatenate_segments_preserves_audio(tmp_path):
+    import json
+    import shutil
+    import subprocess
+    from app.ai.video import VideoResult
+
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        pytest.skip("ffmpeg and ffprobe are required")
+    segments = []
+    for page_no in (1, 2):
+        path = tmp_path / f"page-{page_no}.mp4"
+        subprocess.run([
+            "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+            "color=c=blue:s=160x90:d=0.5", "-f", "lavfi", "-i",
+            "sine=frequency=440:duration=0.5", "-shortest", "-c:v", "libx264",
+            "-pix_fmt", "yuv420p", "-c:a", "aac", str(path),
+        ], check=True)
+        segments.append(VideoResult(page_no=page_no, path=str(path), generation_mode="i2v",
+                                    model_version="synthetic-test/1", prompt_hash="test", status="ok"))
+    output = tmp_path / "book.mp4"
+    result = concatenate_segments(segments, output)
+    assert result["status"] == "ok"
+    probe = subprocess.run([
+        "ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
+        "-of", "json", str(output),
+    ], check=True, capture_output=True, text=True)
+    assert {stream["codec_type"] for stream in json.loads(probe.stdout)["streams"]} == {"video", "audio"}

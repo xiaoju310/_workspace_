@@ -19,6 +19,8 @@ $env:PYTHONPATH = "$PWD\backend"
 
 `analyze_page` returns `mock` while its VLM provider is a mock, even when a real OCR provider is used. The separate `ocr` CLI command records the actual OCR result. `UnavailableVideoProvider` returns `VIDEO_PROVIDER_UNAVAILABLE`. `compose.concatenate_segments` only accepts `i2v` or `t2v` segments with `status=ok` and existing video files. See `docs/model-experiments.md` for environment findings and blocked work.
 
+`concatenate_segments` retains an existing input audio stream and encodes it as AAC. It does not create narration or subtitles: silent inputs remain silent. The final voiceover, subtitle, and timing pipeline is still pending. Media tests require both `ffmpeg` and `ffprobe` on `PATH`; when either is unavailable, pytest skips the media integration tests. Check with `ffmpeg -version` and `ffprobe -version` before a full local run.
+
 For real local image understanding, install the optional `vlm` dependencies and download the pinned model outside Git. The example below uses CPU; the installed PyTorch build has no CUDA support. `SmolVLMProvider` currently extracts one visible object name and leaves events empty. Its fixed 0.5 confidence is an uncalibrated placeholder, so review the result before using it in a story.
 
 ```powershell

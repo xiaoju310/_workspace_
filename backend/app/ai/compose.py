@@ -19,7 +19,7 @@ def concatenate_segments(segments: list[VideoResult], output: str | Path, *, ffm
         manifest.write_text("".join("file '" + str(Path(s.path).resolve()).replace("'", "'\\''") + "'\n" for s in segments), encoding="utf-8")
         try:
             proc = subprocess.run([ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", str(manifest),
-                                   "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", str(output)],
+                                   "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(output)],
                                   capture_output=True, text=True, timeout=timeout_s)
             result = {"status": "ok" if proc.returncode == 0 else "failed", "output": str(output),
                       "segment_count": len(segments), "error_code": None if proc.returncode == 0 else "FFMPEG_FAILED",
