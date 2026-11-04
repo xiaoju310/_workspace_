@@ -1,0 +1,5 @@
+metric,date,feature,formula,denominator,success_count,value,status,evidence_ref
+success_rate,2026-11-04,全部已执行用例,success_count / executed_count,,,,待测,
+accuracy,2026-11-04,问答/触控,correct_count / evaluated_count,,,,待测,
+latency_p50,2026-11-04,接口响应,statistics.median(duration_ms),,,,,待测,
+latency_p95,2026-11-04,接口响应,percentile duration_ms at 95%,,,,,待测,
