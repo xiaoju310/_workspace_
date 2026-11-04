@@ -1,0 +1,13 @@
+import { useState } from 'react'
+import { createApiClient } from '../api/client'
+import { Badge, Button, Icon } from '../components/ui'
+import type { Navigate } from '../app/types'
+
+export default function SettingsPage({navigate,onReset}: {navigate:Navigate;onReset:()=>void}) {
+  const [address,setAddress]=useState('http://127.0.0.1:8000')
+  const [result,setResult]=useState('')
+  const [busy,setBusy]=useState(false)
+  const [reset,setReset]=useState(false)
+  async function check() {setBusy(true);setResult('');try {const client=createApiClient(address);const health=await client.health();setResult(`连接成功：${JSON.stringify(health)}。健康检查通过，业务字段仍需 A/C 联调确认。`)} catch(error){setResult(error instanceof Error?error.message:'连接失败')}finally{setBusy(false)}}
+  return <div className="page-content settings-page"><div className="page-heading"><div><p className="eyebrow">BEHIND YOUR READING SPACE</p><h1>把每一个状态，讲清楚。</h1><p className="page-description">本地演示、真实服务与现场材料，各有可检查的边界。</p></div><Badge tone="amber">联调待确认</Badge></div><div className="settings-grid"><section className="form-card"><div className="card-title"><Icon name="info"/><h2>后端连接检查</h2></div><p className="settings-copy">此处只向你填写的地址请求 <code>GET /health</code>。本地原型的上传、生成和分享仍使用模拟流程；未确认的业务字段不会自动接入。</p><label className="field">A 提供的服务地址<input value={address} onChange={e=>setAddress(e.target.value)} placeholder="http://127.0.0.1:8000" disabled={busy}/></label><Button onClick={()=>void check()} disabled={busy}>{busy?'正在连接…':'检查服务连接'}<Icon name="arrow" size={17}/></Button>{result&&<p className="inline-feedback" role="status">{result}</p>}<p className="field-help">正式运行请通过 Vite 本地服务打开页面。浏览器可能阻止 file:// 页面的跨域请求，需 A 配置允许的来源。</p></section><section className="form-card"><div className="card-title"><Icon name="lock"/><h2>数据和演示会话</h2></div><p className="settings-copy">书架、笔记和分享保存在当前浏览器会话。用户选择的图片仅在页面内存预览，刷新后不恢复。分享链接是同一浏览器会话内的原型路径，不发布到互联网。</p><p className="settings-copy">录音、ASR、视频点击识别与真实权限由 C/A 接入。模拟置信度、历史记录、画面和生成日志均明确标记。</p>{reset?<div className="reset-confirm"><p>重置会清除本地演示中的修改、笔记审核和分享。请先导出需要的阅读历史。</p><Button onClick={()=>{onReset();setReset(false)}}>确认重置演示</Button><Button variant="ghost" onClick={()=>setReset(false)}>取消</Button></div>:<Button variant="secondary" onClick={()=>setReset(true)}>重置本地演示</Button>}</section></div><section className="form-card settings-delivery"><h2>推荐演示路线</h2><ol><li>导入原创示例，调整页序并检查文字。</li><li>确认图书类型，查看模拟生成阶段与失败重试。</li><li>完成内容复核，进入阅读页提问、点击、查看证据。</li><li>编辑笔记，主人审核后创建限时分享并撤销。</li><li>打开历史，按页码或时间跳转，导出记录。</li></ol><Button variant="secondary" onClick={()=>navigate('import')}>开始演示<Icon name="arrow" size={16}/></Button></section></div>
+}

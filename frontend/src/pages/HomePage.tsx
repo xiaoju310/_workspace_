@@ -1,0 +1,22 @@
+import { useState } from 'react'
+import { BookCard } from '../components/BookCard'
+import { Badge, Button, Icon, StatePanel } from '../components/ui'
+import type { ReadingBook, ReadingNote } from '../app/types'
+import type { Book, BookType, PreviewState } from '../features/books/types'
+
+export default function HomePage({ state, setState, onImport, onBook, onNote, books, notes }: { state: PreviewState; setState: (value: PreviewState) => void; onImport: () => void; onBook: (book: Book) => void; onNote: (id: string) => void; books: ReadingBook[]; notes: ReadingNote[] }) {
+  const [filter, setFilter] = useState<BookType | 'all'>('all')
+  const [query, setQuery] = useState('')
+  const filtered = books.filter(book => (filter === 'all' || (book.classification.confirmed_type ?? book.classification.predicted_type) === filter) && book.title.includes(query.trim()))
+  return <div className="home-page page-content">
+    <div className="page-heading"><div><p className="eyebrow">A LITTLE READING, A BIG WORLD</p><h1>今天，翻开哪个世界？<span className="heading-star">✳</span></h1><p className="page-description">让纸上的故事走进生活，让好奇心有问有答。</p></div><span className="date-chip"><Icon name="book" size={17}/> 阅读，从这里开始</span></div>
+    <section className="hero" aria-labelledby="hero-title"><div className="hero-copy"><span className="hero-kicker"><span/> 每一本好书，都值得被读懂</span><h2 id="hero-title">从一页纸，<br/>到一个<span>会回应</span>的世界。</h2><p>导入书页，整理阅读发现。<br/>和故事对话，把每一次好奇留在书里。</p><Button onClick={onImport}><Icon name="plus" size={18}/> 导入一本书 <Icon name="arrow" size={18}/></Button><div className="hero-caption"><Icon name="lock" size={13}/>你的阅读笔记，默认仅自己可见</div></div><img className="hero-art" src="/art/reading-garden.svg" alt="一本打开的书化作森林，小狐狸在书页间阅读"/><span className="hero-side-note">READ · WONDER · DISCOVER</span></section>
+    <section className="bookshelf" aria-labelledby="shelf-title"><div className="section-heading"><div className="section-title"><h2 id="shelf-title">我的书架</h2><span className="count-pill">{state === 'empty' ? 0 : books.length}</span><span className="section-subtitle">故事，在这里等你</span></div><label className="search"><Icon name="search" size={17}/><input type="search" placeholder="找一本书…" aria-label="搜索图书" value={query} onChange={e => setQuery(e.target.value)}/></label></div>
+      <div className="filter-tabs" aria-label="图书类型筛选">{([['all', '全部图书'], ['picture_book', '绘本'], ['fiction', '文学故事'], ['nonfiction', '知识读物']] as const).map(([value, label]) => <button key={value} className={filter === value ? 'selected' : ''} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}</div>
+      {state !== 'success' ? <StatePanel kind={state} onRetry={() => setState('success')} onImport={onImport}/> : filtered.length === 0 ? <div className="search-empty" role="status"><Icon name="search" size={28}/><h3>还没有找到这本书</h3><p>试试其他书名，或导入一本新的图书。</p><Button variant="ghost" onClick={() => { setQuery(''); setFilter('all') }}>清除筛选</Button></div> : <div className="book-grid">{filtered.map(book => <BookCard key={book.id} book={book} onOpen={onBook}/>)}<button className="add-book-card" onClick={onImport}><span><Icon name="plus" size={27}/></span><strong>下一本，会是什么？</strong><p>带一本喜欢的书进来</p><span className="add-label">导入图书 <Icon name="arrow" size={15}/></span></button></div>}
+    </section>
+    <section className="recent-notes" aria-labelledby="notes-title"><div className="section-heading"><div className="section-title"><h2 id="notes-title">留住阅读里的小发现</h2><span className="section-subtitle">最近的笔记</span></div><span className="private-caption"><Icon name="lock" size={14}/>默认私密 · 审核后再分享</span></div>{state === 'success' ? <div className="notes-grid">{notes.map(note => <button key={note.id} className="note-card" onClick={() => onNote(note.id)}><span className="note-icon"><Icon name="note" size={23}/></span><div><div className="note-title"><h3>{note.title}</h3><Badge tone={note.review_status === 'draft' ? 'amber' : 'neutral'}>{note.review_status === 'draft' ? '草稿' : '私密'}</Badge></div><p>《{books.find(book => book.id === note.book_id)?.title}》 · {note.sources.length} 处来源引用</p></div><Icon name="chevron" size={17}/></button>)}</div> : <div className="notes-placeholder">{state === 'loading' ? '正在整理笔记…' : state === 'error' ? '笔记暂未加载，请在书架重试后查看。' : '阅读之后，把第一个发现留在这里。'}</div>}</section>
+    <div className="home-footnote"><Icon name="info" size={15}/><span>演示图书与笔记均为原创模拟内容；图书分析、视频伴读及分享将在后续版本接入。</span></div>
+  </div>
+}
+

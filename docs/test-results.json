@@ -1,0 +1,83 @@
+{
+  "date": "2026-11-04",
+  "browser": "156.0.4314.50",
+  "mode": "Edge headless，file:// 离线 React 原型",
+  "checks": [
+    {
+      "name": "1366px 首页布局无横向溢出",
+      "result": "PASS"
+    },
+    {
+      "name": "书名搜索与无结果恢复",
+      "result": "PASS"
+    },
+    {
+      "name": "类型筛选",
+      "result": "PASS"
+    },
+    {
+      "name": "低置信度和主人确认状态",
+      "result": "PASS"
+    },
+    {
+      "name": "笔记草稿和私密预览",
+      "result": "PASS"
+    },
+    {
+      "name": "首页加载、空数据、失败和重试",
+      "result": "PASS"
+    },
+    {
+      "name": "1366px 上传页布局无横向溢出",
+      "result": "PASS"
+    },
+    {
+      "name": "必填和授权缺失时阻止导入",
+      "result": "PASS"
+    },
+    {
+      "name": "拒绝格式错误和损坏图片",
+      "result": "PASS"
+    },
+    {
+      "name": "拒绝超过 10 MB 的图片",
+      "result": "PASS"
+    },
+    {
+      "name": "有效 PNG 本地预览",
+      "result": "PASS"
+    },
+    {
+      "name": "原创示例、页序调整和移除",
+      "result": "PASS"
+    },
+    {
+      "name": "授权确认后本地模拟成功，无网络传输",
+      "result": "PASS"
+    },
+    {
+      "name": "返回修改及导入页四状态",
+      "result": "PASS"
+    },
+    {
+      "name": "1024px 平板首页与导入无溢出",
+      "result": "PASS"
+    },
+    {
+      "name": "390px 移动端首页与导入无溢出",
+      "result": "PASS"
+    },
+    {
+      "name": "未出现脚本错误或远程请求",
+      "result": "PASS"
+    }
+  ],
+  "errors": [],
+  "remoteRequests": [],
+  "limitations": [
+    "Vite 依赖安装受网络沙箱限制，npm 构建未运行",
+    "离线预览使用本机已有 React/ReactDOM 18.3.1 与 TypeScript 5.9.3 转译",
+    "后端、OCR、分类、视频、审核和分享服务尚未接入",
+    "尚未在真实平板设备和原生 Figma 文件中验收"
+  ]
+}
