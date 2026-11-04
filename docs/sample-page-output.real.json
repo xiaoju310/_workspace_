@@ -1,0 +1,17 @@
+{
+  "book_id": "synthetic",
+  "page_no": 1,
+  "book_type": "picture_book",
+  "type_confidence": 1.0,
+  "text": "SYNTHETIC PAGE",
+  "text_confidence": 0.9999807476997375,
+  "boxes": [{"text": "SYNTHETIC PAGE", "box": [298, 138, 384, 151], "confidence": 0.9999807476997375, "page_no": 1}],
+  "entities": [{"name": "Synthetic Page", "kind": "object", "confidence": 0.5, "source": {"page_no": 1, "chapter": null, "location": "page:1"}}],
+  "events": [],
+  "model_version": "paddleocr/3.7.0:PP-OCRv6_medium_det+PP-OCRv6_medium_rec+HuggingFaceTB/SmolVLM-256M-Instruct",
+  "ocr_version": "paddleocr/3.7.0:PP-OCRv6_medium_det+PP-OCRv6_medium_rec",
+  "vision_version": "HuggingFaceTB/SmolVLM-256M-Instruct",
+  "status": "ok",
+  "source": {"page_no": 1, "chapter": null, "location": "page:1"},
+  "error_code": null
+}

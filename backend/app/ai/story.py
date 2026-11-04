@@ -1,0 +1,28 @@
+from __future__ import annotations
+from pathlib import Path
+from pydantic import BaseModel, Field
+from .models import BookGraph, SourceRef
+
+class ScriptPage(BaseModel):
+    page_no: int
+    narration: str
+    visual_prompt: str
+    source: SourceRef
+    status: str
+
+class StoryScript(BaseModel):
+    book_id: str
+    outline: str
+    character_style: list[str]
+    pages: list[ScriptPage]
+    status: str
+
+def draft_story(graph: BookGraph) -> StoryScript:
+    pages = []
+    for page in graph.pages:
+        narration = page.text.strip()
+        prompt = "; ".join(e.name for e in page.entities if e.kind in {"character", "scene", "object"})
+        pages.append(ScriptPage(page_no=page.page_no, narration=narration, visual_prompt=prompt, source=page.source, status="draft" if narration or prompt else "low_confidence"))
+    outline = " ".join(p.narration for p in pages)[:500]
+    styles = sorted({e.name for e in graph.entities if e.kind == "character"})
+    return StoryScript(book_id=graph.book_id, outline=outline, character_style=styles, pages=pages, status="draft" if outline else "low_confidence")
