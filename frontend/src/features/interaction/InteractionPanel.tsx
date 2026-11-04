@@ -5,9 +5,11 @@ import {
   InteractionStatus,
   AskQuestionRequest,
   TouchRecognitionRequest,
+  InteractionHistoryItem,
 } from '../../types/interaction';
 import { AudioRecorder } from './AudioRecorder';
 import { apiClient } from '../../lib/api';
+import { TtsPlayerWidget } from './tts/TtsPlayerWidget';
 
 interface InteractionPanelProps {
   bookId: string;
@@ -15,6 +17,7 @@ interface InteractionPanelProps {
   getCurrentVideoMs: () => number;
   seekVideoToMs?: (ms: number) => void;
   onActiveTouchResultChange?: (result: TouchRecognitionResponse | null) => void;
+  onNewHistoryItem?: (item: InteractionHistoryItem) => void;
 }
 
 export const InteractionPanel: React.FC<InteractionPanelProps> = ({
@@ -23,12 +26,12 @@ export const InteractionPanel: React.FC<InteractionPanelProps> = ({
   getCurrentVideoMs,
   seekVideoToMs,
   onActiveTouchResultChange,
+  onNewHistoryItem,
 }) => {
   const [status, setStatus] = useState<InteractionStatus>('idle');
   const [qaResult, setQaResult] = useState<AskQuestionResponse | null>(null);
   const [touchResult, setTouchResult] = useState<TouchRecognitionResponse | null>(null);
   const [textInput, setTextInput] = useState('');
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
   // 1. 处理录音完毕上传
   const handleRecordingComplete = async (audioBlob: Blob, mimeType: string) => {
@@ -48,8 +51,20 @@ export const InteractionPanel: React.FC<InteractionPanelProps> = ({
       setQaResult(resp);
       setStatus(resp.status === 'no_evidence' ? 'no_evidence' : 'success');
 
-      // 若有 TTS，可自动朗读或使用浏览器兜底
-      playAnswerAudio(resp.answer, resp.audio_url);
+      if (onNewHistoryItem) {
+        onNewHistoryItem({
+          id: `hist-${Date.now()}`,
+          timestamp: Date.now(),
+          type: 'qa',
+          video_ms: videoMs,
+          query: resp.question,
+          response_text: resp.answer,
+          status: resp.status,
+          evidence: resp.evidence,
+          latency_ms: resp.latency.total_roundtrip_ms,
+          cache_hit: resp.cache_hit,
+        });
+      }
     } catch (err: any) {
       setStatus('error');
       setQaResult({
@@ -59,7 +74,15 @@ export const InteractionPanel: React.FC<InteractionPanelProps> = ({
         status: 'error',
         confidence: 0,
         evidence: [],
-        latency: { total_roundtrip_ms: 0 },
+        latency: {
+          asr_ms: 0,
+          retrieval_ms: 0,
+          llm_first_token_ms: 0,
+          llm_total_ms: 0,
+          tts_first_audio_ms: 0,
+          tts_total_ms: 0,
+          total_roundtrip_ms: 0,
+        },
         cache_hit: false,
       });
     }
@@ -87,8 +110,22 @@ export const InteractionPanel: React.FC<InteractionPanelProps> = ({
       const resp = await apiClient.askQuestion(req);
       setQaResult(resp);
       setStatus(resp.status === 'no_evidence' ? 'no_evidence' : 'success');
-      playAnswerAudio(resp.answer, resp.audio_url);
-    } catch (err: any) {
+
+      if (onNewHistoryItem) {
+        onNewHistoryItem({
+          id: `hist-${Date.now()}`,
+          timestamp: Date.now(),
+          type: 'qa',
+          video_ms: videoMs,
+          query: resp.question,
+          response_text: resp.answer,
+          status: resp.status,
+          evidence: resp.evidence,
+          latency_ms: resp.latency.total_roundtrip_ms,
+          cache_hit: resp.cache_hit,
+        });
+      }
+    } catch {
       setStatus('error');
     }
   };
@@ -103,32 +140,22 @@ export const InteractionPanel: React.FC<InteractionPanelProps> = ({
       if (onActiveTouchResultChange) {
         onActiveTouchResultChange(resp);
       }
-    } catch (err: any) {
+      if (onNewHistoryItem) {
+        onNewHistoryItem({
+          id: `hist-${Date.now()}`,
+          timestamp: Date.now(),
+          type: 'touch',
+          video_ms: touchReq.video_ms,
+          query: `点击画面 [${touchReq.touch_point.norm_x}, ${touchReq.touch_point.norm_y}]`,
+          response_text: `识别目标：${resp.target_name} (${resp.explanation})`,
+          status: 'success',
+          evidence: [resp.evidence],
+          latency_ms: resp.latency_ms,
+          cache_hit: resp.cache_hit,
+        });
+      }
+    } catch {
       setStatus('error');
-    }
-  };
-
-  // 语音播报合成
-  const playAnswerAudio = (text: string, audioUrl?: string | null) => {
-    if (audioUrl) {
-      const audio = new Audio(audioUrl);
-      setIsPlayingAudio(true);
-      audio.onended = () => setIsPlayingAudio(false);
-      audio.onerror = () => setIsPlayingAudio(false);
-      audio.play().catch(() => setIsPlayingAudio(false));
-      return;
-    }
-
-    // 浏览器 SpeechSynthesis 作为开发与网络异常降级方案
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'zh-CN';
-      utterance.rate = 1.0;
-      utterance.onstart = () => setIsPlayingAudio(true);
-      utterance.onend = () => setIsPlayingAudio(false);
-      utterance.onerror = () => setIsPlayingAudio(false);
-      window.speechSynthesis.speak(utterance);
     }
   };
 
@@ -251,7 +278,7 @@ export const InteractionPanel: React.FC<InteractionPanelProps> = ({
               animation: 'spin 0.8s linear infinite',
             }}
           />
-          多模态 Agent 检索分析与语音处理中...
+          多模态 RAG 检索分析与语音处理中...
         </div>
       )}
 
@@ -298,12 +325,13 @@ export const InteractionPanel: React.FC<InteractionPanelProps> = ({
             </div>
           </div>
 
-          <div style={{ fontSize: '15px', color: '#1e293b', lineHeight: 1.5 }}>
-            💬 <strong>答：</strong>
-            {qaResult.answer}
-            {isPlayingAudio && (
-              <span style={{ marginLeft: '8px', fontSize: '12px', color: '#3b82f6' }}>🔊 正在朗读...</span>
-            )}
+          <div style={{ fontSize: '15px', color: '#1e293b', lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+            <div>
+              💬 <strong>答：</strong>{qaResult.answer}
+            </div>
+
+            {/* D6 核心：语音播报卡片控件 */}
+            <TtsPlayerWidget textToSpeak={qaResult.answer} />
           </div>
 
           {/* 结构化证据卡片 */}
@@ -364,12 +392,9 @@ export const InteractionPanel: React.FC<InteractionPanelProps> = ({
             }}
           >
             <span>总耗时: {qaResult.latency.total_roundtrip_ms}ms</span>
-            {qaResult.latency.asr_ms && <span>ASR: {qaResult.latency.asr_ms}ms</span>}
-            {qaResult.latency.retrieval_ms && <span>检索: {qaResult.latency.retrieval_ms}ms</span>}
-            {qaResult.latency.llm_total_ms && <span>LLM: {qaResult.latency.llm_total_ms}ms</span>}
-            {qaResult.latency.tts_first_audio_ms && (
-              <span>首音频: {qaResult.latency.tts_first_audio_ms}ms</span>
-            )}
+            {qaResult.latency.asr_ms > 0 && <span>ASR: {qaResult.latency.asr_ms}ms</span>}
+            {qaResult.latency.retrieval_ms > 0 && <span>检索: {qaResult.latency.retrieval_ms}ms</span>}
+            {qaResult.latency.llm_first_token_ms > 0 && <span>首字延迟: {qaResult.latency.llm_first_token_ms}ms</span>}
           </div>
         </div>
       )}

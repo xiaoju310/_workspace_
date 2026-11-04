@@ -3,7 +3,13 @@ import { TouchOverlay } from './features/interaction/TouchOverlay';
 import { InteractionPanel } from './features/interaction/InteractionPanel';
 import { BenchmarkRunner } from './features/interaction/BenchmarkRunner';
 import { ReadingNotesDrawer } from './features/interaction/ReadingNotesDrawer';
-import { TouchRecognitionResponse, BookCategoryInfo } from './types/interaction';
+import { InteractionHistoryPanel } from './features/interaction/history/InteractionHistoryPanel';
+import { LatencyMetricsDashboard } from './features/interaction/metrics/LatencyMetricsDashboard';
+import {
+  TouchRecognitionResponse,
+  BookCategoryInfo,
+  InteractionHistoryItem,
+} from './types/interaction';
 import { apiClient } from './lib/api';
 
 export const App: React.FC = () => {
@@ -11,7 +17,43 @@ export const App: React.FC = () => {
   const [runId] = useState('run-20261104-001');
   const [currentTimeMs, setCurrentTimeMs] = useState(0);
   const [activeTouchResult, setActiveTouchResult] = useState<TouchRecognitionResponse | null>(null);
-  const [activeTab, setActiveTab] = useState<'interactive' | 'benchmark'>('interactive');
+  const [activeTab, setActiveTab] = useState<'interactive' | 'benchmark' | 'metrics'>('interactive');
+
+  // 多模态交互会话历史状态
+  const [history, setHistory] = useState<InteractionHistoryItem[]>([
+    {
+      id: 'init-hist-01',
+      timestamp: Date.now() - 60000,
+      type: 'qa',
+      video_ms: 3500,
+      query: '这只戴红围巾的小动物是谁？',
+      response_text: '这是故事的主人公小狐狸皮皮，正戴着红色小围巾。',
+      status: 'success',
+      evidence: [
+        {
+          page_no: 1,
+          video_start_ms: 0,
+          video_end_ms: 8000,
+          evidence_type: 'page',
+          confidence: 0.94,
+          snippet: '第 1 页：戴红围巾的小狐狸皮皮走出树洞',
+        },
+      ],
+      latency_ms: 310,
+      cache_hit: false,
+    },
+    {
+      id: 'init-hist-02',
+      timestamp: Date.now() - 30000,
+      type: 'touch',
+      video_ms: 3500,
+      query: '点击画面 [0.35, 0.42]',
+      response_text: '识别目标：小狐狸皮皮 (故事的主人公小狐狸皮皮，正戴着红色小围巾。)',
+      status: 'success',
+      latency_ms: 180,
+      cache_hit: false,
+    },
+  ]);
 
   // 通用阅读扩展：分类与笔记状态
   const [categoryInfo, setCategoryInfo] = useState<BookCategoryInfo>({
@@ -40,9 +82,28 @@ export const App: React.FC = () => {
     try {
       const resp = await apiClient.recognizeTouch(touchReq);
       setActiveTouchResult(resp);
+      setHistory((prev) => [
+        {
+          id: `hist-${Date.now()}`,
+          timestamp: Date.now(),
+          type: 'touch',
+          video_ms: touchReq.video_ms,
+          query: `点击画面 [${touchReq.touch_point.norm_x}, ${touchReq.touch_point.norm_y}]`,
+          response_text: `识别目标：${resp.target_name} (${resp.explanation})`,
+          status: 'success',
+          evidence: [resp.evidence],
+          latency_ms: resp.latency_ms,
+          cache_hit: resp.cache_hit,
+        },
+        ...prev,
+      ]);
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const handleNewHistoryItem = (item: InteractionHistoryItem) => {
+    setHistory((prev) => [item, ...prev]);
   };
 
   return (
@@ -62,7 +123,7 @@ export const App: React.FC = () => {
       >
         <div>
           <h1 style={{ margin: 0, fontSize: '20px', color: '#0f172a' }}>
-            📖 纸书智伴 · 语音触控伴读与联调工作台
+            📖 纸书智伴 · 语音触控伴读与联调工作台 (第一周半程闭环)
           </h1>
           <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
             分支: <code style={{ color: '#2563eb' }}>team/c-interaction</code> ｜ 书籍: {bookId} ｜ 运行批次: {runId}
@@ -143,13 +204,41 @@ export const App: React.FC = () => {
             boxShadow: activeTab === 'benchmark' ? '0 2px 6px rgba(37,99,235,0.3)' : 'none',
           }}
         >
-          🧪 自动化基准测试与报告导出 (10条问答+5次点击)
+          🧪 自动化基准测试与报告导出 (15项用例)
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('metrics')}
+          style={{
+            padding: '8px 18px',
+            borderRadius: '8px',
+            border: 'none',
+            fontWeight: 600,
+            fontSize: '14px',
+            cursor: 'pointer',
+            backgroundColor: activeTab === 'metrics' ? '#2563eb' : '#e2e8f0',
+            color: activeTab === 'metrics' ? '#ffffff' : '#475569',
+            boxShadow: activeTab === 'metrics' ? '0 2px 6px rgba(37,99,235,0.3)' : 'none',
+          }}
+        >
+          📊 交互历史与延迟看板 ({history.length} 条记录)
         </button>
       </div>
 
-      {activeTab === 'benchmark' ? (
-        <BenchmarkRunner bookId={bookId} runId={runId} />
-      ) : (
+      {activeTab === 'benchmark' && <BenchmarkRunner bookId={bookId} runId={runId} />}
+
+      {activeTab === 'metrics' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <LatencyMetricsDashboard history={history} />
+          <InteractionHistoryPanel
+            history={history}
+            onSeekToMs={seekVideoToMs}
+            onClearHistory={() => setHistory([])}
+          />
+        </div>
+      )}
+
+      {activeTab === 'interactive' && (
         /* 核心工作区：双栏布局 */
         <main style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '20px' }}>
           {/* 左栏：视频播放器与触控万物识别层 */}
@@ -231,6 +320,7 @@ export const App: React.FC = () => {
               getCurrentVideoMs={() => currentTimeMs}
               seekVideoToMs={seekVideoToMs}
               onActiveTouchResultChange={setActiveTouchResult}
+              onNewHistoryItem={handleNewHistoryItem}
             />
           </section>
         </main>
