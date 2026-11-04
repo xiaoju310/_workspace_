@@ -1,0 +1,40 @@
+{
+  "date_beijing": "2026-11-04",
+  "input": {
+    "kind": "self_created_synthetic_png",
+    "description": "Pillow white 640x360 canvas with rectangle and SYNTHETIC PAGE text",
+    "sha256": "419E5ECBF0D7E8F374F2ABCD44D283CBFB685CB2B13EBFC5545FC9393F51F501"
+  },
+  "ocr": {
+    "status": "real",
+    "result_file": "sample-ocr-output.real.json",
+    "engine": "PaddleOCR 3.7.0 / PaddlePaddle 3.3.1 CPU",
+    "model_detection": "PP-OCRv6_medium_det",
+    "model_recognition": "PP-OCRv6_medium_rec",
+    "license": "Apache-2.0 (both model READMEs)",
+    "first_attempt": {
+      "status": "failed",
+      "error_code": "PADDLE_ONEDNN_UNIMPLEMENTED",
+      "message": "ConvertPirAttribute2RuntimeAttribute not support [pir::ArrayAttribute<pir::DoubleAttribute>]"
+    },
+    "successful_configuration": {
+      "FLAGS_use_mkldnn": "0",
+      "enable_mkldnn": false
+    }
+  },
+  "vlm": {
+    "status": "blocked",
+    "reason": "No installed local VLM weights or approved configured remote service",
+    "real_inference": false
+  },
+  "i2v_t2v": {
+    "status": "blocked",
+    "reason": "Local GPU has 8188 MiB VRAM; candidate model needs at least 14 GB per design notes; no weights or approved remote provider",
+    "real_generated_segment": false
+  },
+  "ffmpeg": {
+    "status": "synthetic_test_only",
+    "version": "9.0",
+    "tests": ["duration", "timeline", "frame_extraction"]
+  }
+}

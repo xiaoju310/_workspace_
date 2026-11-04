@@ -1,0 +1,76 @@
+{
+  "page": {
+    "book_id": "synthetic-book",
+    "page_no": 1,
+    "book_type": "picture_book",
+    "type_confidence": 1.0,
+    "text": "",
+    "text_confidence": 0.0,
+    "boxes": [],
+    "entities": [],
+    "events": [],
+    "model_version": "mock-ocr/1.0+mock-vlm/1.0",
+    "ocr_version": "mock-ocr/1.0",
+    "vision_version": "mock-vlm/1.0",
+    "status": "mock",
+    "source": {
+      "page_no": 1,
+      "chapter": null,
+      "location": "page:1"
+    },
+    "error_code": null
+  },
+  "book_graph": {
+    "book_id": "synthetic-book",
+    "book_type": "picture_book",
+    "pages": [
+      {
+        "book_id": "synthetic-book",
+        "page_no": 1,
+        "book_type": "picture_book",
+        "type_confidence": 1.0,
+        "text": "",
+        "text_confidence": 0.0,
+        "boxes": [],
+        "entities": [],
+        "events": [],
+        "model_version": "mock-ocr/1.0+mock-vlm/1.0",
+        "ocr_version": "mock-ocr/1.0",
+        "vision_version": "mock-vlm/1.0",
+        "status": "mock",
+        "source": {
+          "page_no": 1,
+          "chapter": null,
+          "location": "page:1"
+        },
+        "error_code": null
+      }
+    ],
+    "entities": [],
+    "events": [],
+    "model_manifest": {
+      "ocr": "mock-ocr/1.0",
+      "vlm": "mock-vlm/1.0"
+    },
+    "status": "mock"
+  },
+  "story": {
+    "book_id": "synthetic-book",
+    "outline": "",
+    "character_style": [],
+    "pages": [
+      {
+        "page_no": 1,
+        "narration": "",
+        "visual_prompt": "",
+        "source": {
+          "page_no": 1,
+          "chapter": null,
+          "location": "page:1"
+        },
+        "status": "low_confidence"
+      }
+    ],
+    "status": "low_confidence"
+  }
+}

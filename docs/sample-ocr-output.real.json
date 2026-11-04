@@ -1,0 +1,28 @@
+{
+  "book_id": "synthetic-book",
+  "page_no": 1,
+  "text": "SYNTHETIC PAGE",
+  "boxes": [
+    {
+      "text": "SYNTHETIC PAGE",
+      "box": [
+        298,
+        138,
+        384,
+        151
+      ],
+      "confidence": 0.9999807476997375,
+      "page_no": 1
+    }
+  ],
+  "confidence": 0.9999807476997375,
+  "model_version": "paddleocr/3.7.0:PP-OCRv6_medium_det+PP-OCRv6_medium_rec",
+  "status": "real",
+  "source": {
+    "page_no": 1,
+    "location": "page:1"
+  },
+  "initialization_s": 3.373381600000357,
+  "inference_s": 2.692206800000349,
+  "input_path": "D:\\天工\\b-ai-video-source\\_workspace_-team-b-ai-video\\data\\synthetic\\page.png"
+}
