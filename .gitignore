@@ -1,0 +1,9 @@
+# 忽略本地开发生成物，避免把数据库、虚拟环境和密钥提交到仓库。
+backend/.venv/
+backend/**/__pycache__/
+backend/.pytest_cache/
+data/*.db
+data/*.db-*
+.env
+.env.*
+!.env.example
