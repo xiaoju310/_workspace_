@@ -1,0 +1,73 @@
+{
+  "version": "1.0",
+  "exported_at": "2026-11-05T08:10:19.720Z",
+  "book_id": "local-book-1bd439bd-7cdd-4813-b96a-87cc959ea4f8",
+  "book_title": "森林里的来信",
+  "notice": "前端会话记录，不包含音频文件或身份信息；模拟记录不代表实测结果。",
+  "interactions": [
+    {
+      "id": "mock-touch-82ca367c-55b4-4a73-8d1f-722f6c2dbc31",
+      "book_id": "local-book-1bd439bd-7cdd-4813-b96a-87cc959ea4f8",
+      "run_id": "mock-run-02de7551-dce8-43af-a969-cbe4f5a0992e",
+      "kind": "touch",
+      "question": "画面位置 (0.50, 0.50)",
+      "transcript": "",
+      "answer": "已记录点击位置。当前仅展示第 1 页文字：“清晨，小狐狸在树下捡到一封信。” 未进行视觉识别，无法据此确定点中的物体。",
+      "video_ms": 0,
+      "sources": [
+        {
+          "source": "original_page",
+          "page_no": 1,
+          "start_ms": null,
+          "end_ms": null,
+          "quote": "清晨，小狐狸在树下捡到一封信。"
+        }
+      ],
+      "latency_ms": null,
+      "created_at": "2026-11-05T08:10:19.578Z",
+      "uncertain": true,
+      "origin": "mock",
+      "cached": false
+    },
+    {
+      "id": "mock-interaction-58118ec4-3145-45e9-afd4-f401899a980e",
+      "book_id": "local-book-1bd439bd-7cdd-4813-b96a-87cc959ea4f8",
+      "run_id": "mock-run-02de7551-dce8-43af-a969-cbe4f5a0992e",
+      "kind": "question",
+      "question": "量子力学是什么",
+      "transcript": "量子力学是什么",
+      "answer": "这段模拟内容里还没有足够依据，我不确定。请结合书页确认。",
+      "video_ms": 0,
+      "sources": [],
+      "latency_ms": null,
+      "created_at": "2026-11-05T08:10:18.744Z",
+      "uncertain": true,
+      "origin": "mock",
+      "cached": false
+    },
+    {
+      "id": "mock-interaction-469aed70-0432-4f3a-9f55-e6aa50c2f32a",
+      "book_id": "local-book-1bd439bd-7cdd-4813-b96a-87cc959ea4f8",
+      "run_id": "mock-run-02de7551-dce8-43af-a969-cbe4f5a0992e",
+      "kind": "question",
+      "question": "小狐狸的朋友是谁？",
+      "transcript": "小狐狸的朋友是谁？",
+      "answer": "演示引用：第 3 页写道：“邮局里，小熊正在整理信件。“这是写给新朋友的。”小熊笑着说。小狐狸读完信，也写下了自己的第一封回信。” 这是按关键词展示的原文，未调用问答模型。",
+      "video_ms": 0,
+      "sources": [
+        {
+          "source": "original_page",
+          "page_no": 3,
+          "start_ms": null,
+          "end_ms": null,
+          "quote": "邮局里，小熊正在整理信件。“这是写给新朋友的。”小熊笑着说。小狐狸读完信，也写下了自己的第一封回信。"
+        }
+      ],
+      "latency_ms": null,
+      "created_at": "2026-11-05T08:10:17.782Z",
+      "uncertain": false,
+      "origin": "mock",
+      "cached": false
+    }
+  ]
+}

@@ -1,0 +1,192 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1366" height="1120" viewBox="0 0 1366 1120"><title>纸书智伴 · 首页 · 1366px 桌面原型</title><desc>纸书智伴 D1 原创矢量设计稿，所有图书与模型状态为模拟。可导入 Figma，文字与路径可编辑。</desc>
+<rect x="0" y="0" width="1366" height="1120" rx="0" fill="#f8f9f6"/>
+<rect x="0" y="0" width="224" height="1120" rx="0" fill="#fffefa"/>
+<path d="M223.5 0L223.5 1120" stroke="#e6e9e1" stroke-width="1"/>
+<rect x="224" y="0" width="1142" height="78" rx="0" fill="#fcfcf9"/>
+<path d="M224 78H1366" stroke="#e6e9e1" stroke-width="1"/>
+<rect x="25" y="37" width="43" height="43" rx="13" fill="#244d3f"/>
+<g transform="translate(34 46) scale(1.0416666666666667)" fill="none" stroke="#f8f4d9" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5q5-2 9 1 4-3 9-1v14q-5-2-9 1-4-3-9-1Z"/><path d="M12 6v14"/></g>
+<text x="80" y="59" fill="#283b33" font-size="22" font-weight="650" font-family="Microsoft YaHei, PingFang SC, sans-serif" letter-spacing="1">纸书智伴</text>
+<text x="81" y="76" fill="#8a9288" font-size="8" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif" letter-spacing="2">PAPER COMPANION</text>
+<text x="35" y="152" fill="#949b90" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif" letter-spacing="1">我的阅读空间</text>
+<rect x="22" y="170" width="180" height="48" rx="9" fill="#eaf0e3"/>
+<g transform="translate(37 184) scale(0.8333333333333334)" fill="none" stroke="#244d3f" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7v10H4V10"/><path d="M9 20v-7h6v7"/></g>
+<text x="70" y="200" fill="#244d3f" font-size="13" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif">首页</text>
+<circle cx="182" cy="194" r="2.5" fill="#5c7852"/>
+<g transform="translate(37 240) scale(0.8333333333333334)" fill="none" stroke="#7b847b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5"/></g>
+<text x="70" y="256" fill="#7b847b" font-size="13" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">导入图书</text>
+<rect x="22" y="870" width="180" height="163" rx="13" fill="#f7f7ed" stroke="#e7e9dd"/>
+<text x="41" y="906" fill="#91a06b" font-size="20" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">✦   ✧</text>
+<text x="41" y="944" fill="#566b52" font-size="15" font-weight="400" font-family="SimSun, serif">一本纸书，</text>
+<text x="41" y="974" fill="#566b52" font-size="15" font-weight="400" font-family="SimSun, serif">一个会回应的世界。</text>
+<g transform="translate(136 990) scale(1.8333333333333333)" fill="none" stroke="#a2b288" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5q5-2 9 1 4-3 9-1v14q-5-2-9 1-4-3-9-1Z"/><path d="M12 6v14"/></g>
+<path d="M26 1064H198" stroke="#e6e9e1" stroke-width="1"/>
+<circle cx="42" cy="1096" r="16" fill="#f1f3ed"/>
+<g transform="translate(34 1088) scale(0.6666666666666666)" fill="none" stroke="#6a7e66" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></g>
+<text x="68" y="1092" fill="#283b33" font-size="11" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">安心阅读</text>
+<text x="68" y="1109" fill="#929b8f" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">笔记默认私密</text>
+<text x="177" y="1100" fill="#a2a89c" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">D1</text>
+<text x="266" y="44" fill="#8a9287" font-size="11" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">我的阅读空间</text>
+<text x="359" y="44" fill="#c4c9bd" font-size="11" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">/</text>
+<text x="385" y="44" fill="#445643" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">首页</text>
+<circle cx="1140" cy="39" r="2.5" fill="#91a36c"/>
+<text x="1150" y="43" fill="#7d8874" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">交互原型 · 模拟数据</text>
+<circle cx="1308" cy="39" r="16" fill="#e8ecd9"/>
+<text x="1301" y="44" fill="#526b43" font-size="14" font-weight="400" font-family="SimSun, serif">阅</text>
+<text x="266" y="122" fill="#929b85" font-size="9" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif" letter-spacing="2">A LITTLE READING, A BIG WORLD</text>
+<text x="266" y="164" fill="#283b33" font-size="26" font-weight="550" font-family="Microsoft YaHei, PingFang SC, sans-serif" letter-spacing="1">今天，翻开哪个世界？</text>
+<text x="568" y="165" fill="#b8c786" font-size="30" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">✳</text>
+<text x="266" y="193" fill="#81897d" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">让纸上的故事走进生活，让好奇心有问有答。</text>
+<rect x="1156" y="141" width="168" height="34" rx="17" fill="#fafbf6" stroke="#e2e7d9"/>
+<g transform="translate(1170 149) scale(0.7083333333333334)" fill="none" stroke="#7e8b72" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5q5-2 9 1 4-3 9-1v14q-5-2-9 1-4-3-9-1Z"/><path d="M12 6v14"/></g>
+<text x="1194" y="163" fill="#7e8b72" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">阅读，从这里开始</text>
+<rect x="266" y="221" width="1058" height="324" rx="19" fill="#edf0e0" stroke="#e5e9d6"/>
+<circle cx="306" cy="259" r="2.5" fill="#9bab6f"/>
+<text x="316" y="263" fill="#6e7e54" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif" letter-spacing="1">每一本好书，都值得被读懂</text>
+<text x="302" y="319" fill="#2d4736" font-size="33" font-weight="400" font-family="SimSun, serif" letter-spacing="1">从一页纸，</text>
+<text x="302" y="369" fill="#2d4736" font-size="33" font-weight="400" font-family="SimSun, serif" letter-spacing="1">到一个会回应的世界。</text>
+<path d="M438 380H537" stroke="#cdd99e" stroke-width="5"/>
+<text x="302" y="407" fill="#829075" font-size="11" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">导入书页，整理阅读发现。</text>
+<text x="302" y="429" fill="#829075" font-size="11" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">和故事对话，把每一次好奇留在书里。</text>
+<rect x="302" y="451" width="174" height="44" rx="8" fill="#244d3f"/><text x="322" y="479" fill="#fffdf1" font-size="12" font-weight="500" font-family="Microsoft YaHei, PingFang SC, sans-serif">导入一本书</text><g transform="translate(441 464) scale(0.75)" fill="none" stroke="#fffdf1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6"/></g>
+<g transform="translate(316 464) scale(0.7083333333333334)" fill="none" stroke="#fffdf1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></g>
+<g transform="translate(303 510) scale(0.5416666666666666)" fill="none" stroke="#8b977d" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></g>
+<text x="322" y="520" fill="#8b977d" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">你的阅读笔记，默认仅自己可见</text>
+<svg x="744" y="221" width="552" height="324" viewBox="0 0 620 390" fill="none">
+  <defs>
+    <linearGradient id="home-garden-paper" x1="310" y1="203" x2="310" y2="360" gradientUnits="userSpaceOnUse"><stop stop-color="#fffdf3"/><stop offset="1" stop-color="#e7e6ce"/></linearGradient>
+    <linearGradient id="home-garden-hill" x1="181" y1="153" x2="308" y2="305" gradientUnits="userSpaceOnUse"><stop stop-color="#c9d59a"/><stop offset="1" stop-color="#8da976"/></linearGradient>
+    <linearGradient id="home-garden-sky" x1="354" y1="41" x2="354" y2="260" gradientUnits="userSpaceOnUse"><stop stop-color="#e9edcd"/><stop offset="1" stop-color="#e9edcd" stop-opacity="0"/></linearGradient>
+  </defs>
+  <path d="M119 276c-32-70-4-166 64-202 91-48 133-7 186-19 80-19 158 33 160 114 2 96-99 126-201 133-78 5-183 30-209-26Z" fill="url(#home-garden-sky)"/>
+  <ellipse cx="314" cy="351" rx="238" ry="20" fill="#244d3f" opacity=".08"/>
+  <circle cx="455" cy="83" r="33" fill="#e5c379"/><circle cx="455" cy="83" r="45" stroke="#e5c379" stroke-opacity=".24"/>
+  <path d="M96 308 310 358l227-58-213-73Z" fill="#244d3f"/><path d="m99 299 210 49 225-57v11l-225 57L99 310Z" fill="#53775c"/>
+  <path d="M98 270c67-6 144-16 210 26 72-48 155-46 231-58l-5 50-225 57-211-48Z" fill="url(#home-garden-paper)"/>
+  <path d="M309 296v49M105 283c74 0 138 3 192 32m-192-22c71 0 136 12 192 30m24-12c62-25 136-38 208-44m-208 53c61-24 134-38 208-44" stroke="#b8c09e" stroke-width="1.5"/>
+  <path d="M105 268c70-10 135-83 196-65 64 19 77 81 18 92-66 14-122-22-214-27Z" fill="url(#home-garden-hill)"/>
+  <path d="M318 294c37-77 65-142 140-108 41 19 49 49 80 54-92 9-151 24-220 54Z" fill="#70916b"/>
+  <path d="M196 251c59 0 61 24 111 34 39 8 56-29 98-52" stroke="#e8ddb6" stroke-width="18" stroke-linecap="round"/>
+  <path d="m289 202 3-67 57-24 56 39-6 65Z" fill="#f3e7cd"/><path d="m278 138 69-43 73 49-14 8-58-36-59 31Z" fill="#244d3f"/>
+  <path d="M346 117v93" stroke="#ded5b5" stroke-width="3"/><path d="M311 174c0-13 19-13 19 0v36h-19Z" fill="#bc8f65"/><path d="M364 155h20v23h-20Z" fill="#8ba98a"/><path d="M374 155v23m-10-12h20" stroke="#f5ebd6" stroke-width="2"/>
+  <path d="M387 119v-26h12v35" fill="#c5a581"/><path d="M399 85c19-12 4-22 15-32" stroke="#b4c19e" stroke-width="5" stroke-linecap="round" opacity=".7"/>
+  <path d="M181 242V128" stroke="#8c805e" stroke-width="7" stroke-linecap="round"/><path d="M181 207 162 183m19-22 19-16" stroke="#8c805e" stroke-width="4" stroke-linecap="round"/>
+  <path d="M177 107c-23 2-26 29-20 41-22 18-18 43 5 49 4 28 44 32 51 6 28-4 35-41 12-54 9-27-26-55-48-42Z" fill="#244d3f"/>
+  <path d="M178 124c-5 22-6 42 1 61m16-58c7 15 10 30 8 44" stroke="#6c936b" stroke-width="3" stroke-linecap="round" opacity=".55"/>
+  <path d="M451 220v-79" stroke="#9b8863" stroke-width="5" stroke-linecap="round"/><path d="m451 126-31 63h62Z" fill="#375f4b"/><path d="m452 152-37 54h72Z" fill="#3f6e50"/>
+  <path d="M131 259v-48m0 23c-19-1-17-18-17-18 18-2 17 18 17 18Zm0 12c18 0 20-19 20-19-19-1-20 19-20 19Z" stroke="#70916b" stroke-width="3" fill="#9bb982"/>
+  <path d="M483 236v-28m0 12c15-4 16-14 16-14-17-2-16 14-16 14Z" stroke="#244d3f" stroke-width="2.5" fill="#c4d198"/>
+  <path d="M242 252c-6-21-5-33 3-46l10 14 17-13 7 17c15 13 16 35 1 44-11 6-31-1-38-16Z" fill="#cd9467"/>
+  <path d="m244 207 8 16-12-3m31-11-10 14 14-1" fill="#f4dbc0"/>
+  <path d="M242 236c12-1 19 9 21 18 7-10 13-16 22-16-1 19-11 29-22 29-13-2-20-13-21-31Z" fill="#f8eacf"/>
+  <circle cx="252" cy="235" r="2" fill="#244d3f"/><circle cx="274" cy="234" r="2" fill="#244d3f"/><path d="m260 242 5 1-3 3Z" fill="#244d3f"/>
+  <path d="M281 262c31 9 42-3 35-13-7-10-17-6-19 1 0 0-7-8-13-6Z" fill="#cd9467"/><path d="M307 244c11 0 14 14 1 18l-10-9Z" fill="#f8eacf"/>
+  <path d="m240 255 23 9 25-10-2 19-23 8-22-9Z" fill="#f8f0d8" stroke="#244d3f" stroke-width="1.5"/><path d="m263 264v17" stroke="#244d3f" stroke-width="1.5"/>
+  <path d="m230 274-3 10m55-6 5 9" stroke="#9c7655" stroke-width="5" stroke-linecap="round"/>
+  <path d="m392 260 3-13m7 11 5-8m-22 8-3-7m-167-5 2-10m-8 7-4-5" stroke="#244d3f" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="394" cy="244" r="3" fill="#e9cfc2"/><circle cx="408" cy="247" r="3" fill="#e9cfc2"/>
+  <path d="m110 114 4 8 9 2-9 3-4 8-3-8-9-3 9-2Zm397 32 3 6 6 2-6 2-3 6-2-6-6-2 6-2Z" fill="#b0bf83"/>
+  <path d="M247 82c10-6 17-6 25 1m9 10c10-6 17-5 24 1" stroke="#94a583" stroke-width="2" stroke-linecap="round"/>
+  <path d="M536 212c-4-16 5-26 17-29 3 16-3 26-17 29Z" fill="#c8d69c"/><path d="M88 223c-16-6-20-18-16-30 17 5 21 16 16 30Z" fill="#c8d69c"/>
+</svg>
+
+<text x="266" y="591" fill="#283b33" font-size="17" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif" letter-spacing="0.5">我的书架</text>
+<rect x="349" y="576" width="19" height="19" rx="6" fill="#eaeee1"/>
+<text x="355" y="589" fill="#7d8c6d" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">3</text>
+<text x="381" y="590" fill="#969c90" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">故事，在这里等你</text>
+<rect x="1139" y="567" width="185" height="35" rx="8" fill="#fffefa" stroke="#e6e9e1"/>
+<g transform="translate(1150 576) scale(0.7083333333333334)" fill="none" stroke="#9aa28f" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></g>
+<text x="1175" y="589" fill="#a4aa9d" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">找一本书…</text>
+<rect x="266" y="619" width="79" height="32" rx="6" fill="#e9eee0"/>
+<text x="278" y="640" fill="#4c6540" font-size="10" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif">全部图书</text>
+<text x="363" y="640" fill="#8c9483" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">绘本</text>
+<text x="423" y="640" fill="#8c9483" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">文学故事</text>
+<text x="507" y="640" fill="#8c9483" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">知识读物</text>
+<path d="M266 663H1324" stroke="#e6e9e1" stroke-width="1"/>
+<rect x="266.0" y="682" width="250.25" height="190" rx="10" fill="#eff0e9"/>
+<g transform="rotate(-5 391.125 777)"><rect x="335.625" y="703" width="119" height="162" rx="5" fill="#283b3318"/><svg x="331.625" y="696" width="119" height="162" viewBox="0 0 320 420" fill="none">
+  <rect width="320" height="420" fill="#315a48"/><rect x="17" y="17" width="286" height="386" rx="1" stroke="#c5d29c" stroke-opacity=".5"/>
+  <circle cx="220" cy="105" r="39" fill="#dcc988"/><path d="M0 277c74-52 143-22 199-50 50-26 93-5 121 13v180H0Z" fill="#78946b"/><path d="M0 332c62-41 114-37 162-4 68 47 110-29 158-42v134H0Z" fill="#b1bf86"/>
+  <path d="M59 317V118m195 202V176" stroke="#b29b6c" stroke-width="6"/><path d="m59 83-40 107h80Zm1 59L8 256h104Z" fill="#173d32"/><path d="m254 147-36 98h72Zm0 65-48 96h96Z" fill="#244d3f"/>
+  <path d="M155 351c-10-20-14-42-6-58l14 14 17-16 9 20c10 18 9 33-4 42Z" fill="#d59a6a"/><path d="M147 317c11 2 18 9 22 18 4-10 10-18 21-20-1 24-11 35-21 35-12-2-20-13-22-33Z" fill="#f0dfbd"/><circle cx="158" cy="317" r="2" fill="#244d3f"/><circle cx="180" cy="316" r="2" fill="#244d3f"/><path d="m167 325 5 1-3 4Z" fill="#244d3f"/>
+  <path d="m136 345 33 8 34-11-2 25-33 9-30-8Z" fill="#eee7cf"/><path d="m136 345 33 23 34-26" stroke="#b79c70" stroke-width="1.3"/><path d="m169 353-1 23" stroke="#d3c7a4"/>
+  <path d="M186 350c27 12 36-3 30-12-8-10-15-3-15 5" stroke="#d59a6a" stroke-width="13" stroke-linecap="round"/>
+  <path d="m116 126 3 7 8 2-8 3-3 7-2-7-8-3 8-2Zm119 59 2 5 6 1-6 2-2 5-2-5-5-2 5-1Z" fill="#e5d69c"/>
+  <path d="M133 79c10-5 18-5 25 0m5 13c10-5 18-5 25 0" stroke="#c5d29c" stroke-width="2" stroke-linecap="round"/>
+  <path d="M71 371c-1-15-9-21-16-21 0 12 5 20 16 21Zm3 6c12-4 18-12 17-22-11 2-17 9-17 22Z" fill="#3d654d"/>
+</svg>
+<text x="351.625" y="721" fill="#f0e6bf" font-size="5" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif" letter-spacing="1.8">PAPER STORIES</text><text x="344.625" y="753" fill="#f0e6bf" font-size="15" font-weight="600" font-family="SimSun, serif" letter-spacing="1">森林里的来信</text><text x="362.625" y="847" fill="#f0e6bf" font-size="5" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif" letter-spacing="1.1">原创演示绘本</text></g>
+<text x="266.0" y="897" fill="#283b33" font-size="12" font-weight="550" font-family="Microsoft YaHei, PingFang SC, sans-serif">森林里的来信</text>
+<rect x="471.25" y="882" width="39" height="21" rx="4" fill="#edf4e7" stroke="#dfebd7"/><text x="477.25" y="896" fill="#64805b" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">可阅读</text>
+<text x="266.0" y="918" fill="#939c8b" font-size="8" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">绘本 · 12 页</text>
+<text x="475.25" y="918" fill="#939c8b" font-size="8" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">今天更新</text>
+<rect x="535.25" y="682" width="250.25" height="190" rx="10" fill="#e9eced"/>
+<g transform="rotate(4 660.375 777)"><rect x="604.875" y="703" width="119" height="162" rx="5" fill="#283b3318"/><svg x="600.875" y="696" width="119" height="162" viewBox="0 0 320 420" fill="none">
+  <rect width="320" height="420" fill="#e4cfc2"/><rect x="17" y="17" width="286" height="386" stroke="#f8ead4"/>
+  <path d="M44 269V159a116 116 0 0 1 232 0v110Z" fill="#5a6a70"/><path d="M63 260V159a97 97 0 0 1 194 0v101Z" fill="#3f555a"/>
+  <circle cx="184" cy="119" r="37" fill="#f2db9f"/><path d="M198 86c-23 5-35 29-23 49 9 15 22 18 37 16-35 23-74-5-62-43 7-18 25-25 48-22Z" fill="#f8e5b8"/>
+  <path d="M44 269c46-20 72 6 117-14s78-1 115-8v39H44Z" fill="#83968a"/>
+  <path d="M0 328c57-43 130-11 185-30 53-18 95-9 135 12v110H0Z" fill="#c1a797"/>
+  <path d="M125 356V226h92v130Z" fill="#f4e5cc"/><path d="m115 226 56-46 56 46Z" fill="#aa7967"/><path d="M149 286a21 21 0 0 1 42 0v70h-42Z" fill="#566d68"/>
+  <path d="M137 241h21v24h-21Zm47 0h21v24h-21Z" fill="#e2bb77"/><path d="M147.5 241v24m-10.5-12h21m36.5-12v24M184 253h21" stroke="#f4e5cc" stroke-width="2"/>
+  <path d="M245 350v-54" stroke="#6d7c6f" stroke-width="5"/><rect x="226" y="285" width="38" height="33" rx="8" fill="#6d7c6f"/><path d="M236 299h18" stroke="#e2d5bc" stroke-width="2"/>
+  <path d="m79 312 19 8-11 19-19-9Z" fill="#f8e5ce"/><path d="m79 312 5 15 14-7" stroke="#c4a68c"/>
+  <path d="M83 338c-13-12-16-27-11-33l9 5 6-11 10 10c12 6 17 20 10 31Z" fill="#e7d9bc"/><path d="M97 337c26 6 30-10 22-16" stroke="#e7d9bc" stroke-width="10" stroke-linecap="round"/><circle cx="91" cy="317" r="1.7" fill="#3f555a"/>
+  <path d="m91 114 2 5 6 2-6 2-2 6-2-6-6-2 6-2Zm135 80 2 5 5 2-5 2-2 5-2-5-6-2 6-2Zm-112-37 2 4 4 1-4 2-2 4-1-4-4-2 4-1Z" fill="#e6d9b2"/>
+  <circle cx="224" cy="151" r="2" fill="#e6d9b2"/><circle cx="138" cy="105" r="2" fill="#e6d9b2"/><path d="M61 369c55-15 105 18 162-2" stroke="#e4cfc2" stroke-width="2" stroke-linecap="round"/>
+</svg>
+<text x="620.875" y="721" fill="#f2e7c8" font-size="5" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif" letter-spacing="1.8">PAPER STORIES</text><text x="613.875" y="753" fill="#f2e7c8" font-size="15" font-weight="600" font-family="SimSun, serif" letter-spacing="1">月亮邮局</text><text x="631.875" y="847" fill="#f2e7c8" font-size="5" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif" letter-spacing="1.1">原创演示绘本</text></g>
+<text x="535.25" y="897" fill="#283b33" font-size="12" font-weight="550" font-family="Microsoft YaHei, PingFang SC, sans-serif">月亮邮局</text>
+<rect x="740.5" y="882" width="39" height="21" rx="4" fill="#faf4e5" stroke="#eee3c7"/><text x="746.5" y="896" fill="#ac8b4f" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">待确认</text>
+<text x="535.25" y="918" fill="#939c8b" font-size="8" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">文学故事 · 16 页</text>
+<text x="744.5" y="918" fill="#939c8b" font-size="8" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">昨天更新</text>
+<g transform="translate(535.25 929) scale(0.5416666666666666)" fill="none" stroke="#9c8c62" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.1"/></g>
+<text x="552.25" y="939" fill="#9c8c62" font-size="8" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">类型置信度较低，待主人确认</text>
+<rect x="804.5" y="682" width="250.25" height="190" rx="10" fill="#f1ede2"/>
+<g transform="rotate(-3 929.625 777)"><rect x="874.125" y="703" width="119" height="162" rx="5" fill="#283b3318"/><svg x="870.125" y="696" width="119" height="162" viewBox="0 0 320 420" fill="none">
+  <rect width="320" height="420" fill="#e8dfbb"/><rect x="17" y="17" width="286" height="386" stroke="#a7b57b"/>
+  <circle cx="228" cy="114" r="42" fill="#d8ba73"/><circle cx="228" cy="114" r="52" stroke="#d8ba73" stroke-opacity=".4"/>
+  <path d="M0 281c63-27 114-11 163 6 67 24 117-12 157-11v144H0Z" fill="#a7b57b"/><path d="M0 336c63 21 93-25 158-22 58 3 101 38 162 19v87H0Z" fill="#718d67"/><path d="M0 378c54-29 107-3 163-9 56-7 100-26 157-6v57H0Z" fill="#3f654c"/>
+  <path d="M157 330c-3-58 11-91 9-142" stroke="#466c4e" stroke-width="5" stroke-linecap="round"/>
+  <path d="M166 231c-47-3-65-30-59-60 40-2 65 25 59 60Z" fill="#6b8b5d"/><path d="M163 270c49-4 79-37 69-72-43 4-72 34-69 72Z" fill="#8ea367"/><path d="m111 177 53 51m61-21-60 58" stroke="#c4d09a" stroke-width="2"/>
+  <path d="M167 190c-29-14-31-43-10-62 27 18 30 43 10 62Z" fill="#95aa6d"/><path d="M157 132 167 183" stroke="#d0d9a4" stroke-width="2"/>
+  <ellipse cx="156" cy="336" rx="18" ry="13" fill="#b59367"/><path d="M151 326c8 7 9 13 4 20" stroke="#e5d3aa" stroke-width="2"/>
+  <path d="M66 158c24-21 44-25 68-19" stroke="#b2bc86" stroke-width="2" stroke-linecap="round" stroke-dasharray="3 6"/>
+  <path d="M70 127c11-7 23-4 26 8-10 6-20 3-26-8Z" fill="#ae8c63"/><path d="m82 129-7-18m7 18 6-18m-6 18 16-14" stroke="#f8f0d4" stroke-width="2" stroke-linecap="round"/>
+  <path d="M60 311v-36m0 18c-16-1-22-13-22-13 16-5 22 13 22 13Zm0 9c18-2 22-17 22-17-17-2-22 17-22 17Z" fill="#d0d8a1" stroke="#52784f" stroke-width="2"/>
+  <path d="M261 351v-35m0 19c-13-3-18-14-18-14 15-1 18 14 18 14Zm1-8c13-1 17-12 17-12-12-2-17 12-17 12Z" fill="#b4c38b" stroke="#3f654c" stroke-width="2"/>
+  <path d="M101 98c9-5 16-5 23 0m-15 11c8-5 15-5 22 0" stroke="#94a575" stroke-width="2" stroke-linecap="round"/>
+</svg>
+<text x="890.125" y="721" fill="#65714c" font-size="5" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif" letter-spacing="1.8">PAPER STORIES</text><text x="883.125" y="753" fill="#65714c" font-size="15" font-weight="600" font-family="SimSun, serif" letter-spacing="1">一颗种子的旅行</text><text x="901.125" y="847" fill="#65714c" font-size="5" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif" letter-spacing="1.1">原创演示绘本</text></g>
+<text x="804.5" y="897" fill="#283b33" font-size="12" font-weight="550" font-family="Microsoft YaHei, PingFang SC, sans-serif">一颗种子的旅行</text>
+<rect x="1009.75" y="882" width="39" height="21" rx="4" fill="#f1edf5" stroke="#e8e1ee"/><text x="1015.75" y="896" fill="#8e819e" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">生成中</text>
+<text x="804.5" y="918" fill="#939c8b" font-size="8" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">知识读物 · 10 页</text>
+<text x="1013.75" y="918" fill="#939c8b" font-size="8" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">昨天更新</text>
+<rect x="1073.75" y="682" width="250.25" height="190" rx="10" fill="#f7f8f1" stroke="#d3dac7" stroke-dasharray="5 4"/>
+<circle cx="1198.875" cy="739" r="21" fill="#edf1e3"/>
+<g transform="translate(1185.375 725.5) scale(1.125)" fill="none" stroke="#879776" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></g>
+<text x="1140.75" y="787" fill="#6f805e" font-size="11" font-weight="500" font-family="Microsoft YaHei, PingFang SC, sans-serif">下一本，会是什么？</text>
+<text x="1154.75" y="808" fill="#a1aa94" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">带一本喜欢的书进来</text>
+<text x="1160.75" y="842" fill="#879776" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">导入图书</text>
+<g transform="translate(1215.75 830) scale(0.625)" fill="none" stroke="#879776" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6"/></g>
+<text x="266" y="980" fill="#283b33" font-size="17" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif">留住阅读里的小发现</text>
+<text x="449" y="980" fill="#969c90" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">最近的笔记</text>
+<g transform="translate(1140 966) scale(0.5833333333333334)" fill="none" stroke="#8d9980" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></g>
+<text x="1160" y="978" fill="#8d9980" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">默认私密 · 审核后再分享</text>
+<rect x="266.0" y="999" width="520.5" height="78" rx="9" fill="#fffefa" stroke="#e6e9e1"/>
+<rect x="280.0" y="1016" width="39" height="43" rx="8" fill="#f0f3e8"/>
+<g transform="translate(288.0 1026) scale(0.9583333333333334)" fill="none" stroke="#8c9e71" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H5V3Zm8 0v5h5M8 12h8m-8 4h6"/></g>
+<text x="331.0" y="1030" fill="#283b33" font-size="10" font-weight="550" font-family="Microsoft YaHei, PingFang SC, sans-serif">关于勇气与友谊的三个发现</text>
+<rect x="504.0" y="1016" width="30" height="21" rx="4" fill="#f4f5ed" stroke="#e5e8dc"/><text x="510.0" y="1030" fill="#7e8973" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">私密</text>
+<text x="331.0" y="1050" fill="#969d8f" font-size="8" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">《森林里的来信》 · 1 处来源引用</text>
+<g transform="translate(754.0 1029) scale(0.7083333333333334)" fill="none" stroke="#aab39c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></g>
+<rect x="803.5" y="999" width="520.5" height="78" rx="9" fill="#fffefa" stroke="#e6e9e1"/>
+<rect x="817.5" y="1016" width="39" height="43" rx="8" fill="#f0f3e8"/>
+<g transform="translate(825.5 1026) scale(0.9583333333333334)" fill="none" stroke="#8c9e71" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H5V3Zm8 0v5h5M8 12h8m-8 4h6"/></g>
+<text x="868.5" y="1030" fill="#283b33" font-size="10" font-weight="550" font-family="Microsoft YaHei, PingFang SC, sans-serif">那些想对月亮说的话</text>
+<rect x="1041.5" y="1016" width="30" height="21" rx="4" fill="#faf4e5" stroke="#eee3c7"/><text x="1047.5" y="1030" fill="#ac8b4f" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">草稿</text>
+<text x="868.5" y="1050" fill="#969d8f" font-size="8" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">《月亮邮局》 · 1 处来源引用</text>
+<g transform="translate(1291.5 1029) scale(0.7083333333333334)" fill="none" stroke="#aab39c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></g>
+<g transform="translate(266 1092) scale(0.625)" fill="none" stroke="#9aa28e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.1"/></g>
+<text x="288" y="1104" fill="#9aa28e" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">演示图书与笔记均为原创模拟内容；图书分析、视频伴读及分享将在后续版本接入。</text>
+</svg>

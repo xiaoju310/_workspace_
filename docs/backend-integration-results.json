@@ -1,0 +1,49 @@
+{
+  "date": "2026-11-05",
+  "backend": "A FastAPI actual implementation, isolated temporary database",
+  "browser": "156.0.4314.58",
+  "checks": [
+    {
+      "name": "实际后端健康、401 与 422",
+      "result": "PASS"
+    },
+    {
+      "name": "实际建书 id、原图上传与 SHA-256 一致",
+      "result": "PASS"
+    },
+    {
+      "name": "实际重复页 409、坏图片 415 与跨用户 404",
+      "result": "PASS"
+    },
+    {
+      "name": "实际分类确认与人工校对版本",
+      "result": "PASS"
+    },
+    {
+      "name": "实际分析缺模型失败、错误码与笔记拒绝",
+      "result": "PASS"
+    },
+    {
+      "name": "实际最多三次尝试，重试超限 409",
+      "result": "PASS"
+    },
+    {
+      "name": "页面真实联调：代理、Bearer、建书上传、分类和校对",
+      "result": "PASS"
+    },
+    {
+      "name": "页面保留真实失败，不混入模拟成功",
+      "result": "PASS"
+    },
+    {
+      "name": "令牌不进入存储，离页清空；手机标识无横向溢出",
+      "result": "PASS"
+    },
+    {
+      "name": "无前端脚本异常",
+      "result": "PASS"
+    }
+  ],
+  "errors": [],
+  "scope": "真实 HTTP/认证/存储接口；没有真实模型或生产凭据"
+}

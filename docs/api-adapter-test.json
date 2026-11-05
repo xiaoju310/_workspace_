@@ -1,0 +1,54 @@
+{
+  "date": "2026-11-05",
+  "mode": "拦截 fetch 的适配器测试；实际服务测试另见 backend-integration-results.json",
+  "checks": [
+    {
+      "name": "健康检查不附带认证，私有接口使用 Bearer",
+      "result": "PASS"
+    },
+    {
+      "name": "缺令牌时拒绝私有请求，未发起网络",
+      "result": "PASS"
+    },
+    {
+      "name": "建书使用实际响应 id 与 JSON 请求",
+      "result": "PASS"
+    },
+    {
+      "name": "原图字节、Content-Type、query 页码与路径编码",
+      "result": "PASS"
+    },
+    {
+      "name": "校对、分类、分析使用 A 现有路径与字段",
+      "result": "PASS"
+    },
+    {
+      "name": "FastAPI detail 字符串与 401/409/410/413/415/503",
+      "result": "PASS"
+    },
+    {
+      "name": "FastAPI 422 结构化错误可读，不回显 input",
+      "result": "PASS"
+    },
+    {
+      "name": "非 JSON 错误与无效成功 JSON 分开处理",
+      "result": "PASS"
+    },
+    {
+      "name": "网络失败与超时显式报错",
+      "result": "PASS"
+    },
+    {
+      "name": "204、鉴权媒体下载与重定向限制",
+      "result": "PASS"
+    },
+    {
+      "name": "拒绝凭据 URL 与非法协议",
+      "result": "PASS"
+    },
+    {
+      "name": "公开分享不附带主人令牌，错误消息隐藏令牌",
+      "result": "PASS"
+    }
+  ]
+}

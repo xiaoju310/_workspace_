@@ -1,0 +1,77 @@
+{
+  "date": "2026-11-05",
+  "browser": "156.0.4314.58",
+  "checks": [
+    {
+      "name": "首页搜索筛选与桌面布局",
+      "result": "PASS"
+    },
+    {
+      "name": "导入原创示例到校对页",
+      "result": "PASS"
+    },
+    {
+      "name": "OCR修改保存与逐页确认",
+      "result": "PASS"
+    },
+    {
+      "name": "分类低置信提示与主人确认",
+      "result": "PASS"
+    },
+    {
+      "name": "模拟生成失败与重试",
+      "result": "PASS"
+    },
+    {
+      "name": "阅读文本提问、来源和不确定回答",
+      "result": "PASS"
+    },
+    {
+      "name": "点击画面黑边拒绝与模拟反馈",
+      "result": "PASS"
+    },
+    {
+      "name": "会话历史筛选与导出",
+      "result": "PASS"
+    },
+    {
+      "name": "未审核笔记阻止分享",
+      "result": "PASS"
+    },
+    {
+      "name": "笔记编辑、主人审核与限时分享",
+      "result": "PASS"
+    },
+    {
+      "name": "撤销后只读页隐藏内容",
+      "result": "PASS"
+    },
+    {
+      "name": "指定用户访问与越权拒绝",
+      "result": "PASS"
+    },
+    {
+      "name": "过期分享隐藏内容",
+      "result": "PASS"
+    },
+    {
+      "name": "编辑已审核笔记使旧审核与分享失效",
+      "result": "PASS"
+    },
+    {
+      "name": "刷新保留当前会话笔记",
+      "result": "PASS"
+    },
+    {
+      "name": "全部页面四状态与响应式",
+      "result": "PASS"
+    },
+    {
+      "name": "无脚本异常与远程请求",
+      "result": "PASS"
+    }
+  ],
+  "errors": [],
+  "remoteRequests": [],
+  "scope": "完整前端离线原型，不含真实模型/权限/后端验收"
+}
