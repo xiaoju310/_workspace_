@@ -1,0 +1,3 @@
+﻿"sample_id","file_ref","sha256","source","authorization_status","contains_real_child_data","dataset_kind","owner","review_status"
+"D2-SYN-001","docs/test-results/d2/images/page-01.png","FAD518FBD3D677ABE737182AA6475CB316C284D1341D7DD2A132FE4B89A08668","本任务中使用System.Drawing自制","自制测试素材；仅限本项目本地测试，外发需主人确认","否","synthetic","E","待E复核"
+"D2-SYN-002","docs/test-results/d2/images/page-02.png","B8FE1370577CEFB58ACDDBAB6729E959D693955235D2EC67C61B3CBB40BF4FA1","本任务中使用System.Drawing自制","自制测试素材；仅限本项目本地测试，外发需主人确认","否","synthetic","E","待E复核"
