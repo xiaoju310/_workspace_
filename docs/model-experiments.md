@@ -7,7 +7,8 @@
 | 2026-11-03 | image tools | isolated `.venv` | Pillow 13.0.0 and OpenCV 5.0.0.93 imported successfully | measured |
 | 2026-11-03 | AI schema/prototype | synthetic text and mock providers | 2 pytest cases and smoke checks passed | prototype |
 | 2026-11-03 | PaddleOCR / VLM | no authorized sample or installed model | provider interfaces only; no real inference measured | pending |
-| 2026-11-03 | true I2V/T2V | local 8 GB GPU | HunyuanVideo-1.5 candidate in design notes lists 14 GB minimum; no model weights or authorized alternative service configured | blocked |
+| 2026-11-03 | HunyuanVideo-1.5 I2V/T2V candidate | local 8 GB GPU | design notes list 14 GB minimum | blocked |
+| 2026-11-05 | AnimateDiff-Lightning T2V | local RTX 4060 Laptop GPU | 512×512, 8 frames at 8 fps, 1 second, 18.63 s elapsed, 3061 MiB peak allocated VRAM; first and last frames show a recognizable butterfly | local feasibility confirmed |
 | 2026-11-04 | local synthetic pipeline | generated PNG | page JSON, BookGraph, and story draft produced with `mock / mock / low_confidence` statuses | prototype |
 | 2026-11-04 | FFmpeg media utilities | FFmpeg-generated blue test clip | duration probe, timeline, and frame extraction passed | synthetic test only |
 | 2026-11-04 | automated checks | local `.venv` | 13 pytest cases passed | measured |
@@ -43,8 +44,10 @@ OCR model records (local official model cache, weights excluded from Git):
 
 VLM feasibility: `HuggingFaceTB/SmolVLM-256M-Instruct` at commit `7e3e67edbbed1bf9888184d9df282b700a323964` was downloaded from Hugging Face to a local cache outside Git. The model card lists Apache-2.0. `model.safetensors` SHA-256 is `74DEA5904032E5AE99A2E0EEF5179E6AC0F1DEDC3AB0C7C2A5D4D387C843203E`. PyTorch 2.15.0+cpu and Transformers 4.57.6 ran on CPU. The first JSON-constrained prompt returned prose and failed parsing; a short-object prompt succeeded. This establishes one real local visual-understanding call on a synthetic image, not quality on book pages. CUDA inference and peak VRAM remain untested.
 
-I2V/T2V feasibility: the local RTX 4060 Laptop GPU has 8,188 MiB VRAM (7,957 MiB free at inspection). The team's current HunyuanVideo-1.5 candidate requires more than this according to its design notes; no local weights or approved remote provider were found. Status: `blocked`; FFmpeg tests are media-processing tests only.
+I2V/T2V feasibility: the local RTX 4060 Laptop GPU has 8,188 MiB VRAM. HunyuanVideo-1.5 remains unsuitable for this machine under the team's current 14 GB minimum estimate. A separate AnimateDiff-Lightning T2V path now runs locally; I2V remains untested. FFmpeg tests are media-processing tests only.
+
+AnimateDiff-Lightning 4-step revision `027c893eec01df7330f5d4b733bc9485ee02e8b2` and Stable Diffusion 1.5 revision `451f4fe16113bff5a5d2269ed5ad43b0592e9a14` were downloaded outside Git. Both model cards list CreativeML Open RAIL-M. CUDA PyTorch 2.7.1+cu128, Diffusers 0.37.1, and CPU model offload were used. An initial 256×256 8-frame run produced an MP4 in 18.00 s at 2670 MiB peak allocated VRAM, but extracted frames were illegible saturated color blocks. A float32 VAE decode check did not fix the visual failure. At 512×512, the same 4-step pipeline with prompt `a blue butterfly flying over yellow flowers, clear detailed illustration` generated 8 frames in 18.63 s at 3061 MiB peak allocated VRAM. FFprobe measured 512×512, 8 fps, 8 decoded frames, and 1.000 s. The first and last frames visibly contain a blue butterfly and flowers; motion is subtle. This is one self-created text prompt, not a book-page I2V evaluation or a complete competition video. The generated MP4 and frames are excluded from Git.
 
 ## Next provider gate
 
-The user selected a local prototype until a suitable cloud GPU or approved video service is available. A real I2V/T2V result therefore remains untested. Before labeling a provider ready, record its exact model version, weight/source license, allowed input scope, timeout, generated output path, elapsed time, peak VRAM or billed cost, prompt hash, and one successful and one failed run.
+The local T2V feasibility result is recorded above. Before labeling an I2V provider ready for book pages, record its exact model version, weight/source license, allowed input scope, timeout, generated output path, elapsed time, peak VRAM or billed cost, prompt hash, and one successful and one failed run on authorized inputs.

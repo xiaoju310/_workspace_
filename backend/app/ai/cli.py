@@ -6,7 +6,7 @@ from pathlib import Path
 
 from . import analyze_page, build_book_graph, draft_story
 from .analyzers import analyze_text
-from .video import UnavailableVideoProvider
+from .video import AnimateDiffProvider, UnavailableVideoProvider
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,6 +34,12 @@ def main(argv: list[str] | None = None) -> int:
     video.add_argument("--page-no", type=int, required=True)
     video.add_argument("--prompt", required=True)
     video.add_argument("--out", type=Path, required=True)
+    video_run = sub.add_parser("video-generate", help="Generate a short local T2V test clip with AnimateDiff-Lightning")
+    video_run.add_argument("--page-no", type=int, required=True)
+    video_run.add_argument("--prompt", required=True)
+    video_run.add_argument("--model-path", type=Path, required=True)
+    video_run.add_argument("--motion-checkpoint", type=Path, required=True)
+    video_run.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.command in {"page", "ocr"}:
         if not args.image.is_file():
@@ -66,6 +72,15 @@ def main(argv: list[str] | None = None) -> int:
         payload = analyze_text(args.input.read_text(encoding="utf-8"), book_id=args.book_id,
                                page_no=args.page_no,
                                chapter=args.chapter, book_type=args.book_type).model_dump()
+    elif args.command == "video-generate":
+        provider = AnimateDiffProvider(args.model_path, args.motion_checkpoint)
+        video_result = provider.generate(args.page_no, None, args.prompt, args.out)
+        payload = video_result.model_dump()
+        result_path = args.out.with_suffix(".generation.json")
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(result_path)
+        return 0 if video_result.status == "ok" else 1
     else:
         payload = UnavailableVideoProvider().generate(args.page_no, None, args.prompt, args.out).model_dump()
     args.out.parent.mkdir(parents=True, exist_ok=True)

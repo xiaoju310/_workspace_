@@ -8,6 +8,7 @@ dependencies = ["pydantic>=2,<3", "Pillow>=10", "opencv-python>=4.10,<6"]
 test = ["pytest>=8,<10"]
 ocr = ["paddlepaddle>=3.3,<4", "paddleocr>=3.7,<4"]
 vlm = ["torch>=2.6,<3", "transformers>=4.49,<5", "accelerate>=1,<2"]
+video = ["torch>=2.6,<3", "diffusers>=0.31,<0.38", "transformers>=4.49,<5", "accelerate>=1,<2", "safetensors>=0.4"]
 
 [tool.pytest.ini_options]
 pythonpath = ["backend"]

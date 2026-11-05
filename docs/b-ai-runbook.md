@@ -1,6 +1,6 @@
 # B: AI understanding and video module
 
-This branch provides the first runnable AI/video module for B's work. Real local PaddleOCR and SmolVLM were verified on one self-created test image. TTS and true I2V/T2V generation are still unavailable and are not claimed as complete.
+This branch provides the first runnable AI/video module for B's work. Real local PaddleOCR and SmolVLM were verified on one self-created test image. The optional AnimateDiff-Lightning provider is a local text-to-video experiment; see the experiment log for its measured status. I2V and TTS remain unavailable.
 
 ## Setup and checks (PowerShell)
 
@@ -21,7 +21,29 @@ $env:PYTHONPATH = "$PWD\backend"
 
 `concatenate_segments` retains an existing input audio stream and encodes it as AAC. It does not create narration or subtitles: silent inputs remain silent. The final voiceover, subtitle, and timing pipeline is still pending. Media tests require both `ffmpeg` and `ffprobe` on `PATH`; when either is unavailable, pytest skips the media integration tests. Check with `ffmpeg -version` and `ffprobe -version` before a full local run.
 
-For real local image understanding, install the optional `vlm` dependencies and download the pinned model outside Git. The example below uses CPU; the installed PyTorch build has no CUDA support. `SmolVLMProvider` currently extracts one visible object name and leaves events empty. Its fixed 0.5 confidence is an uncalibrated placeholder, so review the result before using it in a story.
+## Optional local text-to-video experiment (8 GB GPU)
+
+The provider uses ByteDance AnimateDiff-Lightning 4-step with Stable Diffusion 1.5 at 512×512, 8 frames, 8 fps, and CPU offload. It is **T2V only** and does not animate an input book page. Its one-second clip is a feasibility test, not a complete competition video. The local test used 3,061 MiB peak allocated GPU memory. Keep all weights and generated MP4 files outside Git. The model cards list CreativeML Open RAIL-M; review the permitted use and attribution before any public presentation.
+
+Create a separate environment if OCR/VLM dependencies must remain unchanged. Install the optional Python packages, then replace CPU PyTorch with the official CUDA wheel appropriate for the local driver. On this machine, CUDA 12.8 is the selected wheel index:
+
+```powershell
+uv pip install --python .venv\Scripts\python.exe -e ".[video]"
+uv pip install --python .venv\Scripts\python.exe --index-url https://download.pytorch.org/whl/cu128 torch==2.7.1 torchvision==0.22.1
+.venv\Scripts\python.exe -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
+
+Download the pinned weights to a local folder outside the repository. The four `.fp16.safetensors` files for SD 1.5 and the Lightning checkpoint are needed; `model_index.json`, component configs, tokenizer and scheduler files are also needed. Use `scripts/download_video_models.py --cache-dir D:\models` for the revisions listed in `model-experiments.md`. Then run:
+
+```powershell
+$env:PYTHONPATH = "$PWD\backend"
+.venv\Scripts\python.exe -m app.ai.cli video-generate --page-no 1 --prompt "a blue butterfly flying over flowers" --model-path D:\models\sd15 --motion-checkpoint D:\models\animatediff-lightning\animatediff_lightning_4step_diffusers.safetensors --out data\synthetic\butterfly.mp4
+ffprobe -v error -show_entries stream=codec_type,width,height -show_entries format=duration -of json data\synthetic\butterfly.mp4
+```
+
+The CLI writes `data\synthetic\butterfly.generation.json` with `status`, model version, prompt hash, elapsed time, and peak allocated GPU memory. A nonzero exit code and `status=failed` mean no video was generated; inspect `error_code` and `error_message`. Inspect extracted frames before presenting any successful file: the 256×256 run was technically successful but visually unusable.
+
+For real local image understanding, install the optional `vlm` dependencies and download the pinned model outside Git. The example below uses CPU even if CUDA PyTorch is installed. `SmolVLMProvider` currently extracts one visible object name and leaves events empty. Its fixed 0.5 confidence is an uncalibrated placeholder, so review the result before using it in a story.
 
 ```powershell
 uv pip install --python .venv\Scripts\python.exe -e ".[vlm]"

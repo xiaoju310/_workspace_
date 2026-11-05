@@ -1,7 +1,7 @@
 from app.ai import analyze_page, build_book_graph
 from app.ai.analyzers import analyze_text, classify_book
 from app.ai.models import SourceRef
-from app.ai.video import UnavailableVideoProvider
+from app.ai.video import AnimateDiffProvider, UnavailableVideoProvider
 from app.ai.compose import concatenate_segments
 from app.ai.cli import main
 from app.ai.media import build_timeline, extract_frame, probe_duration_ms
@@ -90,6 +90,21 @@ def test_unavailable_video_cannot_be_composed(tmp_path):
     assert result.status == "failed"
     with pytest.raises(ValueError):
         concatenate_segments([result], tmp_path / "book.mp4")
+
+
+def test_animatediff_rejects_missing_weights_and_image_input(tmp_path):
+    provider = AnimateDiffProvider(tmp_path / "missing-model", tmp_path / "missing-motion.safetensors")
+    output = tmp_path / "video.mp4"
+    missing = provider.generate(1, None, "butterfly", output)
+    assert missing.status == "failed"
+    assert missing.error_code == "FILENOTFOUNDERROR"
+    assert not output.exists()
+    image = tmp_path / "page.png"
+    image.write_bytes(b"synthetic")
+    unsupported = provider.generate(1, image, "butterfly", output)
+    assert unsupported.status == "failed"
+    assert unsupported.error_code == "VALUEERROR"
+    assert unsupported.source_ref == str(image)
 
 
 def test_reading_cli_writes_reviewable_json(tmp_path):
