@@ -1,3 +1,5 @@
+> 最新构建及真实接口验收见 `leader-feedback-2026-11-05.md`、`backend-integration-results.json`。本文保留初版模拟流程记录；原 npm/接口阻塞已由后续记录更新。
+
 # 完整前端模拟流程自测
 
 v0.2 · 2026-11-04（北京时间）· Microsoft Edge 156.0.4314.50 / Windows
