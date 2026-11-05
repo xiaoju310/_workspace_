@@ -1,0 +1,29 @@
+import { useState } from 'react'
+import type { HistoryProps, Interaction, Source } from '../app/types'
+import { Badge, Button, Icon } from '../components/ui'
+import { formatTime } from './InteractiveReaderPage'
+
+export default function HistoryPage({ book, state, setState, navigate, notify, interactions, onSeek }: HistoryProps) {
+  const [filter, setFilter] = useState<'all' | 'question' | 'touch'>('all')
+  const [query, setQuery] = useState('')
+  const records = interactions.filter(item => item.book_id === book.id && (filter === 'all' || item.kind === filter) && `${item.question} ${item.answer} ${item.transcript}`.includes(query.trim()))
+  const allRecords = interactions.filter(item => item.book_id === book.id)
+  function openSource(item:Interaction,source:Source){if(source.source==='original_page'){try{sessionStorage.setItem('paper-companion-focus-page',String(source.page_no))}catch{/* 跳转仍可用 */}navigate('review',item.book_id)}else{onSeek(source.start_ms??item.video_ms)}}
+  function download() {
+    const content = { version: '1.0', exported_at: new Date().toISOString(), book_id: book.id, book_title: book.title, notice: '前端会话记录，不包含音频文件或身份信息；模拟记录不代表实测结果。', interactions: records }
+    const blob = new Blob([JSON.stringify(content, null, 2)], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a'); link.href = url; link.download = 'paper-companion-interactions.json'; link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    notify(`已导出 ${records.length} 条当前筛选记录。`)
+  }
+  function recordTime(item: Interaction) {
+    const date = new Date(item.created_at)
+    return Number.isNaN(date.getTime()) ? '时间待补充' : date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+  }
+  const displayEmpty = state === 'empty' || (!records.length && state === 'success')
+  return <div className="page-content history-page"><div className="page-heading"><div><p className="eyebrow">KEEP EVERY DISCOVERY</p><h1>好奇心，也有来时的路。</h1><p className="page-description">《{book.title}》 · 回看问题、画面与回答依据。</p></div><div className="history-actions"><Button variant="secondary" onClick={download} disabled={!records.length || state !== 'success'}><Icon name="upload" size={16}/>导出记录</Button><Button onClick={() => navigate('reader')}>继续阅读<Icon name="arrow" size={16}/></Button></div></div><div className="history-overview"><div><span>阅读中的发现</span><strong>{allRecords.length}<small>条记录</small></strong></div><div><span>语音 / 文字提问</span><strong>{allRecords.filter(item => item.kind === 'question').length}<small>次好奇</small></strong></div><div><span>画面点击</span><strong>{allRecords.filter(item => item.kind === 'touch').length}<small>次探索</small></strong></div><p><Icon name="lock" size={18}/>记录仅保留在当前演示会话；默认私密。<br/>刷新保留记录；关闭当前标签后会话结束。</p></div><section className="history-list-section"><div className="history-toolbar"><div className="filter-tabs" aria-label="交互类型筛选">{([['all', '全部发现'], ['question', '提问记录'], ['touch', '点击发现']] as const).map(([value, label]) => <button key={value} className={filter === value ? 'selected' : ''} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}</div><label className="search"><Icon name="search" size={17}/><input type="search" aria-label="搜索会话记录" placeholder="找一个问题…" value={query} onChange={event => setQuery(event.target.value)}/></label></div>
+      {state === 'loading' || state === 'error' || displayEmpty ? <div className="reader-state" role={state === 'error' ? 'alert' : 'status'}><Icon name={state === 'error' ? 'alert' : 'clock'} size={32}/><h2>{state === 'loading' ? '正在整理阅读记录' : state === 'error' ? '历史记录暂时没有打开' : query || filter !== 'all' ? '没有找到符合条件的记录' : '故事的第一问，还在等你'}</h2><p>{state === 'loading' ? '正在查找问题与来源引用。' : state === 'error' ? '请重试，当前会话中已有记录不会因此丢失。' : '回到阅读页，提出一个问题或点一点画面。'}</p>{state === 'error' ? <Button onClick={() => setState('success')}>重新加载</Button> : state !== 'loading' ? query || filter !== 'all' ? <Button variant="secondary" onClick={() => { setQuery(''); setFilter('all') }}>清除筛选</Button> : <Button onClick={() => navigate('reader')}>去阅读<Icon name="arrow" size={16}/></Button> : null}</div> : <div className="history-timeline">{records.map(item => <article className="history-entry" key={item.id}><div className={`history-kind kind-${item.kind}`}><Icon name={item.kind === 'question' ? 'note' : 'image'} size={21}/></div><div className="history-entry-body"><div className="history-entry-heading"><Badge tone={item.kind === 'question' ? 'green' : 'purple'}>{item.kind === 'question' ? '阅读提问' : '画面点击'}</Badge><span>{recordTime(item)} · {formatTime(item.video_ms)}</span><Badge tone={item.origin === 'mock' ? 'amber' : 'neutral'}>{item.origin === 'mock' ? '模拟记录' : '真实接口'}</Badge></div><h2>{item.question || (item.kind === 'touch' ? '这是什么？' : '一次阅读提问')}</h2>{item.transcript && item.transcript !== item.question && <p className="history-transcript">转写：{item.transcript}</p>}<div className={`history-answer ${item.uncertain ? 'uncertain' : ''}`}>{item.uncertain && <strong><Icon name="alert" size={14}/>依据不足，保留不确定性</strong>}<p>{item.answer}</p></div><div className="history-evidence">{item.sources.length ? item.sources.map((source, index) => <button key={`${item.id}-${index}`} onClick={() => openSource(item, source)}><Icon name="book" size={14}/>第 {source.page_no} 页{source.start_ms !== null ? ` · ${formatTime(source.start_ms)}` : ''}<Icon name="chevron" size={14}/></button>) : <span>暂无可跳转的来源引用</span>}</div><div className="history-entry-meta"><span>run_id：{item.run_id}</span><span>{item.latency_ms === null ? '延迟未实测' : `接口延迟 ${item.latency_ms} ms`}</span>{item.cached && <span>缓存命中</span>}</div></div></article>)}</div>}
+    </section><div className="home-footnote"><Icon name="info" size={15}/><span>导出保留运行标识、来源和模拟标记。当前记录不能替代官方测试集、回答正确率或延迟评测。</span></div></div>
+}
+

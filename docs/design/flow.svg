@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="980" viewBox="0 0 1440 980"><title>纸书智伴 D1 · 产品流程与状态</title><desc>纸书智伴 D1 原创矢量设计稿，所有图书与模型状态为模拟。可导入 Figma，文字与路径可编辑。</desc>
+<rect x="0" y="0" width="1440" height="980" rx="0" fill="#f8f9f6"/>
+<text x="64" y="69" fill="#244d3f" font-size="30" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif">纸书智伴 · 阅读与导入流程</text>
+<text x="64" y="103" fill="#87947a" font-size="14" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">D1 原型范围 / 可点击首页与上传页 / 新增接口与字段等待 A、C 确认</text>
+<rect x="64" y="135" width="1312" height="54" rx="10" fill="#ecf0e0"/>
+<text x="84" y="168" fill="#5c7451" font-size="14" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">默认私密 → 主人审核 → 选择分享方式；服务端权限判断由 A 实现，D 展示状态。</text>
+<rect x="64" y="240" width="292" height="216" rx="14" fill="#fffefa" stroke="#b9c9a5"/>
+<rect x="64" y="240" width="292" height="48" rx="14" fill="#eaf0e3"/>
+<rect x="64" y="272" width="292" height="16" rx="0" fill="#eaf0e3"/>
+<text x="84" y="271" fill="#244d3f" font-size="17" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif">首页 / 书架</text>
+<circle cx="87" cy="320" r="2" fill="#a3b08e"/>
+<text x="101" y="325" fill="#788b69" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">图书卡片与处理状态</text>
+<circle cx="87" cy="352" r="2" fill="#a3b08e"/>
+<text x="101" y="357" fill="#788b69" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">类型标签 / 搜索筛选</text>
+<circle cx="87" cy="384" r="2" fill="#a3b08e"/>
+<text x="101" y="389" fill="#788b69" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">最近笔记 / 默认私密</text>
+<rect x="84" y="417" width="84" height="21" rx="4" fill="#edf4e7" stroke="#dfebd7"/><text x="90" y="431" fill="#64805b" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">D1 可点击原型</text>
+<path d="M363 347H394" stroke="#a7b791" stroke-width="2"/>
+<g transform="translate(377 335) scale(1.0)" fill="none" stroke="#a7b791" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6"/></g>
+<rect x="404" y="240" width="292" height="216" rx="14" fill="#fffefa" stroke="#b9c9a5"/>
+<rect x="404" y="240" width="292" height="48" rx="14" fill="#eaf0e3"/>
+<rect x="404" y="272" width="292" height="16" rx="0" fill="#eaf0e3"/>
+<text x="424" y="271" fill="#244d3f" font-size="17" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif">导入图书</text>
+<circle cx="427" cy="320" r="2" fill="#a3b08e"/>
+<text x="441" y="325" fill="#788b69" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">书名 / 素材授权标识</text>
+<circle cx="427" cy="352" r="2" fill="#a3b08e"/>
+<text x="441" y="357" fill="#788b69" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">JPG / PNG 本地预览</text>
+<circle cx="427" cy="384" r="2" fill="#a3b08e"/>
+<text x="441" y="389" fill="#788b69" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">页序 / 初步类型 / 授权确认</text>
+<rect x="424" y="417" width="84" height="21" rx="4" fill="#edf4e7" stroke="#dfebd7"/><text x="430" y="431" fill="#64805b" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">D1 可点击原型</text>
+<path d="M703 347H734" stroke="#a7b791" stroke-width="2"/>
+<g transform="translate(717 335) scale(1.0)" fill="none" stroke="#a7b791" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6"/></g>
+<rect x="744" y="240" width="292" height="216" rx="14" fill="#fffefa" stroke="#dfe5d5"/>
+<rect x="744" y="240" width="292" height="48" rx="14" fill="#eff1ea"/>
+<rect x="744" y="272" width="292" height="16" rx="0" fill="#eff1ea"/>
+<text x="764" y="271" fill="#8d9981" font-size="17" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif">校对与分类确认</text>
+<circle cx="767" cy="320" r="2" fill="#a3b08e"/>
+<text x="781" y="325" fill="#788b69" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">OCR 文字与页序确认</text>
+<circle cx="767" cy="352" r="2" fill="#a3b08e"/>
+<text x="781" y="357" fill="#788b69" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">预测类型 / 置信度 / 理由</text>
+<circle cx="767" cy="384" r="2" fill="#a3b08e"/>
+<text x="781" y="389" fill="#788b69" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">主人确认或修改类型</text>
+<rect x="764" y="417" width="102" height="21" rx="4" fill="#f4f5ed" stroke="#e5e8dc"/><text x="770" y="431" fill="#7e8973" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">后续页面 / 未接入</text>
+<path d="M1043 347H1074" stroke="#a7b791" stroke-width="2"/>
+<g transform="translate(1057 335) scale(1.0)" fill="none" stroke="#a7b791" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6"/></g>
+<rect x="1084" y="240" width="292" height="216" rx="14" fill="#fffefa" stroke="#dfe5d5"/>
+<rect x="1084" y="240" width="292" height="48" rx="14" fill="#eff1ea"/>
+<rect x="1084" y="272" width="292" height="16" rx="0" fill="#eff1ea"/>
+<text x="1104" y="271" fill="#8d9981" font-size="17" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif">生成与互动阅读</text>
+<circle cx="1107" cy="320" r="2" fill="#a3b08e"/>
+<text x="1121" y="325" fill="#788b69" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">分析进度 / 失败重试</text>
+<circle cx="1107" cy="352" r="2" fill="#a3b08e"/>
+<text x="1121" y="357" fill="#788b69" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">结构化笔记与来源</text>
+<circle cx="1107" cy="384" r="2" fill="#a3b08e"/>
+<text x="1121" y="389" fill="#788b69" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">视频 / 字幕 / 语音 / 点击</text>
+<rect x="1104" y="417" width="102" height="21" rx="4" fill="#f4f5ed" stroke="#e5e8dc"/><text x="1110" y="431" fill="#7e8973" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">后续页面 / 未接入</text>
+<text x="64" y="512" fill="#244d3f" font-size="21" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif">交互分支与检查点</text>
+<rect x="64" y="539" width="420" height="182" rx="12" fill="#fffefa" stroke="#e6e9e1"/>
+<text x="84" y="574" fill="#4c6744" font-size="15" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif">上传前检查</text>
+<text x="84" y="610" fill="#87977a" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">未填书名 / 授权标识 → 明确提示</text>
+<text x="84" y="639" fill="#87977a" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">未勾选使用授权 → 阻止确认</text>
+<text x="84" y="668" fill="#87977a" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">没有书页 → 引导选择图片</text>
+<rect x="510" y="539" width="420" height="182" rx="12" fill="#fffefa" stroke="#e6e9e1"/>
+<text x="530" y="574" fill="#4c6744" font-size="15" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif">文件校验与页序</text>
+<text x="530" y="610" fill="#87977a" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">类型 / 文件头 / 大小 / 解码校验</text>
+<text x="530" y="639" fill="#87977a" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">错误保留在页面，不静默忽略</text>
+<text x="530" y="668" fill="#87977a" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">预览、前移、后移、移除书页</text>
+<rect x="956" y="539" width="420" height="182" rx="12" fill="#fffefa" stroke="#e6e9e1"/>
+<text x="976" y="574" fill="#4c6744" font-size="15" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif">本地确认结果</text>
+<text x="976" y="610" fill="#87977a" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">显示书名、页数和下一步说明</text>
+<text x="976" y="639" fill="#87977a" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">允许返回修改；刷新清空</text>
+<text x="976" y="668" fill="#87977a" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">不上传、不伪造识别或生成成功</text>
+<text x="64" y="776" fill="#244d3f" font-size="21" font-weight="600" font-family="Microsoft YaHei, PingFang SC, sans-serif">四种页面状态</text>
+<rect x="64" y="805" width="310" height="100" rx="10" fill="#fffefa" stroke="#e6e9e1"/>
+<rect x="80" y="822" width="39" height="21" rx="4" fill="#f4f5ed" stroke="#e5e8dc"/><text x="86" y="836" fill="#7e8973" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">加载中</text>
+<text x="80" y="873" fill="#89977d" font-size="11" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">加载提示 / 不显示错误成功数据</text>
+<rect x="398" y="805" width="310" height="100" rx="10" fill="#fffefa" stroke="#e6e9e1"/>
+<rect x="414" y="822" width="39" height="21" rx="4" fill="#f4f5ed" stroke="#e5e8dc"/><text x="420" y="836" fill="#7e8973" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">空数据</text>
+<text x="414" y="873" fill="#89977d" font-size="11" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">空书架 / 无书页 / 引导添加</text>
+<rect x="732" y="805" width="310" height="100" rx="10" fill="#fffefa" stroke="#e6e9e1"/>
+<rect x="748" y="822" width="30" height="21" rx="4" fill="#edf4e7" stroke="#dfebd7"/><text x="754" y="836" fill="#64805b" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">成功</text>
+<text x="748" y="873" fill="#89977d" font-size="11" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">示例内容 / 本地导入确认</text>
+<rect x="1066" y="805" width="310" height="100" rx="10" fill="#fffefa" stroke="#e6e9e1"/>
+<rect x="1082" y="822" width="30" height="21" rx="4" fill="#faf4e5" stroke="#eee3c7"/><text x="1088" y="836" fill="#ac8b4f" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">失败</text>
+<text x="1082" y="873" fill="#89977d" font-size="11" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">校验错误 / 模拟失败 / 可重试</text>
+<text x="64" y="946" fill="#99a38c" font-size="12" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">图书类型：绘本 / 文学故事 / 知识读物 / 待确认。低置信分类必须提示主人确认。所有图书与结果为原创模拟内容。</text>
+</svg>

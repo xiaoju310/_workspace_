@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1366" height="1000" viewBox="0 0 1366 1000"><title>纸书智伴 · 阅读历史与来源 · 桌面设计参考</title><desc>纸书智伴 v0.2 原创可编辑矢量界面参考。文字、路径、形状可导入 Figma；全流程为模拟，不含原生 Auto Layout 或 Prototype 连线。</desc><rect x="0" y="0" width="1366" height="1000" rx="0" fill="#f8f9f6" stroke="none"/>
+<rect x="0" y="0" width="224" height="1000" rx="0" fill="#fffefa" stroke="none"/>
+<path d="M224 0L224 1000" fill="none" stroke="#e3e8dc"/>
+<rect x="224" y="0" width="1142" height="78" rx="0" fill="#fcfcf9" stroke="none"/>
+<path d="M224 78L1366 78" fill="none" stroke="#e3e8dc"/>
+<rect x="26" y="28" width="42" height="42" rx="12" fill="#244d3f" stroke="none"/>
+<g transform="translate(35 39)" stroke="#fff4d3" fill="none" stroke-width="1.7" stroke-linejoin="round"><path d="M0 2q6-3 12 0 6-3 12 0v17q-6-3-12 0-6-3-12 0Z"/><path d="M12 2v17"/></g>
+<text x="80" y="49" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="21" font-weight="650" fill="#283b33">纸书智伴</text>
+<text x="81" y="67" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="8" font-weight="400" fill="#8b9980">PAPER COMPANION</text>
+<text x="28" y="119" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="10" font-weight="400" fill="#8b9980">我的阅读空间</text>
+<g transform="translate(31 151)" stroke="#a4ad98" fill="none" stroke-width="1.7" stroke-linejoin="round"><path d="M0 2q6-3 12 0 6-3 12 0v17q-6-3-12 0-6-3-12 0Z"/><path d="M12 2v17"/></g>
+<text x="68" y="167" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#8b9980">首页书架</text>
+<g transform="translate(31 200)" stroke="#a4ad98" fill="none" stroke-width="1.7" stroke-linejoin="round"><path d="M0 2q6-3 12 0 6-3 12 0v17q-6-3-12 0-6-3-12 0Z"/><path d="M12 2v17"/></g>
+<text x="68" y="216" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#8b9980">导入图书</text>
+<g transform="translate(31 249)" stroke="#a4ad98" fill="none" stroke-width="1.7" stroke-linejoin="round"><path d="M0 2q6-3 12 0 6-3 12 0v17q-6-3-12 0-6-3-12 0Z"/><path d="M12 2v17"/></g>
+<text x="68" y="265" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#8b9980">页序与文字校对</text>
+<g transform="translate(31 298)" stroke="#a4ad98" fill="none" stroke-width="1.7" stroke-linejoin="round"><path d="M0 2q6-3 12 0 6-3 12 0v17q-6-3-12 0-6-3-12 0Z"/><path d="M12 2v17"/></g>
+<text x="68" y="314" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#8b9980">分类确认</text>
+<g transform="translate(31 347)" stroke="#a4ad98" fill="none" stroke-width="1.7" stroke-linejoin="round"><path d="M0 2q6-3 12 0 6-3 12 0v17q-6-3-12 0-6-3-12 0Z"/><path d="M12 2v17"/></g>
+<text x="68" y="363" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#8b9980">分析与生成</text>
+<g transform="translate(31 396)" stroke="#a4ad98" fill="none" stroke-width="1.7" stroke-linejoin="round"><path d="M0 2q6-3 12 0 6-3 12 0v17q-6-3-12 0-6-3-12 0Z"/><path d="M12 2v17"/></g>
+<text x="68" y="412" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#8b9980">互动伴读</text>
+<rect x="18" y="433" width="188" height="44" rx="8" fill="#eaf0e3" stroke="none"/>
+<g transform="translate(31 445)" stroke="#244d3f" fill="none" stroke-width="1.7" stroke-linejoin="round"><path d="M0 2q6-3 12 0 6-3 12 0v17q-6-3-12 0-6-3-12 0Z"/><path d="M12 2v17"/></g>
+<text x="68" y="461" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="600" fill="#244d3f">阅读历史</text>
+<g transform="translate(31 494)" stroke="#a4ad98" fill="none" stroke-width="1.7" stroke-linejoin="round"><path d="M0 2q6-3 12 0 6-3 12 0v17q-6-3-12 0-6-3-12 0Z"/><path d="M12 2v17"/></g>
+<text x="68" y="510" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#8b9980">阅读笔记</text>
+<g transform="translate(31 543)" stroke="#a4ad98" fill="none" stroke-width="1.7" stroke-linejoin="round"><path d="M0 2q6-3 12 0 6-3 12 0v17q-6-3-12 0-6-3-12 0Z"/><path d="M12 2v17"/></g>
+<text x="68" y="559" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#8b9980">分享管理</text>
+<text x="29" y="884" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="10" font-weight="400" fill="#8b9980">每一本书，都值得被读懂。</text>
+<text x="29" y="947" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">⚙  接口与演示设置</text>
+<text x="266" y="46" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#8b9980">我的阅读空间 / 阅读历史</text>
+<rect x="1085" y="27" width="164" height="26" rx="13" fill="#faf1df" stroke="none"/>
+<text x="1097" y="45" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#a98143">模拟数据 · 无后端</text>
+<rect x="1273" y="24" width="34" height="34" rx="17" fill="#eaf0e3" stroke="none"/>
+<text x="1284" y="47" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="14" font-weight="600" fill="#244d3f">D</text>
+<text x="266" y="119" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">当前图书</text>
+<rect x="336" y="93" width="237" height="40" rx="7" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="350" y="118" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#244d3f">森林里的来信                  ⌄</text>
+<text x="1192" y="119" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="10" font-weight="400" fill="#8b9980">原创 / 本地模拟</text>
+<path d="M266 143L1324 143" fill="none" stroke="#e3e8dc"/>
+<text x="266" y="178" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="10" font-weight="400" fill="#8b9980">KEEP EVERY DISCOVERY</text>
+<text x="266" y="217" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="29" font-weight="600" fill="#283b33">好奇心，也有来时的路。</text>
+<text x="266" y="246" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#8b9980">《森林里的来信》 · 回看问题、画面与回答依据。</text>
+<path d="M266 953L1324 953" fill="none" stroke="#e3e8dc"/>
+<text x="267" y="980" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="10" font-weight="400" fill="#8b9980">原创示例  ·  全流程为本地模拟，真实模型、语音、鉴权与共享服务待接入</text>
+<text x="1100" y="980" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="10" font-weight="400" fill="#8b9980">原型状态     正常 / 成功  ⌄</text>
+<rect x="266" y="280" width="223" height="105" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="288" y="312" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">阅读中的发现</text>
+<text x="288" y="355" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="24" font-weight="600" fill="#244d3f">3 条记录</text>
+<rect x="510" y="280" width="223" height="105" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="532" y="312" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">语音 / 文字提问</text>
+<text x="532" y="355" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="24" font-weight="600" fill="#244d3f">2 次好奇</text>
+<rect x="754" y="280" width="223" height="105" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="776" y="312" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">画面点击</text>
+<text x="776" y="355" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="24" font-weight="600" fill="#244d3f">1 次探索</text>
+<rect x="998" y="280" width="326" height="105" rx="12" fill="#eaf0e3" stroke="none"/>
+<text x="1020" y="318" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">记录保留在当前演示会话；默认私密。</text>
+<text x="1020" y="341" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">刷新保留，关闭标签后会话结束。</text>
+<rect x="266" y="411" width="1058" height="58" rx="10" fill="#fffefa" stroke="#e3e8dc"/>
+<rect x="279" y="423" width="96" height="34" rx="7" fill="#eaf0e3" stroke="none"/>
+<text x="295" y="445" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#244d3f">全部发现</text>
+<text x="400" y="445" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#8b9980">提问记录</text>
+<text x="513" y="445" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#8b9980">点击发现</text>
+<rect x="1034" y="422" width="274" height="36" rx="7" fill="#f6f8f1" stroke="#e3e8dc"/>
+<text x="1050" y="445" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#8b9980">⌕  找一个问题…</text>
+<rect x="266" y="490" width="1058" height="190" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<rect x="289" y="514" width="42" height="42" rx="12" fill="#eaf0e3" stroke="none"/>
+<g transform="translate(298 525)" stroke="#244d3f" fill="none" stroke-width="1.7" stroke-linejoin="round"><path d="M0 2q6-3 12 0 6-3 12 0v17q-6-3-12 0-6-3-12 0Z"/><path d="M12 2v17"/></g>
+<rect x="349" y="513" width="91" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="361" y="531" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">画面点击</text>
+<text x="458" y="532" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="10" font-weight="400" fill="#8b9980">11-04  18:20 · 00:00</text>
+<rect x="1167" y="513" width="132" height="26" rx="13" fill="#faf1df" stroke="none"/>
+<text x="1179" y="531" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#a98143">模拟记录</text>
+<text x="349" y="569" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#283b33">画面位置 (0.50, 0.50)</text>
+<text x="349" y="598" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#244d3f">已记录点击位置。当前仅展示第 1 页文字；未进行视觉识别，</text>
+<text x="349" y="621" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#244d3f">无法据此确定点中的物体。</text>
+<text x="349" y="655" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">第 1 页 →</text>
+<text x="1050" y="655" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="10" font-weight="400" fill="#8b9980">延迟未实测  ·  本次请求</text>
+<rect x="266" y="700" width="1058" height="190" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<rect x="289" y="724" width="42" height="42" rx="12" fill="#eaf0e3" stroke="none"/>
+<g transform="translate(298 735)" stroke="#244d3f" fill="none" stroke-width="1.7" stroke-linejoin="round"><path d="M0 2q6-3 12 0 6-3 12 0v17q-6-3-12 0-6-3-12 0Z"/><path d="M12 2v17"/></g>
+<rect x="349" y="723" width="91" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="361" y="741" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">阅读提问</text>
+<text x="458" y="742" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="10" font-weight="400" fill="#8b9980">11-04  18:20 · 00:00</text>
+<rect x="1167" y="723" width="132" height="26" rx="13" fill="#faf1df" stroke="none"/>
+<text x="1179" y="741" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#a98143">模拟记录</text>
+<text x="349" y="779" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#283b33">小狐狸的朋友是谁？</text>
+<text x="349" y="808" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#244d3f">演示引用：第 3 页写道：“邮局里，小熊正在整理信件。”</text>
+<text x="349" y="831" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#244d3f">这是按关键词展示的原文，未调用问答模型。</text>
+<text x="349" y="865" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">第 3 页 →</text>
+<text x="1050" y="865" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="10" font-weight="400" fill="#8b9980">延迟未实测  ·  本次请求</text></svg>

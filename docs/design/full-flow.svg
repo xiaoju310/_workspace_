@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100"><title>纸书智伴 · 完整前端流程与状态约束</title><desc>纸书智伴 v0.2 原创可编辑矢量界面参考。文字、路径、形状可导入 Figma；全流程为模拟，不含原生 Auto Layout 或 Prototype 连线。</desc><rect x="0" y="0" width="1600" height="1100" rx="0" fill="#f8f9f6" stroke="none"/>
+<text x="62" y="68" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="32" font-weight="600" fill="#283b33">纸书智伴 · 完整前端流程</text>
+<text x="62" y="102" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="14" font-weight="400" fill="#8b9980">v0.2  /  可编辑 SVG 流程稿  /  全部业务为本地模拟，真实接口待接入</text>
+<rect x="1290" y="51" width="248" height="26" rx="13" fill="#faf1df" stroke="none"/>
+<text x="1302" y="69" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#a98143">FRONTEND SIMULATION</text>
+<rect x="62" y="160" width="225" height="109" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="82" y="195" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#244d3f">01  书架</text>
+<text x="82" y="223" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">搜索 / 类型 / 处理状态 / 最近笔记</text>
+<rect x="82" y="235" width="79" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="94" y="253" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">初始演示书</text>
+<rect x="370" y="160" width="225" height="109" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="390" y="195" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#244d3f">02  导入图书</text>
+<text x="390" y="223" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">JPG / PNG · 10 MB / 页 · 24 页</text>
+<rect x="390" y="235" width="101" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="402" y="253" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">来源与授权必填</text>
+<rect x="678" y="160" width="225" height="109" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="698" y="195" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#244d3f">03  页序与 OCR 校对</text>
+<text x="698" y="223" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">顺序 / 编辑 / 版本 / 逐页确认</text>
+<rect x="698" y="235" width="90" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="710" y="253" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">必须逐页确认</text>
+<rect x="986" y="160" width="225" height="109" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="1006" y="195" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#244d3f">04  分类确认</text>
+<text x="1006" y="223" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">类型 / 置信度 / 原因 / 年龄</text>
+<rect x="1006" y="235" width="90" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="1018" y="253" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">主人最终确认</text>
+<rect x="1294" y="160" width="245" height="109" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="1314" y="195" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#244d3f">05  分析与生成</text>
+<text x="1314" y="223" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">六阶段 / run_id / 日志</text>
+<rect x="1314" y="235" width="101" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="1326" y="253" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">可体验失败重试</text>
+<path d="M287 215L370 215" fill="none" stroke="#9aab87" stroke-width="2"/><path d="M363 210L370 215L363 220" fill="none" stroke="#9aab87" stroke-width="2"/>
+<path d="M595 215L678 215" fill="none" stroke="#9aab87" stroke-width="2"/><path d="M671 210L678 215L671 220" fill="none" stroke="#9aab87" stroke-width="2"/>
+<path d="M903 215L986 215" fill="none" stroke="#9aab87" stroke-width="2"/><path d="M979 210L986 215L979 220" fill="none" stroke="#9aab87" stroke-width="2"/>
+<path d="M1211 215L1294 215" fill="none" stroke="#9aab87" stroke-width="2"/><path d="M1287 210L1294 215L1287 220" fill="none" stroke="#9aab87" stroke-width="2"/>
+<path d="M1416 269L1416 352" fill="none" stroke="#9aab87"/>
+<path d="M204 352L1416 352" fill="none" stroke="#9aab87"/>
+<path d="M204 352L204 401" fill="none" stroke="#9aab87"/><path d="M199 394L204 401L209 394" fill="none" stroke="#9aab87"/>
+<text x="904" y="338" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="13" font-weight="600" fill="#244d3f">生成结果必须经过主人内容复核</text>
+<rect x="62" y="401" width="284" height="109" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="82" y="436" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#244d3f">06  主人内容复核</text>
+<text x="82" y="464" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">忠实度 / 来源 / 适龄 / 不当内容</text>
+<rect x="82" y="476" width="145" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="94" y="494" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">本地确认不替代服务审核</text>
+<rect x="412" y="401" width="284" height="109" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="432" y="436" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#244d3f">07  互动伴读</text>
+<text x="432" y="464" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">画面 / 字幕 / 提问 / 点击反馈</text>
+<rect x="432" y="476" width="134" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="444" y="494" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">静态模拟，非模型视频</text>
+<rect x="762" y="401" width="284" height="109" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="782" y="436" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#244d3f">08  阅读历史</text>
+<text x="782" y="464" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">搜索 / 筛选 / JSON 导出</text>
+<rect x="782" y="476" width="145" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="794" y="494" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">来源页码 / 视频时间</text>
+<rect x="1112" y="401" width="427" height="109" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="1132" y="436" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#244d3f">09  笔记编辑与预览</text>
+<text x="1132" y="464" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">摘要 / 人物概念 / 来源 / revision</text>
+<rect x="1132" y="476" width="90" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="1144" y="494" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">默认私密草稿</text>
+<path d="M346 455L412 455" fill="none" stroke="#9aab87" stroke-width="2"/><path d="M405 450L412 455L405 460" fill="none" stroke="#9aab87" stroke-width="2"/>
+<path d="M696 455L762 455" fill="none" stroke="#9aab87" stroke-width="2"/><path d="M755 450L762 455L755 460" fill="none" stroke="#9aab87" stroke-width="2"/>
+<path d="M1046 455L1112 455" fill="none" stroke="#9aab87" stroke-width="2"/><path d="M1105 450L1112 455L1105 460" fill="none" stroke="#9aab87" stroke-width="2"/>
+
+
+
+<rect x="62" y="624" width="284" height="109" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="82" y="659" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#244d3f">10  主人审核笔记</text>
+<text x="82" y="687" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">审核当前 revision，退回可再编辑</text>
+<rect x="82" y="699" width="112" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="94" y="717" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">未经审核禁止分享</text>
+<rect x="412" y="624" width="284" height="109" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="432" y="659" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#244d3f">11  分享设置</text>
+<text x="432" y="687" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">指定用户 / 限时链接 / 复制</text>
+<rect x="432" y="699" width="145" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="444" y="717" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">只读快照与审核版本一致</text>
+<rect x="762" y="624" width="284" height="109" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="782" y="659" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#244d3f">12  只读分享预览</text>
+<text x="782" y="687" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">允许查看 / 越权 / 过期 / 撤销</text>
+<rect x="782" y="699" width="134" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="794" y="717" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">拒绝时不渲染笔记内容</text>
+<rect x="1112" y="624" width="427" height="109" rx="14" fill="#fffefa" stroke="#e3e8dc"/>
+<text x="1132" y="659" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="17" font-weight="600" fill="#244d3f">13  分享管理</text>
+<text x="1132" y="687" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#8b9980">查看记录 / 撤销 / 状态反馈</text>
+<rect x="1132" y="699" width="112" height="26" rx="13" fill="#eaf0e3" stroke="none"/>
+<text x="1144" y="717" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="11" font-weight="400" fill="#244d3f">同浏览器会话模拟</text>
+<path d="M346 678L412 678" fill="none" stroke="#9aab87" stroke-width="2"/><path d="M405 673L412 678L405 683" fill="none" stroke="#9aab87" stroke-width="2"/>
+<path d="M696 678L762 678" fill="none" stroke="#9aab87" stroke-width="2"/><path d="M755 673L762 678L755 683" fill="none" stroke="#9aab87" stroke-width="2"/>
+<path d="M1046 678L1112 678" fill="none" stroke="#9aab87" stroke-width="2"/><path d="M1105 673L1112 678L1105 683" fill="none" stroke="#9aab87" stroke-width="2"/>
+<path d="M1325 510L1325 570" fill="none" stroke="#9aab87"/>
+<path d="M204 570L1325 570" fill="none" stroke="#9aab87"/>
+<path d="M204 570L204 624" fill="none" stroke="#9aab87"/>
+<text x="462" y="555" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="13" font-weight="600" fill="#244d3f">核对来源 → 主人审核 → 再决定分享</text>
+<rect x="62" y="797" width="1477" height="220" rx="14" fill="#eaf0e3" stroke="none"/>
+<text x="88" y="835" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="20" font-weight="600" fill="#244d3f">统一状态与版本约束</text>
+<text x="88" y="871" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="13" font-weight="400" fill="#244d3f">每个业务页面：加载 / 空数据 / 正常成功 / 明确失败；错误可重试，不静默伪造成功。</text>
+<text x="88" y="894" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="13" font-weight="400" fill="#244d3f">修改笔记或原书文字、页序 → 原审核与旧分享失效；图书重新校对、分类与复核后才可进入伴读。</text>
+<text x="88" y="917" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="13" font-weight="400" fill="#244d3f">分享到期、被撤销或模拟用户不匹配 → 隐藏内容；真实身份、令牌和权限由后端完成。</text>
+<text x="88" y="940" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="13" font-weight="400" fill="#244d3f">本地图片只在内存预览，刷新后重新导入；元信息、笔记、分享和历史保存在当前标签的 sessionStorage。</text>
+<text x="88" y="963" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="13" font-weight="400" fill="#244d3f">A/C 接入点：HTTP 适配器、上传 / 校对 / 任务回调、视频 URL、音频问答、点击识别、笔记与分享服务。</text>
+<text x="62" y="1061" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-size="12" font-weight="400" fill="#8b9980">设计交付：SVG 文字与路径可编辑；导入 Figma 后需建立原生 Auto Layout 和 Prototype 连接。</text></svg>
