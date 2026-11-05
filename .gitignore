@@ -10,3 +10,4 @@ backend/.pytest_cache/
 *.local
 test-results/
 data/
+*.tsbuildinfo

@@ -27,7 +27,7 @@ await check('编辑已审核笔记使旧审核与分享失效',async()=>{await n
 await check('刷新保留当前会话笔记',async()=>{await page.reload();await nav('阅读笔记');assert.equal(await page.getByLabel('阅读摘要').inputValue(),'修改后的阅读摘要，需要主人重新审核。')});
 await check('全部页面四状态与响应式',async()=>{for(const width of [1024,390]){await page.setViewportSize({width,height:900});for(const route of ['','import','review','classification','progress','reader','history','notes','sharing','shared','settings']){await page.goto(file+'#/'+route);await noOverflow();if(true)await shot(`${route||'home'}-${width}`);if(route!=='settings'){for(const state of ['loading','empty','error','success']){await page.getByLabel('原型状态').selectOption(state);await noOverflow()}}}}});
 await check('无脚本异常与远程请求',async()=>{assert.deepEqual(errors,[]);assert.deepEqual(remote,[])});
-const report={date:'2026-11-04',browser:await browser.version(),checks,errors,remoteRequests:remote,scope:'完整前端离线原型，不含真实模型/权限/后端验收'};fs.writeFileSync(path.join(root,'docs/full-test-results.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));await browser.close();
+const report={date:new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Shanghai'}),browser:await browser.version(),checks,errors,remoteRequests:remote,scope:'完整前端离线原型，不含真实模型/权限/后端验收'};fs.writeFileSync(path.join(root,'docs/full-test-results.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));await browser.close();
 })().catch(error=>{console.error(error);process.exit(1)});
 
 
