@@ -165,12 +165,15 @@ export const BenchmarkRunner: React.FC<{ bookId: string; runId: string }> = ({
       setProgress({ current: index, total });
 
       const startTime = performance.now();
-      const resp: AskQuestionResponse = await apiClient.askQuestion({
-        book_id: bookId,
-        run_id: runId,
-        video_ms: qa.videoMs,
-        query_text: qa.query,
-      });
+      const resp: AskQuestionResponse = await apiClient.askQuestion(
+        {
+          book_id: bookId,
+          run_id: runId,
+          video_ms: qa.videoMs,
+          query_text: qa.query,
+        },
+        'demo'
+      );
 
       const actualLatency = resp.latency.total_roundtrip_ms || Math.round(performance.now() - startTime);
       const isStatusMatch = resp.status === qa.expectedStatus;
@@ -222,28 +225,31 @@ export const BenchmarkRunner: React.FC<{ bookId: string; runId: string }> = ({
         continue;
       }
 
-      const touchResp: TouchRecognitionResponse = await apiClient.recognizeTouch({
-        book_id: bookId,
-        run_id: runId,
-        video_ms: tc.videoMs,
-        touch_point: {
-          norm_x: tc.normX,
-          norm_y: tc.normY,
-          video_pixel_x: Math.round(tc.normX * 1280),
-          video_pixel_y: Math.round(tc.normY * 720),
-          video_width: 1280,
-          video_height: 720,
+      const touchResp: TouchRecognitionResponse = await apiClient.recognizeTouch(
+        {
+          book_id: bookId,
+          run_id: runId,
+          video_ms: tc.videoMs,
+          touch_point: {
+            norm_x: tc.normX,
+            norm_y: tc.normY,
+            video_pixel_x: Math.round(tc.normX * 1280),
+            video_pixel_y: Math.round(tc.normY * 720),
+            video_width: 1280,
+            video_height: 720,
+          },
+          viewport_info: {
+            container_width: 800,
+            container_height: 450,
+            render_width: 800,
+            render_height: 450,
+            offset_x: 0,
+            offset_y: 0,
+            is_letterbox: false,
+          },
         },
-        viewport_info: {
-          container_width: 800,
-          container_height: 450,
-          render_width: 800,
-          render_height: 450,
-          offset_x: 0,
-          offset_y: 0,
-          is_letterbox: false,
-        },
-      });
+        'demo'
+      );
 
       const passed = touchResp.status === 'success' && touchResp.target_name.includes(tc.expectedName);
 

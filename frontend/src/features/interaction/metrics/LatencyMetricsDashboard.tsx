@@ -6,7 +6,7 @@ interface LatencyMetricsDashboardProps {
 }
 
 export const LatencyMetricsDashboard: React.FC<LatencyMetricsDashboardProps> = ({ history }) => {
-  const qaItems = history.filter((h) => h.type === 'qa');
+  const qaItems = history.filter((h) => h.type === 'voice');
   const touchItems = history.filter((h) => h.type === 'touch');
 
   const avgQaLatency =

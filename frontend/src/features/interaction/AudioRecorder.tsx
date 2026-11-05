@@ -4,9 +4,10 @@ import {
   encodeAudioBufferToWav,
   calculateRMS,
 } from './AudioRecorderHelper';
+import { realSpeechRecognizer } from './asr/AsrProvider';
 
 interface AudioRecorderProps {
-  onRecordingComplete: (audioBlob: Blob, mimeType: string) => void;
+  onRecordingComplete: (audioBlob: Blob, mimeType: string, realTranscript: string) => void;
   disabled?: boolean;
   maxDurationSec?: number;
 }
@@ -19,6 +20,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const [isRecording, setIsRecording] = useState(false);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0);
+  const [liveTranscript, setLiveTranscript] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [lastAudioUrl, setLastAudioUrl] = useState<string | null>(null);
   const [lastAudioInfo, setLastAudioInfo] = useState<string | null>(null);
@@ -31,7 +33,6 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // 清理资源
   const cleanup = useCallback(() => {
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
@@ -53,6 +54,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   // 开始录音
   const startRecording = async () => {
     setErrorMsg(null);
+    setLiveTranscript('');
     audioChunksRef.current = [];
 
     try {
@@ -87,11 +89,21 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           const rms = calculateRMS(dataArray);
           setVolume(rms);
         }
+        // 实时更新识别的文字预览
+        if (realSpeechRecognizer.isSupported()) {
+          const currentText = realSpeechRecognizer.getCurrentTranscript();
+          if (currentText) setLiveTranscript(currentText);
+        }
         animFrameRef.current = requestAnimationFrame(updateVolume);
       };
       updateVolume();
 
-      // 2. 初始化 MediaRecorder
+      // 2. 启动原生实时语音转写
+      if (realSpeechRecognizer.isSupported()) {
+        realSpeechRecognizer.start();
+      }
+
+      // 3. 初始化 MediaRecorder
       const mimeType = getSupportedAudioMimeType();
       const options = mimeType ? { mimeType } : undefined;
       const recorder = new MediaRecorder(stream, options);
@@ -107,8 +119,14 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         cleanup();
         setIsRecording(false);
 
+        // 获取最终识别的文本
+        let finalTranscript = '';
+        if (realSpeechRecognizer.isSupported()) {
+          finalTranscript = await realSpeechRecognizer.stop();
+        }
+
         if (audioChunksRef.current.length === 0) {
-          setErrorMsg('未采集到音频数据，请重试');
+          setErrorMsg('未采集到有效音频数据，请对准麦克风重试');
           return;
         }
 
@@ -116,7 +134,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           type: recorder.mimeType || 'audio/webm',
         });
 
-        // 尝试转写为 16kHz WAV 保证兼容性与免转码直出
+        // 尝试转写为 16kHz WAV
         try {
           const decodeCtx = new AudioCtx();
           const arrayBuf = await rawBlob.arrayBuffer();
@@ -125,22 +143,20 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           decodeCtx.close();
           const url = URL.createObjectURL(wavBlob);
           setLastAudioUrl(url);
-          setLastAudioInfo(`标准 WAV (16kHz 单声道, ${(wavBlob.size / 1024).toFixed(1)} KB)`);
-          onRecordingComplete(wavBlob, 'audio/wav');
-        } catch (convErr) {
-          console.warn('WAV 本地转换失败，回退使用原始录音格式:', convErr);
+          setLastAudioInfo(`标准 WAV (16kHz, ${(wavBlob.size / 1024).toFixed(1)} KB)`);
+          onRecordingComplete(wavBlob, 'audio/wav', finalTranscript);
+        } catch {
           const url = URL.createObjectURL(rawBlob);
           setLastAudioUrl(url);
-          setLastAudioInfo(`原始录音 (${recorder.mimeType || 'audio/webm'}, ${(rawBlob.size / 1024).toFixed(1)} KB)`);
-          onRecordingComplete(rawBlob, recorder.mimeType || 'audio/webm');
+          setLastAudioInfo(`原始录音 (${(rawBlob.size / 1024).toFixed(1)} KB)`);
+          onRecordingComplete(rawBlob, recorder.mimeType || 'audio/webm', finalTranscript);
         }
       };
 
-      recorder.start(250); // 每 250ms 切片
+      recorder.start(250);
       setIsRecording(true);
       setDuration(0);
 
-      // 倒计时计时器
       let sec = 0;
       timerRef.current = setInterval(() => {
         sec += 1;
@@ -156,13 +172,12 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         message = '麦克风权限被拒绝。请在浏览器地址栏允许麦克风权限后重试。';
       } else if (err.name === 'NotFoundError') {
-        message = '未检测到可用麦克风设备，请检查音频输入硬件。';
+        message = '未检测到可用麦克风设备，请检查硬件输入设置。';
       }
       setErrorMsg(message);
     }
   };
 
-  // 停止录音
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
@@ -203,7 +218,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               backgroundColor: '#fff',
             }}
           />
-          {isRecording ? `松开/结束 (${duration}s / ${maxDurationSec}s)` : '按住说话 / 点击提问'}
+          {isRecording ? `结束录音 (${duration}s / ${maxDurationSec}s)` : '🎤 按住说话 / 点击提问'}
         </button>
 
         {isRecording && (
@@ -224,9 +239,15 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         )}
       </div>
 
+      {isRecording && liveTranscript && (
+        <div style={{ fontSize: '12px', color: '#dc2626', backgroundColor: '#fef2f2', padding: '4px 8px', borderRadius: '4px' }}>
+          👂 正在实时听取: "{liveTranscript}"
+        </div>
+      )}
+
       {lastAudioUrl && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#64748b' }}>
-          <span>🎧 录音回放:</span>
+          <span>🎧 刚才录音回放:</span>
           <audio src={lastAudioUrl} controls style={{ height: '26px', maxWidth: '200px' }} />
           <span>{lastAudioInfo}</span>
         </div>
@@ -244,7 +265,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             textAlign: 'center',
           }}
         >
-          {errorMsg}
+          ⚠️ {errorMsg}
         </div>
       )}
     </div>

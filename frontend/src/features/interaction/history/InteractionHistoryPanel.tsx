@@ -101,7 +101,7 @@ export const InteractionHistoryPanel: React.FC<InteractionHistoryPanelProps> = (
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>
-                  {item.type === 'qa' ? '🎤 语音问答' : '🎯 触控认物'} ｜ 视频 {(item.video_ms / 1000).toFixed(1)}s
+                  {item.type === 'voice' ? '🎤 语音问答' : '🎯 触控认物'} ｜ 视频 {(item.video_ms / 1000).toFixed(1)}s
                 </span>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                   <span

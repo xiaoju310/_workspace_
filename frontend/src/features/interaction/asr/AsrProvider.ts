@@ -4,159 +4,115 @@ export interface AsrResult {
   text: string;
   confidence: number;
   latencyMs: number;
-  provider: 'backend' | 'browser_web_speech' | 'mock';
+  provider: 'browser_web_speech' | 'backend' | 'demo_mock';
   errorCode?: AsrErrorCode;
 }
 
-export interface IAsrProvider {
-  name: string;
-  isAvailable(): Promise<boolean>;
-  transcribe(audioBlob: Blob): Promise<AsrResult>;
-}
-
 /**
- * 1. 后端真实 ASR 服务适配器 (FunASR / Whisper / 百度)
+ * 真实浏览器原生 Web Speech API 监听识别器 (Chrome / Edge / Safari 原生支持)
+ * 实时捕获麦克风语音流并转为真实文本
  */
-export class BackendAsrProvider implements IAsrProvider {
-  name = 'Backend ASR';
-  private apiEndpoint: string;
-
-  constructor(endpoint: string = '/api/v1/interaction/asr') {
-    this.apiEndpoint = endpoint;
-  }
-
-  async isAvailable(): Promise<boolean> {
-    try {
-      const res = await fetch(`${this.apiEndpoint}/health`, { method: 'GET', signal: AbortSignal.timeout(1000) });
-      return res.ok;
-    } catch {
-      return false;
-    }
-  }
-
-  async transcribe(audioBlob: Blob): Promise<AsrResult> {
-    const start = performance.now();
-    const formData = new FormData();
-    formData.append('audio', audioBlob, 'speech.wav');
-
-    const res = await fetch(this.apiEndpoint, {
-      method: 'POST',
-      body: formData,
-      signal: AbortSignal.timeout(8000),
-    });
-
-    if (!res.ok) {
-      throw new Error(`ASR Backend returned HTTP ${res.status}`);
-    }
-
-    const data = await res.json();
-    return {
-      text: data.text || '',
-      confidence: data.confidence ?? 0.92,
-      latencyMs: Math.round(performance.now() - start),
-      provider: 'backend',
-    };
-  }
-}
-
-/**
- * 2. 浏览器原生 Web Speech API 离线适配器 (Chrome/Safari 现场离线免后端)
- */
-export class BrowserWebSpeechAsrProvider implements IAsrProvider {
-  name = 'Browser Web Speech API';
-
-  async isAvailable(): Promise<boolean> {
-    const hasRecognition =
-      typeof window !== 'undefined' &&
-      ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
-    return Boolean(hasRecognition);
-  }
-
-  async transcribe(_audioBlob: Blob): Promise<AsrResult> {
-    // 浏览器 WebSpeech 主要是实时麦克风流；在此作为兜底指示
-    return {
-      text: '小狐狸在森林里迷路了吗？',
-      confidence: 0.9,
-      latencyMs: 120,
-      provider: 'browser_web_speech',
-    };
-  }
-}
-
-/**
- * 3. 启发式测试 ASR Provider (开发自测与基准回归)
- */
-export class MockAdaptiveAsrProvider implements IAsrProvider {
-  name = 'Adaptive Mock ASR';
-
-  async isAvailable(): Promise<boolean> {
-    return true;
-  }
-
-  async transcribe(audioBlob: Blob): Promise<AsrResult> {
-    const start = performance.now();
-    await new Promise((r) => setTimeout(r, 120 + Math.random() * 80));
-
-    // 根据音频大小简单区分
-    const size = audioBlob.size;
-    let text = '这只戴红围巾的小动物是谁？';
-    if (size > 150000) {
-      text = '小狐狸为什么一个人走在森林里？';
-    } else if (size < 40000) {
-      text = '它最后找到妈妈了吗？';
-    }
-
-    return {
-      text,
-      confidence: 0.95,
-      latencyMs: Math.round(performance.now() - start),
-      provider: 'mock',
-    };
-  }
-}
-
-/**
- * ASR 统一管理器：多级降级与容错路由
- */
-export class AsrManager {
-  private providers: IAsrProvider[];
+export class RealBrowserSpeechRecognition {
+  private recognition: any = null;
+  private isListening = false;
+  private transcript = '';
 
   constructor() {
-    this.providers = [
-      new BackendAsrProvider(),
-      new BrowserWebSpeechAsrProvider(),
-      new MockAdaptiveAsrProvider(),
-    ];
+    const SpeechRec =
+      typeof window !== 'undefined'
+        ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+        : null;
+
+    if (SpeechRec) {
+      this.recognition = new SpeechRec();
+      this.recognition.lang = 'zh-CN'; // 普通话
+      this.recognition.continuous = true;
+      this.recognition.interimResults = true;
+
+      this.recognition.onresult = (event: any) => {
+        let currentText = '';
+        for (let i = 0; i < event.results.length; i++) {
+          currentText += event.results[i][0].transcript;
+        }
+        this.transcript = currentText;
+      };
+
+      this.recognition.onerror = (e: any) => {
+        console.warn('SpeechRecognition error:', e);
+      };
+    }
   }
 
-  async transcribeWithFallback(audioBlob: Blob): Promise<AsrResult> {
-    if (!audioBlob || audioBlob.size === 0) {
+  isSupported(): boolean {
+    return Boolean(this.recognition);
+  }
+
+  start() {
+    if (!this.recognition || this.isListening) return;
+    this.transcript = '';
+    this.isListening = true;
+    try {
+      this.recognition.start();
+    } catch {}
+  }
+
+  stop(): Promise<string> {
+    return new Promise((resolve) => {
+      if (!this.recognition || !this.isListening) {
+        resolve(this.transcript.trim());
+        return;
+      }
+      this.isListening = false;
+      this.recognition.onend = () => {
+        resolve(this.transcript.trim());
+      };
+      try {
+        this.recognition.stop();
+      } catch {
+        resolve(this.transcript.trim());
+      }
+    });
+  }
+
+  getCurrentTranscript(): string {
+    return this.transcript.trim();
+  }
+}
+
+export const realSpeechRecognizer = new RealBrowserSpeechRecognition();
+
+/**
+ * ASR 统一管理器：严格拒绝空转写伪造
+ */
+export class AsrManager {
+  /**
+   * 转写音频或获取实时语音识别文本
+   * 严格准则：识别不到文字时返回明确错误，绝不替用户编造一句话
+   */
+  async processSpeechRecognition(
+    recognizedText: string,
+    mode: 'live' | 'demo'
+  ): Promise<AsrResult> {
+    const start = performance.now();
+    const cleanText = recognizedText.trim();
+
+    if (!cleanText) {
+      // 严格按照队长意见：空转写直接报错，提示用户重试，绝不自动替换成默认问题
       return {
         text: '',
         confidence: 0,
-        latencyMs: 0,
-        provider: 'mock',
+        latencyMs: Math.round(performance.now() - start),
+        provider: 'browser_web_speech',
         errorCode: 'NO_SPEECH_DETECTED',
       };
     }
 
-    // 逐级尝试
-    for (const provider of this.providers) {
-      try {
-        const available = await provider.isAvailable();
-        if (available) {
-          const result = await provider.transcribe(audioBlob);
-          if (result.text && result.text.trim()) {
-            return result;
-          }
-        }
-      } catch (err) {
-        console.warn(`ASR Provider [${provider.name}] failed, falling back:`, err);
-      }
-    }
-
-    // 最终保底
-    return new MockAdaptiveAsrProvider().transcribe(audioBlob);
+    return {
+      text: cleanText,
+      confidence: 0.95,
+      latencyMs: Math.round(performance.now() - start),
+      provider: mode === 'demo' ? 'demo_mock' : 'browser_web_speech',
+    };
   }
 }
 

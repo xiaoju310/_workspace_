@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { TouchOverlay } from './features/interaction/TouchOverlay';
 import { InteractionPanel } from './features/interaction/InteractionPanel';
 import { BenchmarkRunner } from './features/interaction/BenchmarkRunner';
@@ -7,63 +7,48 @@ import { InteractionHistoryPanel } from './features/interaction/history/Interact
 import { LatencyMetricsDashboard } from './features/interaction/metrics/LatencyMetricsDashboard';
 import {
   TouchRecognitionResponse,
-  BookCategoryInfo,
+  BookType,
   InteractionHistoryItem,
+  AppMode,
 } from './types/interaction';
 import { apiClient } from './lib/api';
 
 export const App: React.FC = () => {
-  const [bookId] = useState('book-auth-sample-01');
-  const [runId] = useState('run-20261104-001');
+  // 队长要求：系统运行模式显式隔离，默认真实模式
+  const [appMode, setAppMode] = useState<AppMode>('live');
+
+  // 图书与生成任务动态配置 (解决按 book_id / run_id 隔离)
+  const [bookId, setBookId] = useState('book-auth-sample-01');
+  const [runId, setRunId] = useState('run-20261104-001');
+  const [videoUrl, setVideoUrl] = useState('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4');
+
+  // 认证 Token (对齐 A 后端安全机制)
+  const [bearerToken, setBearerToken] = useState(apiClient.getToken());
+  const [tokenNotice, setTokenNotice] = useState<string | null>(null);
+
   const [currentTimeMs, setCurrentTimeMs] = useState(0);
   const [activeTouchResult, setActiveTouchResult] = useState<TouchRecognitionResponse | null>(null);
   const [activeTab, setActiveTab] = useState<'interactive' | 'benchmark' | 'metrics'>('interactive');
 
-  // 多模态交互会话历史状态
-  const [history, setHistory] = useState<InteractionHistoryItem[]>([
-    {
-      id: 'init-hist-01',
-      timestamp: Date.now() - 60000,
-      type: 'qa',
-      video_ms: 3500,
-      query: '这只戴红围巾的小动物是谁？',
-      response_text: '这是故事的主人公小狐狸皮皮，正戴着红色小围巾。',
-      status: 'success',
-      evidence: [
-        {
-          page_no: 1,
-          video_start_ms: 0,
-          video_end_ms: 8000,
-          evidence_type: 'page',
-          confidence: 0.94,
-          snippet: '第 1 页：戴红围巾的小狐狸皮皮走出树洞',
-        },
-      ],
-      latency_ms: 310,
-      cache_hit: false,
-    },
-    {
-      id: 'init-hist-02',
-      timestamp: Date.now() - 30000,
-      type: 'touch',
-      video_ms: 3500,
-      query: '点击画面 [0.35, 0.42]',
-      response_text: '识别目标：小狐狸皮皮 (故事的主人公小狐狸皮皮，正戴着红色小围巾。)',
-      status: 'success',
-      latency_ms: 180,
-      cache_hit: false,
-    },
-  ]);
+  // 图书分类状态 (严格对接 A 后端 PATCH /api/books/{id}/classification)
+  const [confirmedType, setConfirmedType] = useState<BookType>('picture_book');
+  const [categoryStatusMsg, setCategoryStatusMsg] = useState<{ text: string; isError: boolean } | null>(null);
 
-  // 通用阅读扩展：分类与笔记状态
-  const [categoryInfo, setCategoryInfo] = useState<BookCategoryInfo>({
-    category: 'picture_book',
-    confidence: 0.98,
-    is_confirmed: true,
-    confirmed_by: 'owner',
-  });
+  // 会话历史记录
+  const [history, setHistory] = useState<InteractionHistoryItem[]>([]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // 当 runId 变化时，尝试从后端加载真实视频资产与时间轴
+  useEffect(() => {
+    if (appMode === 'live') {
+      apiClient.getRunAssets(runId).then((assets) => {
+        if (assets && assets.length > 0 && assets[0].download_url) {
+          setVideoUrl(assets[0].download_url);
+        }
+      });
+    }
+  }, [runId, appMode]);
 
   const handleTimeUpdate = () => {
     if (videoRef.current) {
@@ -80,7 +65,7 @@ export const App: React.FC = () => {
 
   const handleTouchRecognize = async (touchReq: any) => {
     try {
-      const resp = await apiClient.recognizeTouch(touchReq);
+      const resp = await apiClient.recognizeTouch(touchReq, appMode);
       setActiveTouchResult(resp);
       setHistory((prev) => [
         {
@@ -94,11 +79,12 @@ export const App: React.FC = () => {
           evidence: [resp.evidence],
           latency_ms: resp.latency_ms,
           cache_hit: resp.cache_hit,
+          is_demo_mock: resp.is_demo_mock,
         },
         ...prev,
       ]);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      alert(`触控识别失败: ${e.message}`);
     }
   };
 
@@ -106,14 +92,74 @@ export const App: React.FC = () => {
     setHistory((prev) => [item, ...prev]);
   };
 
+  // 分类修改处理 (真实调用 A 后端，绝不假冒成功)
+  const handleConfirmTypeChange = async (newType: BookType) => {
+    setCategoryStatusMsg(null);
+    try {
+      if (appMode === 'live') {
+        const res = await apiClient.confirmCategory(bookId, newType);
+        setConfirmedType(res.confirmed_type as BookType || newType);
+        setCategoryStatusMsg({ text: `✅ 服务端已成功确认图书类型为: ${res.confirmed_type}`, isError: false });
+      } else {
+        setConfirmedType(newType);
+        setCategoryStatusMsg({ text: `⚠️ [演示模式] 本地更新类别为: ${newType}`, isError: false });
+      }
+    } catch (err: any) {
+      // 队长要求：保存失败必须真实显示，不能伪造成功！
+      setCategoryStatusMsg({ text: `❌ 分类保存失败: ${err.message}`, isError: true });
+    }
+  };
+
+  const handleUpdateToken = () => {
+    apiClient.setToken(bearerToken.trim());
+    setTokenNotice('✅ Bearer Token 已保存并生效');
+    setTimeout(() => setTokenNotice(null), 2500);
+  };
+
   return (
     <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '20px' }}>
+      {/* 队长要求：离线演示模式显式通告横幅 */}
+      {appMode === 'demo' && (
+        <div
+          style={{
+            backgroundColor: '#fef3c7',
+            border: '1px solid #f59e0b',
+            color: '#92400e',
+            padding: '10px 16px',
+            borderRadius: '8px',
+            fontSize: '13px',
+            fontWeight: 600,
+            marginBottom: '16px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <span>⚠️ 当前处于【本地离线演示模式 (Demo)】：未连接真实后端与 AI 模型，展示数据均为静态样例。</span>
+          <button
+            type="button"
+            onClick={() => setAppMode('live')}
+            style={{
+              padding: '4px 10px',
+              backgroundColor: '#d97706',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '12px',
+            }}
+          >
+            切换到真实联调模式 (Live)
+          </button>
+        </div>
+      )}
+
       {/* 顶部 Header */}
       <header
         style={{
           display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
+          flexDirection: 'column',
+          gap: '12px',
           backgroundColor: '#ffffff',
           padding: '16px 24px',
           borderRadius: '12px',
@@ -121,53 +167,130 @@ export const App: React.FC = () => {
           marginBottom: '20px',
         }}
       >
-        <div>
-          <h1 style={{ margin: 0, fontSize: '20px', color: '#0f172a' }}>
-            📖 纸书智伴 · 语音触控伴读与联调工作台 (第一周半程闭环)
-          </h1>
-          <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
-            分支: <code style={{ color: '#2563eb' }}>team/c-interaction</code> ｜ 书籍: {bookId} ｜ 运行批次: {runId}
-          </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '20px', color: '#0f172a' }}>
+              📖 纸书智伴 · 交互与联调工作台
+            </h1>
+            <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+              角色: <strong>任务 C (语音/触控/联调)</strong> ｜ 对齐接口: <code style={{ color: '#2563eb' }}>/api/... (docs/api-contract.md)</code>
+            </p>
+          </div>
+
+          {/* 模式切换器 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '12px', color: '#475569', fontWeight: 600 }}>运行模式:</span>
+            <button
+              type="button"
+              onClick={() => setAppMode('live')}
+              style={{
+                padding: '4px 12px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                backgroundColor: appMode === 'live' ? '#22c55e' : '#f8fafc',
+                color: appMode === 'live' ? '#ffffff' : '#475569',
+              }}
+            >
+              🟢 真实模式 (Live)
+            </button>
+            <button
+              type="button"
+              onClick={() => setAppMode('demo')}
+              style={{
+                padding: '4px 12px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                backgroundColor: appMode === 'demo' ? '#f59e0b' : '#f8fafc',
+                color: appMode === 'demo' ? '#ffffff' : '#475569',
+              }}
+            >
+              🟡 演示模式 (Demo)
+            </button>
+          </div>
         </div>
 
-        {/* 通用阅读扩展标签与分类确认 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <select
-            value={categoryInfo.category}
-            onChange={(e) => {
-              const cat = e.target.value as any;
-              setCategoryInfo((prev) => ({ ...prev, category: cat }));
-              apiClient.confirmCategory(bookId, cat);
-            }}
-            style={{
-              fontSize: '12px',
-              backgroundColor: '#eff6ff',
-              color: '#1d4ed8',
-              padding: '4px 8px',
-              borderRadius: '16px',
-              border: '1px solid #bfdbfe',
-              outline: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            <option value="picture_book">儿童绘本 (赛事主场景)</option>
-            <option value="textbook">通用教材</option>
-            <option value="literature">文学名著</option>
-            <option value="science">科普百科</option>
-          </select>
-          <span
-            style={{
-              fontSize: '12px',
-              backgroundColor: '#f0fdf4',
-              color: '#15803d',
-              padding: '4px 10px',
-              borderRadius: '16px',
-              border: '1px solid #bbf7d0',
-            }}
-          >
-            🔒 笔记隐私: 主人审核后可分享
-          </span>
+        {/* 动态配置栏 (按 book_id / run_id 隔离) */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '12px',
+            alignItems: 'center',
+            backgroundColor: '#f8fafc',
+            padding: '10px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ color: '#64748b' }}>图书 ID:</span>
+            <input
+              type="text"
+              value={bookId}
+              onChange={(e) => setBookId(e.target.value)}
+              style={{ padding: '3px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', width: '150px' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ color: '#64748b' }}>运行 Run ID:</span>
+            <input
+              type="text"
+              value={runId}
+              onChange={(e) => setRunId(e.target.value)}
+              style={{ padding: '3px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', width: '150px' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ color: '#64748b' }}>Bearer 令牌:</span>
+            <input
+              type="text"
+              value={bearerToken}
+              onChange={(e) => setBearerToken(e.target.value)}
+              style={{ padding: '3px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', width: '130px' }}
+            />
+            <button
+              type="button"
+              onClick={handleUpdateToken}
+              style={{ padding: '3px 8px', borderRadius: '4px', border: 'none', backgroundColor: '#3b82f6', color: '#fff', cursor: 'pointer' }}
+            >
+              保存
+            </button>
+            {tokenNotice && <span style={{ color: '#16a34a' }}>{tokenNotice}</span>}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: '220px' }}>
+            <span style={{ color: '#64748b' }}>视频源 URL:</span>
+            <input
+              type="text"
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+              placeholder="输入当前 run 生成的成片视频链接或演示视频"
+              style={{ flex: 1, padding: '3px 8px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+            />
+          </div>
         </div>
+
+        {categoryStatusMsg && (
+          <div
+            style={{
+              fontSize: '12px',
+              padding: '6px 12px',
+              backgroundColor: categoryStatusMsg.isError ? '#fef2f2' : '#f0fdf4',
+              color: categoryStatusMsg.isError ? '#dc2626' : '#15803d',
+              borderRadius: '4px',
+            }}
+          >
+            {categoryStatusMsg.text}
+          </div>
+        )}
       </header>
 
       {/* 顶部 Tab 切换 */}
@@ -184,7 +307,6 @@ export const App: React.FC = () => {
             cursor: 'pointer',
             backgroundColor: activeTab === 'interactive' ? '#2563eb' : '#e2e8f0',
             color: activeTab === 'interactive' ? '#ffffff' : '#475569',
-            boxShadow: activeTab === 'interactive' ? '0 2px 6px rgba(37,99,235,0.3)' : 'none',
           }}
         >
           🎯 伴读视频与语音触控体验
@@ -201,7 +323,6 @@ export const App: React.FC = () => {
             cursor: 'pointer',
             backgroundColor: activeTab === 'benchmark' ? '#2563eb' : '#e2e8f0',
             color: activeTab === 'benchmark' ? '#ffffff' : '#475569',
-            boxShadow: activeTab === 'benchmark' ? '0 2px 6px rgba(37,99,235,0.3)' : 'none',
           }}
         >
           🧪 自动化基准测试与报告导出 (15项用例)
@@ -218,7 +339,6 @@ export const App: React.FC = () => {
             cursor: 'pointer',
             backgroundColor: activeTab === 'metrics' ? '#2563eb' : '#e2e8f0',
             color: activeTab === 'metrics' ? '#ffffff' : '#475569',
-            boxShadow: activeTab === 'metrics' ? '0 2px 6px rgba(37,99,235,0.3)' : 'none',
           }}
         >
           📊 交互历史与延迟看板 ({history.length} 条记录)
@@ -262,7 +382,7 @@ export const App: React.FC = () => {
               </span>
             </div>
 
-            {/* 视频容器（相对定位，包含 TouchOverlay） */}
+            {/* 视频容器 */}
             <div
               style={{
                 position: 'relative',
@@ -278,7 +398,7 @@ export const App: React.FC = () => {
             >
               <video
                 ref={videoRef}
-                src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+                src={videoUrl}
                 controls
                 onTimeUpdate={handleTimeUpdate}
                 style={{
@@ -317,6 +437,7 @@ export const App: React.FC = () => {
             <InteractionPanel
               bookId={bookId}
               runId={runId}
+              appMode={appMode}
               getCurrentVideoMs={() => currentTimeMs}
               seekVideoToMs={seekVideoToMs}
               onActiveTouchResultChange={setActiveTouchResult}
@@ -330,8 +451,9 @@ export const App: React.FC = () => {
       <footer style={{ marginTop: '20px' }}>
         <ReadingNotesDrawer
           bookId={bookId}
-          categoryInfo={categoryInfo}
-          onUpdateCategory={setCategoryInfo}
+          confirmedType={confirmedType}
+          onConfirmTypeChange={handleConfirmTypeChange}
+          appMode={appMode}
         />
       </footer>
     </div>

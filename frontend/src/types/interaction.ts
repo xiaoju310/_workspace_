@@ -1,9 +1,10 @@
 /**
  * 纸书智伴 - 交互模块全量类型定义 (TypeScript)
- * 对应第一周 (D1~D7 半程闭环) 与两周交付标准
+ * 严格对齐后端 A 接口契约 (docs/api-contract.md) 与队长评审要求
  */
 
-// ==================== 1. 基础状态与错误码 ====================
+// ==================== 1. 系统运行模式 ====================
+export type AppMode = 'live' | 'demo';
 
 export type InteractionStatus =
   | 'idle'
@@ -26,7 +27,7 @@ export type AsrErrorCode =
 
 export type EvidenceType = 'page' | 'script' | 'video_frame' | 'none';
 
-// ==================== 2. 多源证据结构 (D3~D5 核心) ====================
+// ==================== 2. 多源证据结构 ====================
 
 export interface PageEvidence {
   page_no: number;
@@ -49,7 +50,6 @@ export interface VideoFrameEvidence {
   lighting_or_time_of_day: string;
 }
 
-/** 统一的结构化证据对象 */
 export interface EvidenceSource {
   page_no: number;
   video_start_ms: number;
@@ -66,25 +66,25 @@ export interface EvidenceSource {
   };
 }
 
-// ==================== 3. 交互耗时度量 (Latency Metrics) ====================
+// ==================== 3. 耗时度量 ====================
 
 export interface LatencyBreakdown {
-  asr_ms: number;             // ASR 转写耗时
-  retrieval_ms: number;       // 时间片与页码证据检索耗时
-  llm_first_token_ms: number; // LLM 首字延迟
-  llm_total_ms: number;       // LLM 完整短答生成耗时
-  tts_first_audio_ms: number; // TTS 首音频包到达耗时
-  tts_total_ms: number;       // TTS 完整合成耗时
-  total_roundtrip_ms: number; // 客户端端到端耗时
+  asr_ms: number;
+  retrieval_ms: number;
+  llm_first_token_ms: number;
+  llm_total_ms: number;
+  tts_first_audio_ms: number;
+  tts_total_ms: number;
+  total_roundtrip_ms: number;
 }
 
-// ==================== 4. 语音问答契约 (QA Contract) ====================
+// ==================== 4. 语音问答契约 ====================
 
 export interface AskQuestionRequest {
   book_id: string;
   run_id: string;
   video_ms: number;
-  query_text?: string;
+  query_text: string; // 必须是真实用户输入或真实 ASR 转写文本，严禁自动伪造默认问题
   audio_mime?: string;
   stream?: boolean;
 }
@@ -99,11 +99,12 @@ export interface AskQuestionResponse {
   audio_url?: string | null;
   latency: LatencyBreakdown;
   cache_hit: boolean;
+  is_demo_mock?: boolean; // 显式标识是否为本地离线演示数据
   error_code?: AsrErrorCode | string;
   error_message?: string;
 }
 
-// ==================== 5. 触控识别契约 (Touch Contract) ====================
+// ==================== 5. 触控识别契约 ====================
 
 export interface TouchPoint {
   norm_x: number;
@@ -141,15 +142,16 @@ export interface TouchRecognitionResponse {
   evidence: EvidenceSource;
   latency_ms: number;
   cache_hit: boolean;
+  is_demo_mock?: boolean;
   error_message?: string;
 }
 
-// ==================== 6. 会话历史记录 (D7 半程验收核心) ====================
+// ==================== 6. 会话历史记录 ====================
 
 export interface InteractionHistoryItem {
   id: string;
   timestamp: number;
-  type: 'qa' | 'touch';
+  type: 'voice' | 'touch';
   video_ms: number;
   query?: string;
   audio_url?: string | null;
@@ -158,39 +160,61 @@ export interface InteractionHistoryItem {
   evidence?: EvidenceSource[];
   latency_ms: number;
   cache_hit: boolean;
+  is_demo_mock?: boolean;
 }
 
-// ==================== 7. 通用阅读扩展契约 ====================
+// ==================== 7. 通用阅读扩展契约 (严格对齐 A 后端) ====================
 
-export type BookCategory =
-  | 'picture_book'
-  | 'textbook'
-  | 'literature'
-  | 'science'
-  | 'other';
+export type BookType = 'picture_book' | 'novel' | 'textbook' | 'science' | 'other';
 
-export interface BookCategoryInfo {
-  category: BookCategory;
+export interface ClassificationOut {
+  book_id: string;
+  predicted_type: BookType;
   confidence: number;
-  is_confirmed: boolean;
-  confirmed_by?: string;
+  reasons: string[];
+  confirmed_type: string | null;
+  confirmed_by: string | null;
+  status: string;
 }
 
-export interface ReadingNote {
+export interface BackendNoteOut {
   id: string;
   book_id: string;
-  page_no: number;
-  video_ms?: number;
-  user_id: string;
-  content: string;
-  source_quote?: string;
-  status: 'draft' | 'reviewed' | 'published';
-  share_settings: {
-    is_shared: boolean;
-    share_token?: string;
-    expires_at?: string | null;
-    read_only: boolean;
+  owner_id: string;
+  content: {
+    title?: string;
+    body?: string;
+    summary?: string;
+    page_no?: number;
+    video_ms?: number;
+    source_quote?: string;
+    [key: string]: any;
   };
+  status: 'DRAFT' | 'REVIEWING' | 'PRIVATE' | 'SHARED' | 'REVOKED';
+  version: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface BackendShareOut {
+  id: string;
+  share_mode: 'invite_only' | 'link';
+  shared_user_id: string | null;
+  expires_at: string | null;
+  status: string;
+  token?: string | null;
+}
+
+export interface SegmentOut {
+  id: string;
+  run_id: string;
+  page_no: number;
+  start_ms: number;
+  end_ms: number;
+  caption: string;
+  source: {
+    producer: string;
+    model_version?: string;
+    [key: string]: any;
+  };
 }
