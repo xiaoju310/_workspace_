@@ -43,6 +43,7 @@ export default function InteractiveReaderPage({
   const [isRecording, setIsRecording] = useState(false)
   const [voiceInput, setVoiceInput] = useState(false)
   const [recordingTip, setRecordingTip] = useState<string | null>(null)
+  const [ttsFirstAudioMs, setTtsFirstAudioMs] = useState<number | null>(null)
   const speechRecognizerRef = useRef<RealBrowserSpeechRecognition | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -580,7 +581,7 @@ export default function InteractiveReaderPage({
 
               {/* TTS 真实语音朗读组件 (C 交付) */}
               <div style={{ margin: '8px 0' }}>
-                <TtsPlayerWidget textToSpeak={latest.answer} />
+                <TtsPlayerWidget textToSpeak={latest.answer} onAudioFirstByte={setTtsFirstAudioMs} />
               </div>
 
               {latest.transcript && <div className="answer-transcript">语音转写：{latest.transcript}</div>}
@@ -604,6 +605,7 @@ export default function InteractiveReaderPage({
 
               <div className="answer-metrics">
                 <span>{latest.latency_ms === null ? '延迟未实测' : `请求延迟 ${latest.latency_ms} ms`}</span>
+                {ttsFirstAudioMs !== null && <span>TTS首音延迟 {ttsFirstAudioMs} ms</span>}
                 <span>{latest.cached ? '缓存命中' : '实时生成'}</span>
                 {latest.origin === 'real' && latest.persisted === false && (
                   <span role="alert" style={{ color: '#b91c1c' }}>未写入后端：{latest.persist_error ?? '原因未知'}</span>

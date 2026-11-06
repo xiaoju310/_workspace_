@@ -15,6 +15,18 @@ export interface ITtsProvider {
   stop(): void;
 }
 
+function getSpeechSynthesis(): any {
+  if (typeof window !== 'undefined' && (window as any).speechSynthesis) return (window as any).speechSynthesis;
+  if (typeof globalThis !== 'undefined' && (globalThis as any).speechSynthesis) return (globalThis as any).speechSynthesis;
+  return null;
+}
+
+function getUtteranceClass(): any {
+  if (typeof window !== 'undefined' && (window as any).SpeechSynthesisUtterance) return (window as any).SpeechSynthesisUtterance;
+  if (typeof globalThis !== 'undefined' && (globalThis as any).SpeechSynthesisUtterance) return (globalThis as any).SpeechSynthesisUtterance;
+  return null;
+}
+
 /**
  * 1. 浏览器原生 SpeechSynthesis 离线适配器 (零网络依赖，现场演练金牌兜底)
  */
@@ -22,15 +34,23 @@ export class BrowserSpeechSynthesisTts implements ITtsProvider {
   name = 'Browser SpeechSynthesis (离线童声)';
 
   async isAvailable(): Promise<boolean> {
-    return typeof window !== 'undefined' && 'speechSynthesis' in window;
+    return getSpeechSynthesis() !== null && getUtteranceClass() !== null;
   }
 
   speak(text: string, options?: TtsPlaybackOptions): Promise<{ audioUrl?: string; firstAudioMs: number }> {
     return new Promise((resolve) => {
-      const start = performance.now();
-      window.speechSynthesis.cancel();
+      const synth = getSpeechSynthesis();
+      const Utterance = getUtteranceClass();
+      if (!synth || !Utterance) {
+        options?.onError?.(new Error('SpeechSynthesis not supported in current environment'));
+        resolve({ firstAudioMs: 0 });
+        return;
+      }
 
-      const utterance = new SpeechSynthesisUtterance(text);
+      const start = performance.now();
+      synth.cancel();
+
+      const utterance = new Utterance(text);
       utterance.lang = 'zh-CN';
       utterance.rate = options?.rate ?? 0.95; // 稍慢，适合儿童
       utterance.pitch = options?.pitch ?? 1.15; // 稍高，亲和力更强
@@ -52,18 +72,19 @@ export class BrowserSpeechSynthesisTts implements ITtsProvider {
         options?.onEnd?.();
       };
 
-      utterance.onerror = (e) => {
+      utterance.onerror = (e: any) => {
         options?.onError?.(e);
         resolve({ firstAudioMs: Math.round(performance.now() - start) });
       };
 
-      window.speechSynthesis.speak(utterance);
+      synth.speak(utterance);
     });
   }
 
   stop(): void {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+    const synth = getSpeechSynthesis();
+    if (synth) {
+      synth.cancel();
     }
   }
 }

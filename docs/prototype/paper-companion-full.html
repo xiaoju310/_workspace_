@@ -752,7 +752,20 @@ function WorkspaceApp({ appMode = 'live' }) {
             const blob = await (await fetch(p.url)).blob();
             imageUrl = URL.createObjectURL(blob);
         } return { id: p.id, name: p.name, image_url: imageUrl, ocr_text: p.demo ? (workspace_1.originalPages[Number(p.id.replace('demo-', '')) - 1] ?? '') : '', confidence: p.demo ? .86 : 0, revision: 1, confirmed: false, demo: Boolean(p.demo) }; }));
-        setBooks(current => [{ id, title: input.title, subtitle: '刚刚带进来的新故事。', cover: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMjAiIGhlaWdodD0iNDIwIiB2aWV3Qm94PSIwIDAgMzIwIDQyMCIgZmlsbD0ibm9uZSI+CiAgPHJlY3Qgd2lkdGg9IjMyMCIgaGVpZ2h0PSI0MjAiIGZpbGw9IiMzMTVhNDgiLz48cmVjdCB4PSIxNyIgeT0iMTciIHdpZHRoPSIyODYiIGhlaWdodD0iMzg2IiByeD0iMSIgc3Ryb2tlPSIjYzVkMjljIiBzdHJva2Utb3BhY2l0eT0iLjUiLz4KICA8Y2lyY2xlIGN4PSIyMjAiIGN5PSIxMDUiIHI9IjM5IiBmaWxsPSIjZGNjOTg4Ii8+PHBhdGggZD0iTTAgMjc3Yzc0LTUyIDE0My0yMiAxOTktNTAgNTAtMjYgOTMtNSAxMjEgMTN2MTgwSDBaIiBmaWxsPSIjNzg5NDZiIi8+PHBhdGggZD0iTTAgMzMyYzYyLTQxIDExNC0zNyAxNjItNCA2OCA0NyAxMTAtMjkgMTU4LTQydjEzNEgwWiIgZmlsbD0iI2IxYmY4NiIvPgogIDxwYXRoIGQ9Ik01OSAzMTdWMTE4bTE5NSAyMDJWMTc2IiBzdHJva2U9IiNiMjliNmMiIHN0cm9rZS13aWR0aD0iNiIvPjxwYXRoIGQ9Im01OSA4My00MCAxMDdoODBabTEgNTlMOCAyNTZoMTA0WiIgZmlsbD0iIzE3M2QzMiIvPjxwYXRoIGQ9Im0yNTQgMTQ3LTM2IDk4aDcyWm0wIDY1LTQ4IDk2aDk2WiIgZmlsbD0iIzI0NGQzZiIvPgogIDxwYXRoIGQ9Ik0xNTUgMzUxYy0xMC0yMC0xNC00Mi02LTU4bDE0IDE0IDE3LTE2IDkgMjBjMTAgMTggOSAzMy00IDQyWiIgZmlsbD0iI2Q1OWE2YSIvPjxwYXRoIGQ9Ik0xNDcgMzE3YzExIDIgMTggOSAyMiAxOCA0LTEwIDEwLTE4IDIxLTIwLTEgMjQtMTEgMzUtMjEgMzUtMTItMi0yMC0xMy0yMi0zM1oiIGZpbGw9IiNmMGRmYmQiLz48Y2lyY2xlIGN4PSIxNTgiIGN5PSIzMTciIHI9IjIiIGZpbGw9IiMyNDRkM2YiLz48Y2lyY2xlIGN4PSIxODAiIGN5PSIzMTYiIHI9IjIiIGZpbGw9IiMyNDRkM2YiLz48cGF0aCBkPSJtMTY3IDMyNSA1IDEtMyA0WiIgZmlsbD0iIzI0NGQzZiIvPgogIDxwYXRoIGQ9Im0xMzYgMzQ1IDMzIDggMzQtMTEtMiAyNS0zMyA5LTMwLThaIiBmaWxsPSIjZWVlN2NmIi8+PHBhdGggZD0ibTEzNiAzNDUgMzMgMjMgMzQtMjYiIHN0cm9rZT0iI2I3OWM3MCIgc3Ryb2tlLXdpZHRoPSIxLjMiLz48cGF0aCBkPSJtMTY5IDM1My0xIDIzIiBzdHJva2U9IiNkM2M3YTQiLz4KICA8cGF0aCBkPSJNMTg2IDM1MGMyNyAxMiAzNi0zIDMwLTEyLTgtMTAtMTUtMy0xNSA1IiBzdHJva2U9IiNkNTlhNmEiIHN0cm9rZS13aWR0aD0iMTMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Im0xMTYgMTI2IDMgNyA4IDItOCAzLTMgNy0yLTctOC0zIDgtMlptMTE5IDU5IDIgNSA2IDEtNiAyLTIgNS0yLTUtNS0yIDUtMVoiIGZpbGw9IiNlNWQ2OWMiLz4KICA8cGF0aCBkPSJNMTMzIDc5YzEwLTUgMTgtNSAyNSAwbTUgMTNjMTAtNSAxOC01IDI1IDAiIHN0cm9rZT0iI2M1ZDI5YyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNNzEgMzcxYy0xLTE1LTktMjEtMTYtMjEgMCAxMiA1IDIwIDE2IDIxWm0zIDZjMTItNCAxOC0xMiAxNy0yMi0xMSAyLTE3IDktMTcgMjJaIiBmaWxsPSIjM2Q2NTRkIi8+Cjwvc3ZnPgo=', page_count: pages.length, status: 'REVIEW_REQUIRED', classification: { predicted_type: input.type, confidence: input.type === 'unknown' ? null : .72, reasons: ['根据图书书页排版与图文特征初步分类。'], confirmed_type: null, owner_confirmed: false }, updated_label: '刚刚', authorization_ref: input.authorization_ref, pages, age_band: '6–9 岁（待人工审核）', run_id: null, job_id: null, video_url: null, origin: 'mock', server_book_id: null, safety_reviewed: false }, ...current]);
+        let serverBookId = null;
+        let bookOrigin = 'mock';
+        if (appMode === 'live' && api_1.apiClient.getToken()) {
+            try {
+                const created = await api_1.apiClient.createBook({ title: input.title, authorization_ref: input.authorization_ref });
+                serverBookId = created.id;
+                bookOrigin = 'real';
+                notify(`已在服务端成功建档（ID: ${created.id.slice(0, 8)}…），可进行真实校对与笔记流转。`);
+            }
+            catch (e) {
+                notify(`服务端建档未完成（${e.message}），已自动切换为本地离线模式。`);
+            }
+        }
+        setBooks(current => [{ id, title: input.title, subtitle: '刚刚带进来的新故事。', cover: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMjAiIGhlaWdodD0iNDIwIiB2aWV3Qm94PSIwIDAgMzIwIDQyMCIgZmlsbD0ibm9uZSI+CiAgPHJlY3Qgd2lkdGg9IjMyMCIgaGVpZ2h0PSI0MjAiIGZpbGw9IiMzMTVhNDgiLz48cmVjdCB4PSIxNyIgeT0iMTciIHdpZHRoPSIyODYiIGhlaWdodD0iMzg2IiByeD0iMSIgc3Ryb2tlPSIjYzVkMjljIiBzdHJva2Utb3BhY2l0eT0iLjUiLz4KICA8Y2lyY2xlIGN4PSIyMjAiIGN5PSIxMDUiIHI9IjM5IiBmaWxsPSIjZGNjOTg4Ii8+PHBhdGggZD0iTTAgMjc3Yzc0LTUyIDE0My0yMiAxOTktNTAgNTAtMjYgOTMtNSAxMjEgMTN2MTgwSDBaIiBmaWxsPSIjNzg5NDZiIi8+PHBhdGggZD0iTTAgMzMyYzYyLTQxIDExNC0zNyAxNjItNCA2OCA0NyAxMTAtMjkgMTU4LTQydjEzNEgwWiIgZmlsbD0iI2IxYmY4NiIvPgogIDxwYXRoIGQ9Ik01OSAzMTdWMTE4bTE5NSAyMDJWMTc2IiBzdHJva2U9IiNiMjliNmMiIHN0cm9rZS13aWR0aD0iNiIvPjxwYXRoIGQ9Im01OSA4My00MCAxMDdoODBabTEgNTlMOCAyNTZoMTA0WiIgZmlsbD0iIzE3M2QzMiIvPjxwYXRoIGQ9Im0yNTQgMTQ3LTM2IDk4aDcyWm0wIDY1LTQ4IDk2aDk2WiIgZmlsbD0iIzI0NGQzZiIvPgogIDxwYXRoIGQ9Ik0xNTUgMzUxYy0xMC0yMC0xNC00Mi02LTU4bDE0IDE0IDE3LTE2IDkgMjBjMTAgMTggOSAzMy00IDQyWiIgZmlsbD0iI2Q1OWE2YSIvPjxwYXRoIGQ9Ik0xNDcgMzE3YzExIDIgMTggOSAyMiAxOCA0LTEwIDEwLTE4IDIxLTIwLTEgMjQtMTEgMzUtMjEgMzUtMTItMi0yMC0xMy0yMi0zM1oiIGZpbGw9IiNmMGRmYmQiLz48Y2lyY2xlIGN4PSIxNTgiIGN5PSIzMTciIHI9IjIiIGZpbGw9IiMyNDRkM2YiLz48Y2lyY2xlIGN4PSIxODAiIGN5PSIzMTYiIHI9IjIiIGZpbGw9IiMyNDRkM2YiLz48cGF0aCBkPSJtMTY3IDMyNSA1IDEtMyA0WiIgZmlsbD0iIzI0NGQzZiIvPgogIDxwYXRoIGQ9Im0xMzYgMzQ1IDMzIDggMzQtMTEtMiAyNS0zMyA5LTMwLThaIiBmaWxsPSIjZWVlN2NmIi8+PHBhdGggZD0ibTEzNiAzNDUgMzMgMjMgMzQtMjYiIHN0cm9rZT0iI2I3OWM3MCIgc3Ryb2tlLXdpZHRoPSIxLjMiLz48cGF0aCBkPSJtMTY5IDM1My0xIDIzIiBzdHJva2U9IiNkM2M3YTQiLz4KICA8cGF0aCBkPSJNMTg2IDM1MGMyNyAxMiAzNi0zIDMwLTEyLTgtMTAtMTUtMy0xNSA1IiBzdHJva2U9IiNkNTlhNmEiIHN0cm9rZS13aWR0aD0iMTMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Im0xMTYgMTI2IDMgNyA4IDItOCAzLTMgNy0yLTctOC0zIDgtMlptMTE5IDU5IDIgNSA2IDEtNiAyLTIgNS0yLTUtNS0yIDUtMVoiIGZpbGw9IiNlNWQ2OWMiLz4KICA8cGF0aCBkPSJNMTMzIDc5YzEwLTUgMTgtNSAyNSAwbTUgMTNjMTAtNSAxOC01IDI1IDAiIHN0cm9rZT0iI2M1ZDI5YyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNNzEgMzcxYy0xLTE1LTktMjEtMTYtMjEgMCAxMiA1IDIwIDE2IDIxWm0zIDZjMTItNCAxOC0xMiAxNy0yMi0xMSAyLTE3IDktMTcgMjJaIiBmaWxsPSIjM2Q2NTRkIi8+Cjwvc3ZnPgo=', page_count: pages.length, status: 'REVIEW_REQUIRED', classification: { predicted_type: input.type, confidence: input.type === 'unknown' ? null : .72, reasons: ['根据图书书页排版与图文特征初步分类。'], confirmed_type: null, owner_confirmed: false }, updated_label: '刚刚', authorization_ref: input.authorization_ref, pages, age_band: '6–9 岁（待人工审核）', run_id: null, job_id: null, video_url: null, origin: bookOrigin, server_book_id: serverBookId, safety_reviewed: false }, ...current]);
         navigate('review', id);
     }
     function saveNote(patch) {
@@ -922,7 +935,7 @@ function WorkspaceApp({ appMode = 'live' }) {
                 created_at: timestamp(),
                 uncertain: resp.status !== 'success',
                 origin: 'real',
-                cached: false,
+                cached: Boolean(resp.cache_hit),
                 persisted: resp.persisted,
                 persist_error: resp.persist_error,
             };
@@ -3221,9 +3234,36 @@ function clip(text, max = 80) {
     return t.length > max ? t.slice(0, max) + '…' : t;
 }
 class PictureBookRagEngine {
+    cache = new Map();
+    clearCache() {
+        this.cache.clear();
+    }
     async generateAnswer(req, indexer) {
         const t0 = performance.now();
         const query = (req.query_text || '').trim();
+        const cacheKey = `${req.run_id}:${query.toLowerCase()}`;
+        if (this.cache.has(cacheKey)) {
+            const cached = this.cache.get(cacheKey);
+            return {
+                run_id: req.run_id,
+                question: query,
+                answer: cached.answer,
+                status: cached.status,
+                confidence: cached.confidence,
+                evidence: cached.evidence,
+                audio_url: null,
+                cache_hit: true,
+                latency: {
+                    asr_ms: null,
+                    retrieval_ms: 0,
+                    llm_first_token_ms: null,
+                    llm_total_ms: null,
+                    tts_first_audio_ms: null,
+                    tts_total_ms: null,
+                    total_roundtrip_ms: Math.round(performance.now() - t0),
+                },
+            };
+        }
         const r0 = performance.now();
         const evidence = indexer.searchEvidence(query, req.video_ms);
         const retrievalMs = Math.round(performance.now() - r0);
@@ -3242,11 +3282,13 @@ class PictureBookRagEngine {
             total_roundtrip_ms: Math.round(performance.now() - t0),
         });
         if (evidence.length === 0) {
+            const noAnswer = indexer.size() === 0
+                ? '当前这本书还没有经过校对的文字内容，无法回答。请先完成逐页文字校对。'
+                : '原书这段内容里没有找到相关依据，请结合书页观察，或换个问法。';
+            this.cache.set(cacheKey, { answer: noAnswer, status: 'no_evidence', confidence: 0, evidence: [] });
             return {
                 ...base,
-                answer: indexer.size() === 0
-                    ? '当前这本书还没有经过校对的文字内容，无法回答。请先完成逐页文字校对。'
-                    : '原书这段内容里没有找到相关依据，请结合书页观察，或换个问法。',
+                answer: noAnswer,
                 status: 'no_evidence',
                 confidence: 0,
                 evidence: [],
@@ -3257,6 +3299,7 @@ class PictureBookRagEngine {
         const quote = top.source_quote || top.snippet;
         const safety = SAFETY_PATTERNS.test(query) ? SAFETY_NOTE : '';
         const answer = `${safety}${safety ? ' ' : ''}原书第 ${top.page_no} 页写道：“${clip(quote)}”`;
+        this.cache.set(cacheKey, { answer, status: 'success', confidence: top.confidence, evidence });
         return {
             ...base,
             answer,
@@ -3387,19 +3430,40 @@ exports.TtsPlayerWidget = TtsPlayerWidget;
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ttsManager = exports.BackendTtsProvider = exports.BrowserSpeechSynthesisTts = void 0;
+function getSpeechSynthesis() {
+    if (typeof window !== 'undefined' && window.speechSynthesis)
+        return window.speechSynthesis;
+    if (typeof globalThis !== 'undefined' && globalThis.speechSynthesis)
+        return globalThis.speechSynthesis;
+    return null;
+}
+function getUtteranceClass() {
+    if (typeof window !== 'undefined' && window.SpeechSynthesisUtterance)
+        return window.SpeechSynthesisUtterance;
+    if (typeof globalThis !== 'undefined' && globalThis.SpeechSynthesisUtterance)
+        return globalThis.SpeechSynthesisUtterance;
+    return null;
+}
 /**
  * 1. 浏览器原生 SpeechSynthesis 离线适配器 (零网络依赖，现场演练金牌兜底)
  */
 class BrowserSpeechSynthesisTts {
     name = 'Browser SpeechSynthesis (离线童声)';
     async isAvailable() {
-        return typeof window !== 'undefined' && 'speechSynthesis' in window;
+        return getSpeechSynthesis() !== null && getUtteranceClass() !== null;
     }
     speak(text, options) {
         return new Promise((resolve) => {
+            const synth = getSpeechSynthesis();
+            const Utterance = getUtteranceClass();
+            if (!synth || !Utterance) {
+                options?.onError?.(new Error('SpeechSynthesis not supported in current environment'));
+                resolve({ firstAudioMs: 0 });
+                return;
+            }
             const start = performance.now();
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(text);
+            synth.cancel();
+            const utterance = new Utterance(text);
             utterance.lang = 'zh-CN';
             utterance.rate = options?.rate ?? 0.95; // 稍慢，适合儿童
             utterance.pitch = options?.pitch ?? 1.15; // 稍高，亲和力更强
@@ -3421,12 +3485,13 @@ class BrowserSpeechSynthesisTts {
                 options?.onError?.(e);
                 resolve({ firstAudioMs: Math.round(performance.now() - start) });
             };
-            window.speechSynthesis.speak(utterance);
+            synth.speak(utterance);
         });
     }
     stop() {
-        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-            window.speechSynthesis.cancel();
+        const synth = getSpeechSynthesis();
+        if (synth) {
+            synth.cancel();
         }
     }
 }
@@ -3771,6 +3836,9 @@ class ApiClient {
     }
     async getRunAssets(runId) {
         return this.client.assets(runId);
+    }
+    async createBook(input) {
+        return this.client.createBook(input);
     }
     // ==================== 4. 对接 A: 分类确认 ====================
     async confirmCategory(bookId, confirmedType) {
@@ -4444,6 +4512,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
     const [isRecording, setIsRecording] = (0, react_1.useState)(false);
     const [voiceInput, setVoiceInput] = (0, react_1.useState)(false);
     const [recordingTip, setRecordingTip] = (0, react_1.useState)(null);
+    const [ttsFirstAudioMs, setTtsFirstAudioMs] = (0, react_1.useState)(null);
     const speechRecognizerRef = (0, react_1.useRef)(null);
     const videoRef = (0, react_1.useRef)(null);
     const imageRef = (0, react_1.useRef)(null);
@@ -4830,7 +4899,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                         React.createElement("small", null, latest.origin === 'mock' ? '演示模式' : '真实服务结果')),
                     React.createElement("p", { style: { fontWeight: 500, fontSize: '15px', color: '#1e293b', margin: '8px 0' } }, latest.answer),
                     React.createElement("div", { style: { margin: '8px 0' } },
-                        React.createElement(TtsPlayerWidget_1.TtsPlayerWidget, { textToSpeak: latest.answer })),
+                        React.createElement(TtsPlayerWidget_1.TtsPlayerWidget, { textToSpeak: latest.answer, onAudioFirstByte: setTtsFirstAudioMs })),
                     latest.transcript && React.createElement("div", { className: "answer-transcript" },
                         "\u8BED\u97F3\u8F6C\u5199\uFF1A",
                         latest.transcript),
@@ -4845,6 +4914,10 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                             React.createElement(ui_1.Icon, { name: "chevron", size: 14 }))))) : (React.createElement("p", { style: { color: '#94a3b8', fontSize: '12px' } }, "\u672A\u547D\u4E2D\u786E\u51FF\u7684\u5355\u9875\u6216\u65F6\u95F4\u6BB5\u8BC1\u636E\uFF0C\u56DE\u7B54\u5DF2\u6807\u8BB0\u4E3A\u8C28\u614E\u4E0D\u786E\u5B9A\u3002"))),
                     React.createElement("div", { className: "answer-metrics" },
                         React.createElement("span", null, latest.latency_ms === null ? '延迟未实测' : `请求延迟 ${latest.latency_ms} ms`),
+                        ttsFirstAudioMs !== null && React.createElement("span", null,
+                            "TTS\u9996\u97F3\u5EF6\u8FDF ",
+                            ttsFirstAudioMs,
+                            " ms"),
                         React.createElement("span", null, latest.cached ? '缓存命中' : '实时生成'),
                         latest.origin === 'real' && latest.persisted === false && (React.createElement("span", { role: "alert", style: { color: '#b91c1c' } },
                             "\u672A\u5199\u5165\u540E\u7AEF\uFF1A",

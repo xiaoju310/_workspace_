@@ -39,4 +39,19 @@ describe('PictureBookRagEngine（抽取式短答）', () => {
     expect(r.latency.tts_first_audio_ms).toBeNull();
     expect(r.latency.total_roundtrip_ms).toBeGreaterThanOrEqual(0);
   });
+
+  it('重复提问命中缓存并标记 cache_hit: true', async () => {
+    pictureBookRagEngine.clearCache();
+    const first = await ask('小狐狸戴着什么围巾？');
+    expect(first.cache_hit).toBe(false);
+
+    const second = await ask('小狐狸戴着什么围巾？');
+    expect(second.cache_hit).toBe(true);
+    expect(second.answer).toBe(first.answer);
+    expect(second.latency.retrieval_ms).toBe(0);
+
+    pictureBookRagEngine.clearCache();
+    const third = await ask('小狐狸戴着什么围巾？');
+    expect(third.cache_hit).toBe(false);
+  });
 });

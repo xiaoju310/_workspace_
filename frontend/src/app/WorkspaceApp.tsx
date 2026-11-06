@@ -111,7 +111,21 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   async function completeImport(input:ImportedBookInput){
     const id=uid('book')
     const pages=await Promise.all(input.pages.map(async p=>{let imageUrl=p.url;if(!p.demo){const blob=await (await fetch(p.url)).blob();imageUrl=URL.createObjectURL(blob)}return {id:p.id,name:p.name,image_url:imageUrl,ocr_text:p.demo?(originalPages[Number(p.id.replace('demo-',''))-1]??''):'',confidence:p.demo?.86:0,revision:1,confirmed:false,demo:Boolean(p.demo)}}))
-    setBooks(current=>[{id,title:input.title,subtitle:'刚刚带进来的新故事。',cover:'/art/cover-forest.svg',page_count:pages.length,status:'REVIEW_REQUIRED',classification:{predicted_type:input.type,confidence:input.type==='unknown'?null:.72,reasons:['根据图书书页排版与图文特征初步分类。'],confirmed_type:null,owner_confirmed:false},updated_label:'刚刚',authorization_ref:input.authorization_ref,pages,age_band:'6–9 岁（待人工审核）',run_id:null,job_id:null,video_url:null,origin:'mock',server_book_id:null,safety_reviewed:false},...current])
+    
+    let serverBookId: string | null = null
+    let bookOrigin: 'real' | 'mock' = 'mock'
+    if (appMode === 'live' && apiClient.getToken()) {
+      try {
+        const created = await apiClient.createBook({ title: input.title, authorization_ref: input.authorization_ref })
+        serverBookId = created.id
+        bookOrigin = 'real'
+        notify(`已在服务端成功建档（ID: ${created.id.slice(0, 8)}…），可进行真实校对与笔记流转。`)
+      } catch (e: any) {
+        notify(`服务端建档未完成（${e.message}），已自动切换为本地离线模式。`)
+      }
+    }
+
+    setBooks(current=>[{id,title:input.title,subtitle:'刚刚带进来的新故事。',cover:'/art/cover-forest.svg',page_count:pages.length,status:'REVIEW_REQUIRED',classification:{predicted_type:input.type,confidence:input.type==='unknown'?null:.72,reasons:['根据图书书页排版与图文特征初步分类。'],confirmed_type:null,owner_confirmed:false},updated_label:'刚刚',authorization_ref:input.authorization_ref,pages,age_band:'6–9 岁（待人工审核）',run_id:null,job_id:null,video_url:null,origin:bookOrigin,server_book_id:serverBookId,safety_reviewed:false},...current])
     navigate('review',id)
   }
 
@@ -248,7 +262,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
         created_at: timestamp(),
         uncertain: resp.status !== 'success',
         origin: 'real',
-        cached: false,
+        cached: Boolean(resp.cache_hit),
         persisted: resp.persisted,
         persist_error: resp.persist_error,
       }

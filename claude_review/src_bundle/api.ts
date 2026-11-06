@@ -347,6 +347,10 @@ export class ApiClient {
     return this.client.assets(runId);
   }
 
+  async createBook(input: { title: string; authorization_ref: string }) {
+    return this.client.createBook(input);
+  }
+
   // ==================== 4. 对接 A: 分类确认 ====================
 
   async confirmCategory(bookId: string, confirmedType: string): Promise<ClassificationOut> {

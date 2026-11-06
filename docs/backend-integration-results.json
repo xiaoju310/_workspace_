@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-06T07:48:39.733755+00:00",
+  "timestamp": "2026-11-06T08:25:56.420854+00:00",
   "runner": "scripts/run_backend_integration.py",
   "actor": "agent_c_user",
   "steps": [
@@ -14,23 +14,23 @@
       },
       "status_code": 201,
       "response": {
-        "id": "de8549b9-def7-491f-a0de-9b0f9c10279a",
+        "id": "33370e4c-3472-4ec2-b97d-40794a32c585",
         "title": "小狐狸的森林探险记（真实联调）",
         "authorization_ref": "AUTH-2026-COMPETITION-C-001",
         "owner_id": "agent_c_user",
         "status": "IMPORTED",
-        "created_at": "2026-11-06T07:48:39.741722Z",
-        "updated_at": "2026-11-06T07:48:39.741722Z"
+        "created_at": "2026-11-06T08:25:56.428849Z",
+        "updated_at": "2026-11-06T08:25:56.428849Z"
       }
     },
     {
       "step": 2,
       "name": "auto_classification",
       "method": "POST",
-      "url": "/api/books/de8549b9-def7-491f-a0de-9b0f9c10279a/classify",
+      "url": "/api/books/33370e4c-3472-4ec2-b97d-40794a32c585/classify",
       "status_code": 200,
       "response": {
-        "book_id": "de8549b9-def7-491f-a0de-9b0f9c10279a",
+        "book_id": "33370e4c-3472-4ec2-b97d-40794a32c585",
         "predicted_type": "other",
         "confidence": 0.3,
         "reasons": [
@@ -45,13 +45,13 @@
       "step": 3,
       "name": "confirm_classification",
       "method": "PATCH",
-      "url": "/api/books/de8549b9-def7-491f-a0de-9b0f9c10279a/classification",
+      "url": "/api/books/33370e4c-3472-4ec2-b97d-40794a32c585/classification",
       "request": {
         "confirmed_type": "picture_book"
       },
       "status_code": 200,
       "response": {
-        "book_id": "de8549b9-def7-491f-a0de-9b0f9c10279a",
+        "book_id": "33370e4c-3472-4ec2-b97d-40794a32c585",
         "predicted_type": "other",
         "confidence": 0.3,
         "reasons": [
@@ -66,7 +66,7 @@
       "step": 3,
       "name": "record_voice_interaction",
       "method": "POST",
-      "url": "/api/runs/d1c6fff1-c013-43b0-a9a9-41241565e38b/interactions",
+      "url": "/api/runs/7067be4e-7ae3-41bc-b165-d4409fb35435/interactions",
       "request": {
         "interaction_type": "voice",
         "input": {
@@ -84,8 +84,8 @@
       },
       "status_code": 201,
       "response": {
-        "id": "164b3949-435a-4402-b36d-8a3053323f29",
-        "run_id": "d1c6fff1-c013-43b0-a9a9-41241565e38b",
+        "id": "118ab349-f22d-40d5-8a60-6c192f7808bf",
+        "run_id": "7067be4e-7ae3-41bc-b165-d4409fb35435",
         "status": "recorded_only"
       }
     },
@@ -93,12 +93,12 @@
       "step": 4,
       "name": "list_interactions_after_voice",
       "method": "GET",
-      "url": "/api/runs/d1c6fff1-c013-43b0-a9a9-41241565e38b/interactions",
+      "url": "/api/runs/7067be4e-7ae3-41bc-b165-d4409fb35435/interactions",
       "status_code": 200,
       "response": [
         {
-          "id": "164b3949-435a-4402-b36d-8a3053323f29",
-          "run_id": "d1c6fff1-c013-43b0-a9a9-41241565e38b",
+          "id": "118ab349-f22d-40d5-8a60-6c192f7808bf",
+          "run_id": "7067be4e-7ae3-41bc-b165-d4409fb35435",
           "interaction_type": "voice",
           "input": {
             "query": "小狐狸戴着什么颜色的围巾？",
@@ -112,7 +112,7 @@
             "uncertain": false
           },
           "latency_ms": 38,
-          "created_at": "2026-11-06T07:48:39.748174+00:00"
+          "created_at": "2026-11-06T08:25:56.435185+00:00"
         }
       ]
     },
@@ -120,7 +120,7 @@
       "step": 5,
       "name": "record_touch_interaction",
       "method": "POST",
-      "url": "/api/runs/d1c6fff1-c013-43b0-a9a9-41241565e38b/interactions",
+      "url": "/api/runs/7067be4e-7ae3-41bc-b165-d4409fb35435/interactions",
       "request": {
         "interaction_type": "touch",
         "input": {
@@ -155,8 +155,8 @@
       },
       "status_code": 201,
       "response": {
-        "id": "30423985-63f4-43d4-a811-b7443b998716",
-        "run_id": "d1c6fff1-c013-43b0-a9a9-41241565e38b",
+        "id": "19b9531c-a388-43b7-9604-2d8406f2d3a1",
+        "run_id": "7067be4e-7ae3-41bc-b165-d4409fb35435",
         "status": "recorded_only"
       }
     },
@@ -164,14 +164,14 @@
       "step": 6,
       "name": "generate_note_draft",
       "method": "POST",
-      "url": "/api/books/de8549b9-def7-491f-a0de-9b0f9c10279a/notes/generate",
+      "url": "/api/books/33370e4c-3472-4ec2-b97d-40794a32c585/notes/generate",
       "request": {
         "note_template": "picture_book_discovery"
       },
       "status_code": 201,
       "response": {
-        "id": "d69a66fa-7089-4474-b4a8-8da2ef17decb",
-        "book_id": "de8549b9-def7-491f-a0de-9b0f9c10279a",
+        "id": "cc28b5b2-f806-4fed-af07-3ebd56bb2083",
+        "book_id": "33370e4c-3472-4ec2-b97d-40794a32c585",
         "owner_id": "agent_c_user",
         "content": {
           "template": "picture_book_discovery",
@@ -181,15 +181,15 @@
         },
         "status": "DRAFT",
         "version": 1,
-        "created_at": "2026-11-06T07:48:39.754014Z",
-        "updated_at": "2026-11-06T07:48:39.754014Z"
+        "created_at": "2026-11-06T08:25:56.441229Z",
+        "updated_at": "2026-11-06T08:25:56.441229Z"
       }
     },
     {
       "step": 7,
       "name": "patch_note_content",
       "method": "PATCH",
-      "url": "/api/notes/d69a66fa-7089-4474-b4a8-8da2ef17decb",
+      "url": "/api/notes/cc28b5b2-f806-4fed-af07-3ebd56bb2083",
       "request": {
         "content": {
           "title": "小狐狸的探险启迪",
@@ -204,8 +204,8 @@
       },
       "status_code": 200,
       "response": {
-        "id": "d69a66fa-7089-4474-b4a8-8da2ef17decb",
-        "book_id": "de8549b9-def7-491f-a0de-9b0f9c10279a",
+        "id": "cc28b5b2-f806-4fed-af07-3ebd56bb2083",
+        "book_id": "33370e4c-3472-4ec2-b97d-40794a32c585",
         "owner_id": "agent_c_user",
         "content": {
           "title": "小狐狸的探险启迪",
@@ -220,22 +220,22 @@
         },
         "status": "DRAFT",
         "version": 2,
-        "created_at": "2026-11-06T07:48:39.754014Z",
-        "updated_at": "2026-11-06T07:48:39.755854Z"
+        "created_at": "2026-11-06T08:25:56.441229Z",
+        "updated_at": "2026-11-06T08:25:56.442783Z"
       }
     },
     {
       "step": 8,
       "name": "review_note_approve",
       "method": "POST",
-      "url": "/api/notes/d69a66fa-7089-4474-b4a8-8da2ef17decb/review",
+      "url": "/api/notes/cc28b5b2-f806-4fed-af07-3ebd56bb2083/review",
       "request": {
         "action": "approve"
       },
       "status_code": 200,
       "response": {
-        "id": "d69a66fa-7089-4474-b4a8-8da2ef17decb",
-        "book_id": "de8549b9-def7-491f-a0de-9b0f9c10279a",
+        "id": "cc28b5b2-f806-4fed-af07-3ebd56bb2083",
+        "book_id": "33370e4c-3472-4ec2-b97d-40794a32c585",
         "owner_id": "agent_c_user",
         "content": {
           "title": "小狐狸的探险启迪",
@@ -250,39 +250,39 @@
         },
         "status": "PRIVATE",
         "version": 2,
-        "created_at": "2026-11-06T07:48:39.754014Z",
-        "updated_at": "2026-11-06T07:48:39.757322Z"
+        "created_at": "2026-11-06T08:25:56.441229Z",
+        "updated_at": "2026-11-06T08:25:56.444211Z"
       }
     },
     {
       "step": 9,
       "name": "create_note_share",
       "method": "POST",
-      "url": "/api/notes/d69a66fa-7089-4474-b4a8-8da2ef17decb/shares",
+      "url": "/api/notes/cc28b5b2-f806-4fed-af07-3ebd56bb2083/shares",
       "request": {
         "share_mode": "link",
-        "expires_at": "2026-11-06T09:48:39.757893+00:00"
+        "expires_at": "2026-11-06T10:25:56.444767+00:00"
       },
       "status_code": 201,
       "response": {
-        "id": "cb94fefa-4060-4374-a13f-101d57bc3116",
+        "id": "7393cdd3-8e0b-4f6f-924a-d30f822bb453",
         "share_mode": "link",
         "shared_user_id": null,
-        "expires_at": "2026-11-06T09:48:39.757893Z",
+        "expires_at": "2026-11-06T10:25:56.444767Z",
         "status": "ACTIVE",
-        "token": "qOeMy6dfE_tMpPl_V70IbT3isL29hwCQbFxpNUv3q9Q"
+        "token": "qIpP359om8Hnu8uz7_pM1bpOiaQz-M7tfO9tXCLr-Fg"
       }
     },
     {
       "step": 10,
       "name": "public_read_shared_note_success",
       "method": "GET",
-      "url": "/api/shared-notes/qOeMy6dfE_tMpPl_V70IbT3isL29hwCQbFxpNUv3q9Q",
+      "url": "/api/shared-notes/qIpP359om8Hnu8uz7_pM1bpOiaQz-M7tfO9tXCLr-Fg",
       "auth_header": null,
       "status_code": 200,
       "response": {
-        "id": "d69a66fa-7089-4474-b4a8-8da2ef17decb",
-        "book_id": "de8549b9-def7-491f-a0de-9b0f9c10279a",
+        "id": "cc28b5b2-f806-4fed-af07-3ebd56bb2083",
+        "book_id": "33370e4c-3472-4ec2-b97d-40794a32c585",
         "owner_id": "agent_c_user",
         "content": {
           "title": "小狐狸的探险启迪",
@@ -297,15 +297,15 @@
         },
         "status": "SHARED",
         "version": 2,
-        "created_at": "2026-11-06T07:48:39.754014Z",
-        "updated_at": "2026-11-06T07:48:39.758900Z"
+        "created_at": "2026-11-06T08:25:56.441229Z",
+        "updated_at": "2026-11-06T08:25:56.445623Z"
       }
     },
     {
       "step": 11,
       "name": "revoke_share",
       "method": "DELETE",
-      "url": "/api/notes/d69a66fa-7089-4474-b4a8-8da2ef17decb/shares/cb94fefa-4060-4374-a13f-101d57bc3116",
+      "url": "/api/notes/cc28b5b2-f806-4fed-af07-3ebd56bb2083/shares/7393cdd3-8e0b-4f6f-924a-d30f822bb453",
       "status_code": 204,
       "response": null
     },
@@ -313,7 +313,7 @@
       "step": 12,
       "name": "public_read_shared_note_after_revoke",
       "method": "GET",
-      "url": "/api/shared-notes/qOeMy6dfE_tMpPl_V70IbT3isL29hwCQbFxpNUv3q9Q",
+      "url": "/api/shared-notes/qIpP359om8Hnu8uz7_pM1bpOiaQz-M7tfO9tXCLr-Fg",
       "status_code": 404,
       "response": {
         "detail": "分享链接无效或已撤销"
