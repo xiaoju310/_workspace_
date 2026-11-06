@@ -50,6 +50,8 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   const [seekTo,setSeekTo]=useState<number|null>(null)
   const sessionWarned=useRef(false)
   const previousBookId=useRef(selectedId)
+  const segmentsCacheRef=useRef<Map<string,SegmentOut[]>>(new Map())
+  const warnedSegmentsRef=useRef<Set<string>>(new Set())
   const book=books.find(item=>item.id===selectedId)??books[0]
   const note=notes.find(item=>item.book_id===book.id)??null
   const grant=grants.find(item=>item.token===shareToken)??null
@@ -196,9 +198,21 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   function seek(source:Source){if(source.start_ms!==null){setSeekTo(source.start_ms);navigate('reader',book.id)}else{try{sessionStorage.setItem('paper-companion-focus-page',String(source.page_no))}catch{/* 页面仍可打开 */}navigate('review',book.id)}}
   function generateNote(){if(book.status!=='READY'){notify('请先完成生成阶段和内容复核。');return}if(note){navigate('notes');return}setNotes(current=>[makeNote(book),...current]);navigate('notes')}
 
-  // 取当前 run 的时间轴(A)；失败不阻断问答，但会用于触控字幕依据与检索时间窗口
+  // 取当前 run 的时间轴(A)；带缓存与错误提示防抖，失败不阻断问答，但会用于触控字幕依据与检索时间窗口
   async function loadSegments(runId:string):Promise<SegmentOut[]>{
-    try{return await apiClient.getRunSegments(runId)}catch(e:any){notify(`读取视频时间轴失败（${e.message}），本次不使用时间窗口。`);return []}
+    const cached=segmentsCacheRef.current.get(runId)
+    if(cached)return cached
+    try{
+      const segs=await apiClient.getRunSegments(runId)
+      segmentsCacheRef.current.set(runId,segs)
+      return segs
+    }catch(e:any){
+      if(!warnedSegmentsRef.current.has(runId)){
+        warnedSegmentsRef.current.add(runId)
+        notify(`读取视频时间轴失败（${e.message}），本次不使用时间窗口。`)
+      }
+      return []
+    }
   }
 
   // 智能伴读提问：Live 严格按"当前这本书"的校对文字检索；无依据如实拒答；不使用任何内置故事。

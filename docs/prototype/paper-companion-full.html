@@ -668,6 +668,8 @@ function WorkspaceApp({ appMode = 'live' }) {
     const [seekTo, setSeekTo] = (0, react_1.useState)(null);
     const sessionWarned = (0, react_1.useRef)(false);
     const previousBookId = (0, react_1.useRef)(selectedId);
+    const segmentsCacheRef = (0, react_1.useRef)(new Map());
+    const warnedSegmentsRef = (0, react_1.useRef)(new Set());
     const book = books.find(item => item.id === selectedId) ?? books[0];
     const note = notes.find(item => item.book_id === book.id) ?? null;
     const grant = grants.find(item => item.token === shareToken) ?? null;
@@ -872,13 +874,21 @@ function WorkspaceApp({ appMode = 'live' }) {
         navigate('notes');
         return;
     } setNotes(current => [makeNote(book), ...current]); navigate('notes'); }
-    // 取当前 run 的时间轴(A)；失败不阻断问答，但会用于触控字幕依据与检索时间窗口
+    // 取当前 run 的时间轴(A)；带缓存与错误提示防抖，失败不阻断问答，但会用于触控字幕依据与检索时间窗口
     async function loadSegments(runId) {
+        const cached = segmentsCacheRef.current.get(runId);
+        if (cached)
+            return cached;
         try {
-            return await api_1.apiClient.getRunSegments(runId);
+            const segs = await api_1.apiClient.getRunSegments(runId);
+            segmentsCacheRef.current.set(runId, segs);
+            return segs;
         }
         catch (e) {
-            notify(`读取视频时间轴失败（${e.message}），本次不使用时间窗口。`);
+            if (!warnedSegmentsRef.current.has(runId)) {
+                warnedSegmentsRef.current.add(runId);
+                notify(`读取视频时间轴失败（${e.message}），本次不使用时间窗口。`);
+            }
             return [];
         }
     }
@@ -2438,820 +2448,6 @@ const BenchmarkRunner = ({ bookId, runId, }) => {
                             } }, r.skipped ? 'SKIPPED' : r.passed ? 'PASSED' : 'FAILED')))))))))));
 };
 exports.BenchmarkRunner = BenchmarkRunner;
-
-},
-"features/interaction/InteractionPanel": function(require,module,exports){
-"use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.InteractionPanel = void 0;
-const react_1 = __importStar(require("react"));
-const AudioRecorder_1 = require("./AudioRecorder");
-const api_1 = require("../../lib/api");
-const TtsPlayerWidget_1 = require("./tts/TtsPlayerWidget");
-const InteractionPanel = ({ bookId, runId, appMode, getCurrentVideoMs, seekVideoToMs, onActiveTouchResultChange, onNewHistoryItem, indexer, }) => {
-    const [status, setStatus] = (0, react_1.useState)('idle');
-    const [qaResult, setQaResult] = (0, react_1.useState)(null);
-    const [touchResult, setTouchResult] = (0, react_1.useState)(null);
-    const [textInput, setTextInput] = (0, react_1.useState)('');
-    const [lastError, setLastError] = (0, react_1.useState)(null);
-    // 1. 处理录音完毕
-    const handleRecordingComplete = async (audioBlob, mimeType, realTranscript) => {
-        setLastError(null);
-        // 队长阻断项严格落实：严禁替用户说一句话，空转写直接报错并引导用户打字或重录
-        if (!realTranscript || !realTranscript.trim()) {
-            setStatus('idle');
-            setLastError('⚠️ 未检测到清晰语音转写。请对准麦克风清晰提问，或直接在下方输入框打字提问。');
-            return;
-        }
-        setTextInput(realTranscript);
-        await executeAskQuestion(realTranscript, audioBlob, mimeType);
-    };
-    // 2. 处理文字输入测试
-    const handleTextSubmit = async (e) => {
-        e.preventDefault();
-        if (!textInput.trim() || status === 'processing')
-            return;
-        await executeAskQuestion(textInput.trim());
-    };
-    // 统一提问执行器
-    const executeAskQuestion = async (query, audioBlob, mimeType) => {
-        setStatus('processing');
-        setLastError(null);
-        const videoMs = getCurrentVideoMs();
-        const req = {
-            book_id: bookId,
-            run_id: runId,
-            video_ms: videoMs,
-            query_text: query,
-            audio_mime: mimeType,
-            stream: false,
-            input_method: audioBlob ? 'speech' : 'keyboard',
-        };
-        try {
-            const resp = await api_1.apiClient.askQuestion(req, appMode, audioBlob, { indexer });
-            if (resp.persisted === false)
-                setLastError(`回答已生成，但未能写入后端：${resp.persist_error ?? '未知原因'}`);
-            setQaResult(resp);
-            setStatus(resp.status === 'no_evidence' ? 'no_evidence' : 'success');
-            if (onNewHistoryItem) {
-                onNewHistoryItem({
-                    id: `hist-${Date.now()}`,
-                    timestamp: Date.now(),
-                    type: 'voice',
-                    video_ms: videoMs,
-                    query: resp.question,
-                    response_text: resp.answer,
-                    status: resp.status,
-                    evidence: resp.evidence,
-                    latency_ms: resp.latency.total_roundtrip_ms,
-                    cache_hit: resp.cache_hit,
-                    is_demo_mock: resp.is_demo_mock,
-                });
-            }
-        }
-        catch (err) {
-            setStatus('error');
-            setLastError(err.message);
-            setQaResult(null);
-        }
-    };
-    // 3. 触控识别测试入口
-    const handleTouchRecognize = async (touchReq) => {
-        setStatus('processing');
-        setLastError(null);
-        try {
-            const resp = await api_1.apiClient.recognizeTouch(touchReq, appMode);
-            setTouchResult(resp);
-            setStatus(resp.status === 'success' ? 'success' : 'idle');
-            if (resp.persisted === false)
-                setLastError(`触控已识别，但未能写入后端：${resp.persist_error ?? '未知原因'}`);
-            if (onActiveTouchResultChange) {
-                onActiveTouchResultChange(resp);
-            }
-            if (onNewHistoryItem) {
-                onNewHistoryItem({
-                    id: `hist-${Date.now()}`,
-                    timestamp: Date.now(),
-                    type: 'touch',
-                    video_ms: touchReq.video_ms,
-                    query: `点击画面 [${touchReq.touch_point.norm_x}, ${touchReq.touch_point.norm_y}]`,
-                    response_text: `识别目标：${resp.target_name} (${resp.explanation})`,
-                    status: resp.status === 'success' ? 'success' : 'no_evidence',
-                    evidence: resp.evidence ? [resp.evidence] : [],
-                    latency_ms: resp.latency_ms,
-                    cache_hit: resp.cache_hit,
-                    is_demo_mock: resp.is_demo_mock,
-                });
-            }
-        }
-        catch (err) {
-            setStatus('error');
-            setLastError(err.message);
-            setTouchResult(null);
-        }
-    };
-    return (react_1.default.createElement("div", { style: {
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px',
-            background: '#ffffff',
-            borderRadius: '12px',
-            padding: '16px',
-            border: '1px solid #e2e8f0',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-        } },
-        react_1.default.createElement("div", { style: {
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '16px',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                borderBottom: '1px solid #f1f5f9',
-                paddingBottom: '12px',
-            } },
-            react_1.default.createElement(AudioRecorder_1.AudioRecorder, { onRecordingComplete: handleRecordingComplete, disabled: status === 'processing' }),
-            react_1.default.createElement("form", { onSubmit: handleTextSubmit, style: { display: 'flex', gap: '8px', flex: 1, minWidth: '240px' } },
-                react_1.default.createElement("input", { type: "text", placeholder: "\u8F93\u5165\u60A8\u8981\u5411\u4F34\u8BFB\u52A9\u624B\u63D0\u95EE\u7684\u95EE\u9898...", value: textInput, onChange: (e) => setTextInput(e.target.value), disabled: status === 'processing', style: {
-                        flex: 1,
-                        padding: '8px 12px',
-                        borderRadius: '20px',
-                        border: '1px solid #cbd5e1',
-                        fontSize: '14px',
-                        outline: 'none',
-                    } }),
-                react_1.default.createElement("button", { type: "submit", disabled: !textInput.trim() || status === 'processing', style: {
-                        padding: '8px 16px',
-                        borderRadius: '20px',
-                        border: 'none',
-                        backgroundColor: '#0284c7',
-                        color: '#fff',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                    } }, "\u53D1\u9001"),
-                react_1.default.createElement("button", { type: "button", disabled: status === 'processing', onClick: () => {
-                        handleTouchRecognize({
-                            book_id: bookId,
-                            run_id: runId,
-                            video_ms: getCurrentVideoMs(),
-                            touch_point: {
-                                norm_x: 0.35,
-                                norm_y: 0.42,
-                                video_pixel_x: 448,
-                                video_pixel_y: 302,
-                                video_width: 1280,
-                                video_height: 720,
-                            },
-                            viewport_info: {
-                                container_width: 640,
-                                container_height: 360,
-                                render_width: 640,
-                                render_height: 360,
-                                offset_x: 0,
-                                offset_y: 0,
-                                is_letterbox: false,
-                            },
-                        });
-                    }, style: {
-                        padding: '8px 12px',
-                        borderRadius: '20px',
-                        border: '1px solid #cbd5e1',
-                        backgroundColor: '#f8fafc',
-                        color: '#475569',
-                        fontSize: '13px',
-                        cursor: 'pointer',
-                    } }, "\u89E6\u63A7\u6D4B\u8BD5"))),
-        lastError && (react_1.default.createElement("div", { style: {
-                backgroundColor: '#fef2f2',
-                border: '1px solid #fecaca',
-                color: '#dc2626',
-                padding: '10px 14px',
-                borderRadius: '8px',
-                fontSize: '13px',
-                lineHeight: 1.5,
-            } }, lastError)),
-        status === 'processing' && (react_1.default.createElement("div", { style: { display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', fontSize: '14px' } },
-            react_1.default.createElement("span", { style: {
-                    display: 'inline-block',
-                    width: '16px',
-                    height: '16px',
-                    border: '2px solid #3b82f6',
-                    borderTopColor: 'transparent',
-                    borderRadius: '50%',
-                    animation: 'spin 0.8s linear infinite',
-                } }),
-            appMode === 'live' ? '正在请求真实后端交互服务...' : '正在执行本地离线基准演算...')),
-        qaResult && (react_1.default.createElement("div", { style: {
-                backgroundColor: qaResult.status === 'no_evidence' ? '#fffbeb' : '#f8fafc',
-                border: `1px solid ${qaResult.status === 'no_evidence' ? '#fde68a' : '#e2e8f0'}`,
-                borderRadius: '8px',
-                padding: '12px 14px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-            } },
-            react_1.default.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
-                react_1.default.createElement("span", { style: { fontSize: '13px', fontWeight: 600, color: '#475569' } },
-                    "\u2753 \u95EE\uFF1A",
-                    qaResult.question),
-                react_1.default.createElement("div", { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
-                    qaResult.is_demo_mock ? (react_1.default.createElement("span", { style: {
-                            fontSize: '11px',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            backgroundColor: '#fef3c7',
-                            color: '#92400e',
-                            border: '1px solid #fde68a',
-                        } }, "\u26A0\uFE0F \u79BB\u7EBF\u6F14\u793A\u6570\u636E")) : (react_1.default.createElement("span", { style: {
-                            fontSize: '11px',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            backgroundColor: qaResult.cache_hit ? '#e0e7ff' : '#f0fdf4',
-                            color: qaResult.cache_hit ? '#4338ca' : '#15803d',
-                        } }, qaResult.cache_hit ? '⚡ 缓存命中' : '🟢 真实后端响应')),
-                    react_1.default.createElement("span", { style: {
-                            fontSize: '11px',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            backgroundColor: qaResult.confidence >= 0.8 ? '#dcfce7' : '#fef9c3',
-                            color: qaResult.confidence >= 0.8 ? '#15803d' : '#854d0e',
-                        } },
-                        "\u7F6E\u4FE1\u5EA6: ",
-                        (qaResult.confidence * 100).toFixed(0),
-                        "%"))),
-            react_1.default.createElement("div", { style: { fontSize: '15px', color: '#1e293b', lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' } },
-                react_1.default.createElement("div", null,
-                    "\uD83D\uDCAC ",
-                    react_1.default.createElement("strong", null, "\u7B54\uFF1A"),
-                    qaResult.answer),
-                react_1.default.createElement(TtsPlayerWidget_1.TtsPlayerWidget, { textToSpeak: qaResult.answer })),
-            qaResult.evidence && qaResult.evidence.length > 0 && (react_1.default.createElement("div", { style: { marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '4px' } },
-                react_1.default.createElement("div", { style: { fontSize: '12px', fontWeight: 600, color: '#64748b' } }, "\uD83D\uDCD6 \u5224\u5B9A\u4F9D\u636E\uFF1A"),
-                qaResult.evidence.map((ev, idx) => (react_1.default.createElement("div", { key: idx, style: {
-                        fontSize: '12px',
-                        color: '#334155',
-                        backgroundColor: '#ffffff',
-                        border: '1px solid #cbd5e1',
-                        borderRadius: '6px',
-                        padding: '6px 10px',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                    } },
-                    react_1.default.createElement("span", null,
-                        "\u7B2C ",
-                        react_1.default.createElement("strong", null, ev.page_no),
-                        " \u9875 \uFF5C \u89C6\u9891",
-                        ' ',
-                        react_1.default.createElement("strong", null,
-                            (ev.video_start_ms / 1000).toFixed(1),
-                            "s"),
-                        " -",
-                        ' ',
-                        react_1.default.createElement("strong", null,
-                            (ev.video_end_ms / 1000).toFixed(1),
-                            "s"),
-                        " \uFF5C ",
-                        ev.snippet),
-                    seekVideoToMs && (react_1.default.createElement("button", { type: "button", onClick: () => seekVideoToMs(ev.video_start_ms), style: {
-                            padding: '2px 8px',
-                            fontSize: '11px',
-                            borderRadius: '4px',
-                            border: '1px solid #94a3b8',
-                            background: '#f8fafc',
-                            cursor: 'pointer',
-                        } }, "\u25B6\uFE0F \u8DF3\u8F6C\u8BC1\u636E"))))))),
-            react_1.default.createElement("div", { style: {
-                    fontSize: '11px',
-                    color: '#94a3b8',
-                    borderTop: '1px dashed #e2e8f0',
-                    paddingTop: '6px',
-                    display: 'flex',
-                    gap: '12px',
-                    flexWrap: 'wrap',
-                } },
-                react_1.default.createElement("span", null,
-                    "\u7AEF\u5230\u7AEF\u603B\u8017\u65F6: ",
-                    qaResult.latency.total_roundtrip_ms,
-                    "ms"),
-                qaResult.latency.retrieval_ms !== null && qaResult.latency.retrieval_ms > 0 && react_1.default.createElement("span", null,
-                    "\u68C0\u7D22: ",
-                    qaResult.latency.retrieval_ms,
-                    "ms"),
-                qaResult.latency.llm_total_ms !== null && qaResult.latency.llm_total_ms > 0 && react_1.default.createElement("span", null,
-                    "\u77ED\u7B54: ",
-                    qaResult.latency.llm_total_ms,
-                    "ms")))),
-        touchResult && (react_1.default.createElement("div", { style: {
-                backgroundColor: touchResult.is_demo_mock ? '#fffbeb' : '#ecfdf5',
-                border: `1px solid ${touchResult.is_demo_mock ? '#fde68a' : '#a7f3d0'}`,
-                borderRadius: '8px',
-                padding: '12px 14px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '6px',
-            } },
-            react_1.default.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
-                react_1.default.createElement("span", { style: { fontSize: '14px', fontWeight: 'bold', color: touchResult.is_demo_mock ? '#92400e' : '#065f46' } },
-                    "\uD83C\uDFAF \u89E6\u63A7\u8BC6\u522B\u7ED3\u679C\uFF1A",
-                    touchResult.target_name),
-                react_1.default.createElement("div", { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
-                    touchResult.is_demo_mock && (react_1.default.createElement("span", { style: { fontSize: '10px', backgroundColor: '#fef3c7', color: '#92400e', padding: '1px 5px', borderRadius: '3px' } }, "\u79BB\u7EBF\u6F14\u793A\u6570\u636E")),
-                    react_1.default.createElement("span", { style: { fontSize: '11px', color: '#059669' } },
-                        "\u8017\u65F6: ",
-                        touchResult.latency_ms,
-                        "ms"))),
-            react_1.default.createElement("div", { style: { fontSize: '13px', color: touchResult.is_demo_mock ? '#78350f' : '#047857' } }, touchResult.explanation)))));
-};
-exports.InteractionPanel = InteractionPanel;
-
-},
-"features/interaction/ReadingNotesDrawer": function(require,module,exports){
-"use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.ReadingNotesDrawer = void 0;
-const react_1 = __importStar(require("react"));
-const api_1 = require("../../lib/api");
-const ReadingNotesDrawer = ({ bookId, confirmedType, onConfirmTypeChange, appMode, }) => {
-    const [isOpen, setIsOpen] = (0, react_1.useState)(false);
-    const [notes, setNotes] = (0, react_1.useState)([]);
-    const [activeShareUrl, setActiveShareUrl] = (0, react_1.useState)(null);
-    const [activeShareId, setActiveShareId] = (0, react_1.useState)(null);
-    const [statusMsg, setStatusMsg] = (0, react_1.useState)(null);
-    const [isLoading, setIsLoading] = (0, react_1.useState)(false);
-    // 1. 生成真实笔记草稿 (POST /api/books/{book_id}/notes/generate)
-    const handleGenerateNote = async () => {
-        setIsLoading(true);
-        setStatusMsg(null);
-        try {
-            if (appMode === 'live') {
-                const note = await api_1.apiClient.generateNoteDraft(bookId);
-                setNotes((prev) => [note, ...prev]);
-                setStatusMsg({ text: `✅ 服务端成功生成笔记草稿 (ID: ${note.id})`, isError: false });
-            }
-            else {
-                // 演示模式
-                const demoNote = {
-                    id: `demo-note-${Date.now()}`,
-                    book_id: bookId,
-                    owner_id: 'demo_user',
-                    content: {
-                        title: '绘本核心启迪',
-                        body: '小狐狸在迷路过程中学会了观察自然，亲子互动应鼓励安全探索。',
-                        page_no: 1,
-                        video_ms: 3500,
-                    },
-                    status: 'DRAFT',
-                    version: 1,
-                    created_at: new Date().toLocaleTimeString(),
-                    updated_at: new Date().toLocaleTimeString(),
-                };
-                setNotes((prev) => [demoNote, ...prev]);
-                setStatusMsg({ text: '⚠️ [演示模式] 生成本地模拟笔记草稿', isError: false });
-            }
-        }
-        catch (err) {
-            setStatusMsg({ text: `❌ 生成笔记失败: ${err.message}`, isError: true });
-        }
-        finally {
-            setIsLoading(false);
-        }
-    };
-    // 2. 主人审核笔记 (POST /api/notes/{note_id}/review)
-    const handleReviewNote = async (noteId) => {
-        setIsLoading(true);
-        setStatusMsg(null);
-        try {
-            if (appMode === 'live') {
-                const updated = await api_1.apiClient.reviewNote(noteId, 'approve');
-                setNotes((prev) => prev.map((n) => (n.id === noteId ? updated : n)));
-                setStatusMsg({ text: `✅ 主人审核已通过，状态更新为: ${updated.status}`, isError: false });
-            }
-            else {
-                setNotes((prev) => prev.map((n) => (n.id === noteId ? { ...n, status: 'PRIVATE' } : n)));
-                setStatusMsg({ text: '⚠️ [演示模式] 模拟主人审核通过', isError: false });
-            }
-        }
-        catch (err) {
-            setStatusMsg({ text: `❌ 审核失败: ${err.message}`, isError: true });
-        }
-        finally {
-            setIsLoading(false);
-        }
-    };
-    // 3. 创建只读安全分享 (POST /api/notes/{note_id}/shares)
-    const handleCreateShare = async (noteId) => {
-        setIsLoading(true);
-        setStatusMsg(null);
-        try {
-            if (appMode === 'live') {
-                const share = await api_1.apiClient.createNoteShare(noteId, 'link');
-                const shareUrl = `${window.location.origin}/api/shared-notes/${share.token}`;
-                setActiveShareUrl(shareUrl);
-                setActiveShareId(share.id);
-                setStatusMsg({ text: `✅ 真实只读分享已生成! 任何人凭令牌只读访问。`, isError: false });
-            }
-            else {
-                // 演示模式不产生任何看起来像真实接口的 URL
-                setActiveShareUrl('（演示模式：未生成真实链接）');
-                setActiveShareId('demo-share-id');
-                setStatusMsg({ text: '⚠️ [演示模式] 生成模拟只读链接', isError: false });
-            }
-        }
-        catch (err) {
-            // 真实服务端若笔记未审核将返回 409
-            setStatusMsg({ text: `❌ 创建分享被拦截: ${err.message}`, isError: true });
-        }
-        finally {
-            setIsLoading(false);
-        }
-    };
-    // 4. 撤销分享 (DELETE /api/notes/{note_id}/shares/{share_id})
-    const handleRevokeShare = async (noteId) => {
-        if (!activeShareId)
-            return;
-        setIsLoading(true);
-        setStatusMsg(null);
-        try {
-            if (appMode === 'live') {
-                await api_1.apiClient.revokeNoteShare(noteId, activeShareId);
-            }
-            setActiveShareUrl(null);
-            setActiveShareId(null);
-            setStatusMsg({ text: '🔒 分享已成功撤销，原链接即刻失效 (访问返回 404/410)。', isError: false });
-        }
-        catch (err) {
-            setStatusMsg({ text: `❌ 撤销失败: ${err.message}`, isError: true });
-        }
-        finally {
-            setIsLoading(false);
-        }
-    };
-    return (react_1.default.createElement("div", { style: {
-            backgroundColor: '#ffffff',
-            borderRadius: '12px',
-            border: '1px solid #e2e8f0',
-            padding: '16px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px',
-        } },
-        react_1.default.createElement("div", { style: {
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                cursor: 'pointer',
-            }, onClick: () => setIsOpen(!isOpen) },
-            react_1.default.createElement("div", { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-                react_1.default.createElement("span", { style: { fontSize: '15px', fontWeight: 600, color: '#1e293b' } },
-                    "\uD83D\uDCDA \u901A\u7528\u56FE\u4E66\u5206\u7C7B\u4E0E\u4F34\u8BFB\u7B14\u8BB0\u751F\u547D\u5468\u671F (",
-                    notes.length,
-                    " \u6761)"),
-                react_1.default.createElement("span", { style: {
-                        fontSize: '11px',
-                        backgroundColor: '#eff6ff',
-                        color: '#2563eb',
-                        padding: '2px 8px',
-                        borderRadius: '10px',
-                    } },
-                    "\u5F53\u524D\u786E\u8BA4\u7C7B\u522B: ",
-                    confirmedType)),
-            react_1.default.createElement("span", { style: { fontSize: '13px', color: '#64748b' } }, isOpen ? '收起 ▲' : '展开管理 ▼')),
-        statusMsg && (react_1.default.createElement("div", { style: {
-                fontSize: '12px',
-                padding: '8px 12px',
-                backgroundColor: statusMsg.isError ? '#fef2f2' : '#f0fdf4',
-                color: statusMsg.isError ? '#dc2626' : '#15803d',
-                border: `1px solid ${statusMsg.isError ? '#fecaca' : '#bbf7d0'}`,
-                borderRadius: '6px',
-            } }, statusMsg.text)),
-        isOpen && (react_1.default.createElement("div", { style: { display: 'flex', flexDirection: 'column', gap: '14px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' } },
-            react_1.default.createElement("div", { style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
-                react_1.default.createElement("span", { style: { fontSize: '13px', color: '#475569' } }, "\u56FE\u4E66\u7C7B\u522B\u786E\u8BA4 (\u63D0\u4EA4\u81F3\u540E\u7AEF)\uFF1A"),
-                react_1.default.createElement("select", { value: confirmedType, onChange: (e) => onConfirmTypeChange(e.target.value), style: {
-                        fontSize: '12px',
-                        padding: '4px 8px',
-                        borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
-                    } },
-                    react_1.default.createElement("option", { value: "picture_book" }, "\u513F\u7AE5\u7EB8\u8D28\u7ED8\u672C (picture_book)"),
-                    react_1.default.createElement("option", { value: "textbook" }, "\u901A\u7528\u6559\u6750 (textbook)"),
-                    react_1.default.createElement("option", { value: "novel" }, "\u6587\u5B66\u5C0F\u8BF4 (novel)"),
-                    react_1.default.createElement("option", { value: "science" }, "\u79D1\u666E\u8BFB\u7269 (science)"),
-                    react_1.default.createElement("option", { value: "other" }, "\u5176\u4ED6\u8BFB\u7269 (other)"))),
-            react_1.default.createElement("div", null,
-                react_1.default.createElement("button", { type: "button", disabled: isLoading, onClick: handleGenerateNote, style: {
-                        padding: '6px 14px',
-                        backgroundColor: '#0f766e',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: '6px',
-                        fontSize: '13px',
-                        cursor: 'pointer',
-                    } }, isLoading ? '处理中...' : '+ 向后端申请生成笔记草稿')),
-            activeShareUrl && (react_1.default.createElement("div", { style: {
-                    padding: '10px 12px',
-                    backgroundColor: '#f8fafc',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: '6px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
-                } },
-                react_1.default.createElement("div", { style: { fontSize: '12px', fontWeight: 600, color: '#166534' } }, "\uD83D\uDD17 \u5DF2\u751F\u6210\u7684\u771F\u5B9E\u53EA\u8BFB\u5206\u4EAB\u94FE\u63A5\uFF1A"),
-                react_1.default.createElement("input", { type: "text", readOnly: true, value: activeShareUrl, style: {
-                        fontSize: '11px',
-                        padding: '4px 8px',
-                        backgroundColor: '#ffffff',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '4px',
-                    } }),
-                react_1.default.createElement("div", { style: { display: 'flex', gap: '8px' } },
-                    react_1.default.createElement("button", { type: "button", onClick: () => navigator.clipboard.writeText(activeShareUrl), style: {
-                            fontSize: '11px',
-                            padding: '3px 8px',
-                            backgroundColor: '#e0e7ff',
-                            color: '#3730a3',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                        } }, "\uD83D\uDCCB \u590D\u5236\u94FE\u63A5"),
-                    react_1.default.createElement("button", { type: "button", onClick: () => handleRevokeShare(notes[0]?.id), style: {
-                            fontSize: '11px',
-                            padding: '3px 8px',
-                            backgroundColor: '#fee2e2',
-                            color: '#991b1b',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                        } }, "\uD83D\uDEAB \u64A4\u9500\u6B64\u5206\u4EAB")))),
-            notes.length === 0 ? (react_1.default.createElement("div", { style: { fontSize: '12px', color: '#94a3b8' } }, "\u6682\u65E0\u7B14\u8BB0\uFF0C\u70B9\u51FB\u4E0A\u65B9\u6309\u94AE\u5411\u670D\u52A1\u7AEF\u53D1\u8D77\u8349\u7A3F\u751F\u6210\u3002")) : (react_1.default.createElement("div", { style: { display: 'flex', flexDirection: 'column', gap: '8px' } }, notes.map((note) => (react_1.default.createElement("div", { key: note.id, style: {
-                    backgroundColor: '#f8fafc',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '6px',
-                    padding: '10px 12px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                } },
-                react_1.default.createElement("div", { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
-                    react_1.default.createElement("div", { style: { fontSize: '13px', fontWeight: 600, color: '#1e293b' } }, note.content.title || '笔记草稿'),
-                    react_1.default.createElement("div", { style: { fontSize: '12px', color: '#475569' } }, note.content.body || JSON.stringify(note.content)),
-                    react_1.default.createElement("div", { style: { fontSize: '11px', color: '#94a3b8' } },
-                        "ID: ",
-                        note.id,
-                        " \uFF5C \u670D\u52A1\u7AEF\u72B6\u6001:",
-                        ' ',
-                        react_1.default.createElement("strong", { style: { color: note.status === 'DRAFT' ? '#f59e0b' : '#10b981' } }, note.status))),
-                react_1.default.createElement("div", { style: { display: 'flex', gap: '6px' } },
-                    note.status === 'DRAFT' && (react_1.default.createElement("button", { type: "button", onClick: () => handleReviewNote(note.id), style: {
-                            padding: '4px 8px',
-                            fontSize: '11px',
-                            borderRadius: '4px',
-                            border: '1px solid #cbd5e1',
-                            background: '#fff',
-                            cursor: 'pointer',
-                        } }, "\u2705 \u4E3B\u4EBA\u5BA1\u6838\u901A\u8FC7")),
-                    react_1.default.createElement("button", { type: "button", onClick: () => handleCreateShare(note.id), style: {
-                            padding: '4px 8px',
-                            fontSize: '11px',
-                            borderRadius: '4px',
-                            border: 'none',
-                            backgroundColor: '#dcfce7',
-                            color: '#166534',
-                            cursor: 'pointer',
-                        } }, "\uD83D\uDD17 \u521B\u5EFA\u53EA\u8BFB\u5206\u4EAB")))))))))));
-};
-exports.ReadingNotesDrawer = ReadingNotesDrawer;
-
-},
-"features/interaction/TouchOverlay": function(require,module,exports){
-"use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.TouchOverlay = void 0;
-const react_1 = __importStar(require("react"));
-const VideoCoordinateMapper_1 = require("./VideoCoordinateMapper");
-const TouchOverlay = ({ videoRef, bookId, runId, onTouchRecognize, activeResult, disabled = false, }) => {
-    const [clickPoint, setClickPoint] = (0, react_1.useState)(null);
-    const [warningTip, setWarningTip] = (0, react_1.useState)(null);
-    const tipTimeoutRef = (0, react_1.useRef)(null);
-    const handlePointerDown = (e) => {
-        if (disabled || !videoRef.current)
-            return;
-        const videoEl = videoRef.current;
-        // 获取点击坐标并计算黑边
-        const result = (0, VideoCoordinateMapper_1.calculateVideoTouchCoordinates)(e, videoEl);
-        const rect = videoEl.getBoundingClientRect();
-        const localX = e.clientX - rect.left;
-        const localY = e.clientY - rect.top;
-        if (!result.isInsideVideo || !result.touchPoint || !result.viewport) {
-            if (tipTimeoutRef.current)
-                clearTimeout(tipTimeoutRef.current);
-            setWarningTip(result.reason || '点击在画面留黑区域，已忽略');
-            tipTimeoutRef.current = setTimeout(() => setWarningTip(null), 2000);
-            return;
-        }
-        setWarningTip(null);
-        setClickPoint({ x: localX, y: localY, timestamp: Date.now() });
-        const currentVideoMs = Math.round(videoEl.currentTime * 1000);
-        const touchPoint = result.touchPoint;
-        const req = {
-            book_id: bookId,
-            run_id: runId,
-            video_ms: currentVideoMs,
-            touch_point: touchPoint,
-            viewport_info: result.viewport,
-        };
-        onTouchRecognize(req);
-    };
-    (0, react_1.useEffect)(() => {
-        return () => {
-            if (tipTimeoutRef.current)
-                clearTimeout(tipTimeoutRef.current);
-        };
-    }, []);
-    return (react_1.default.createElement("div", { onPointerDown: handlePointerDown, style: {
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            cursor: disabled ? 'default' : 'crosshair',
-            pointerEvents: disabled ? 'none' : 'auto',
-            userSelect: 'none',
-            zIndex: 10,
-        } },
-        clickPoint && (react_1.default.createElement("div", { style: {
-                position: 'absolute',
-                left: clickPoint.x,
-                top: clickPoint.y,
-                transform: 'translate(-50%, -50%)',
-                pointerEvents: 'none',
-            } },
-            react_1.default.createElement("div", { style: {
-                    width: '24px',
-                    height: '24px',
-                    borderRadius: '50%',
-                    border: '2px solid #3b82f6',
-                    backgroundColor: 'rgba(59, 130, 246, 0.3)',
-                    boxShadow: '0 0 10px rgba(59, 130, 246, 0.8)',
-                    animation: 'ping 1s cubic-bezier(0, 0, 0.2, 1) infinite',
-                } }))),
-        activeResult && activeResult.bounding_box && videoRef.current && (react_1.default.createElement(BoundingBoxRenderer, { box: activeResult.bounding_box, videoEl: videoRef.current, label: activeResult.target_name })),
-        warningTip && (react_1.default.createElement("div", { style: {
-                position: 'absolute',
-                bottom: '16px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                backgroundColor: 'rgba(15, 23, 42, 0.85)',
-                color: '#f87171',
-                padding: '6px 14px',
-                borderRadius: '20px',
-                fontSize: '13px',
-                backdropFilter: 'blur(4px)',
-                pointerEvents: 'none',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-            } },
-            "\u26A0\uFE0F ",
-            warningTip))));
-};
-exports.TouchOverlay = TouchOverlay;
-/** 渲染归一化 Bounding Box 到容器坐标 */
-const BoundingBoxRenderer = ({ box, videoEl, label }) => {
-    const [xMin, yMin, xMax, yMax] = box;
-    const rect = videoEl.getBoundingClientRect();
-    const origW = videoEl.videoWidth || rect.width;
-    const origH = videoEl.videoHeight || rect.height;
-    const vp = (0, VideoCoordinateMapper_1.computeContainViewport)(rect.width, rect.height, origW, origH);
-    const { renderWidth: renderW, renderHeight: renderH, offsetX, offsetY } = vp;
-    const left = offsetX + xMin * renderW;
-    const top = offsetY + yMin * renderH;
-    const width = (xMax - xMin) * renderW;
-    const height = (yMax - yMin) * renderH;
-    return (react_1.default.createElement("div", { style: {
-            position: 'absolute',
-            left: `${left}px`,
-            top: `${top}px`,
-            width: `${width}px`,
-            height: `${height}px`,
-            border: '2px solid #10b981',
-            backgroundColor: 'rgba(16, 185, 129, 0.15)',
-            borderRadius: '4px',
-            pointerEvents: 'none',
-            boxShadow: '0 0 12px rgba(16, 185, 129, 0.5)',
-        } },
-        react_1.default.createElement("span", { style: {
-                position: 'absolute',
-                top: '-24px',
-                left: 0,
-                backgroundColor: '#10b981',
-                color: '#fff',
-                fontSize: '12px',
-                fontWeight: 'bold',
-                padding: '2px 6px',
-                borderRadius: '3px',
-                whiteSpace: 'nowrap',
-            } }, label)));
-};
 
 },
 "features/interaction/VideoCoordinateMapper": function(require,module,exports){
@@ -6355,7 +5551,7 @@ const ui_1 = require("../components/ui");
 function dateText(value) { const date = new Date(value); return Number.isNaN(date.getTime()) ? '时间无效' : date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }); }
 function activeGrant(grant, now) { return grant.status === 'active' && new Date(grant.expires_at).getTime() > now; }
 function linkFor(grant) { return `${location.href.split('#')[0]}#/shared?token=${encodeURIComponent(grant.token)}`; }
-function ShareNotePage({ book, note, grants, state, setState, navigate, notify, onCreate, onRevoke, onOpen }) {
+function ShareNotePage({ book, note, grants, state, setState, navigate, notify, onCreate, onRevoke, onOpen, appMode = 'live' }) {
     const [mode, setMode] = (0, react_1.useState)('expiring_link');
     const [recipients, setRecipients] = (0, react_1.useState)('');
     const [minutes, setMinutes] = (0, react_1.useState)(60);
@@ -6395,7 +5591,7 @@ function ShareNotePage({ book, note, grants, state, setState, navigate, notify, 
             return;
         try {
             await navigator.clipboard.writeText(linkFor(selected));
-            notify('模拟链接已复制，仅能在保存本地演示数据的浏览器中使用。');
+            notify(selected.server ? '只读分享链接已复制。凭此安全令牌可在有效期内公开只读访问。' : '模拟链接已复制，仅能在保存本地演示数据的浏览器中使用。');
         }
         catch {
             linkRef.current?.focus();
@@ -6417,7 +5613,7 @@ function ShareNotePage({ book, note, grants, state, setState, navigate, notify, 
                 React.createElement(ui_1.Icon, { name: "arrow", size: 16 }))),
         React.createElement("div", { className: "notes-origin" },
             React.createElement(ui_1.Icon, { name: "lock", size: 17 }),
-            React.createElement("span", null, "\u8FD9\u662F\u672C\u5730\u5206\u4EAB\u539F\u578B\uFF0C\u672A\u53D1\u5E03\u5230\u516C\u7F51\u3002\u7528\u6237 ID\u3001\u8EAB\u4EFD\u6838\u9A8C\u548C\u94FE\u63A5\u6743\u9650\u5747\u4E3A\u6A21\u62DF\uFF0C\u771F\u5B9E\u8BBF\u95EE\u63A7\u5236\u987B\u63A5\u540E\u7AEF\u3002")),
+            React.createElement("span", null, appMode === 'live' ? '真实分享模式（Live）：生成的只读凭证由服务端安全发放（POST /api/notes/{id}/shares）。凭证具备有效时限，可随时在服务端撤销，第三方只能在授权期内只读查看。' : '这是本地分享原型，未发布到公网。用户 ID、身份核验和链接权限均为模拟，真实访问控制须接后端。')),
         state === 'loading' ? React.createElement("div", { className: "notes-state", role: "status" },
             React.createElement("span", { className: "notes-state-icon" },
                 React.createElement(ui_1.Icon, { name: "lock", size: 28 })),
@@ -6490,11 +5686,12 @@ function ShareNotePage({ book, note, grants, state, setState, navigate, notify, 
                         React.createElement(ui_1.Icon, { name: "lock", size: 15 }),
                         "\u53EA\u5206\u4EAB\u5DF2\u5BA1\u6838\u7248\u672C\u7684\u7B14\u8BB0\u5FEB\u7167"),
                     React.createElement(ui_1.Button, { onClick: create, disabled: !approved },
-                        "\u521B\u5EFA\u6A21\u62DF\u5206\u4EAB ",
+                        appMode === 'live' ? '创建安全分享' : '创建模拟分享',
+                        " ",
                         React.createElement(ui_1.Icon, { name: "arrow", size: 17 }))),
                 selected && React.createElement("section", { className: "share-result", "aria-labelledby": "share-result-title" },
                     React.createElement("div", { className: "notes-section-heading" },
-                        React.createElement("h2", { id: "share-result-title" }, activeGrant(selected, now) ? '模拟分享已创建' : selected.status === 'revoked' ? '此分享已撤销' : '此分享已过期'),
+                        React.createElement("h2", { id: "share-result-title" }, activeGrant(selected, now) ? (selected.server ? '只读安全分享凭证已生效' : '模拟分享已创建') : selected.status === 'revoked' ? (selected.server ? '此分享已在服务端撤销' : '此分享已撤销') : '此分享已过期'),
                         React.createElement(ui_1.Badge, { tone: activeGrant(selected, now) ? 'green' : 'amber' }, activeGrant(selected, now) ? '有效' : selected.status === 'revoked' ? '已撤销' : '已过期')),
                     React.createElement("p", null,
                         "\u7248\u672C ",
@@ -6505,14 +5702,14 @@ function ShareNotePage({ book, note, grants, state, setState, navigate, notify, 
                         dateText(selected.expires_at),
                         "\uFF08\u5317\u4EAC\u65F6\u95F4\uFF09"),
                     React.createElement("label", { className: "notes-field" },
-                        "\u672C\u5730\u6A21\u62DF\u94FE\u63A5",
-                        React.createElement("input", { ref: linkRef, value: linkFor(selected), readOnly: true, "aria-label": "\u672C\u5730\u6A21\u62DF\u94FE\u63A5", onFocus: event => event.target.select() })),
+                        selected.server ? '服务端安全只读链接' : '本地模拟链接',
+                        React.createElement("input", { ref: linkRef, value: linkFor(selected), readOnly: true, "aria-label": selected.server ? '服务端安全只读链接' : '本地模拟链接', onFocus: event => event.target.select() })),
                     React.createElement("div", { className: "share-result-actions" },
                         React.createElement(ui_1.Button, { variant: "secondary", onClick: () => void copy(), disabled: !activeGrant(selected, now) }, "\u590D\u5236\u94FE\u63A5"),
                         React.createElement(ui_1.Button, { variant: "secondary", onClick: () => onOpen(selected) },
                             "\u6253\u5F00\u53EA\u8BFB\u9884\u89C8 ",
                             React.createElement(ui_1.Icon, { name: "arrow", size: 16 }))),
-                    React.createElement("small", null, "\u94FE\u63A5\u4F9D\u8D56\u5F53\u524D\u6D4F\u89C8\u5668\u7684\u672C\u5730\u6F14\u793A\u8BB0\u5F55\u3002\u590D\u5236\u5230\u5176\u4ED6\u8BBE\u5907\u4E0D\u4F1A\u540C\u6B65\u7B14\u8BB0\uFF0C\u672A\u4EA7\u751F\u516C\u7F51\u8BBF\u95EE\u80FD\u529B\u3002"))),
+                    React.createElement("small", null, selected.server ? '凭证已由后端发放并存储。有效期间任何持有令牌的访客均可安全只读访问；若被撤销，服务端立即拒绝后续访问。' : '链接依赖当前浏览器的本地演示记录。复制到其他设备不会同步笔记，未产生公网访问能力。'))),
             React.createElement("aside", { className: "notes-review-panel" },
                 React.createElement("div", { className: "notes-review-illustration" },
                     React.createElement("span", null, "\u2727"),
@@ -6540,7 +5737,7 @@ function ShareNotePage({ book, note, grants, state, setState, navigate, notify, 
                             dateText(grant.expires_at)),
                         React.createElement("div", { className: "share-record-actions" },
                             React.createElement("button", { type: "button", onClick: () => { setSelectedId(grant.id); onOpen(grant); } }, "\u53EA\u8BFB\u9884\u89C8"),
-                            React.createElement("button", { type: "button", disabled: !activeGrant(grant, now), onClick: () => { onRevoke(grant.id); notify('模拟分享已撤销。'); } }, "\u64A4\u9500\u5206\u4EAB"))))) : React.createElement("div", { className: "share-record-empty" },
+                            React.createElement("button", { type: "button", disabled: !activeGrant(grant, now), onClick: () => { void onRevoke(grant.id); } }, "\u64A4\u9500\u5206\u4EAB"))))) : React.createElement("div", { className: "share-record-empty" },
                         React.createElement(ui_1.Icon, { name: "lock", size: 26 }),
                         React.createElement("p", null,
                             "\u76EE\u524D\u4FDD\u6301\u79C1\u5BC6\u3002",

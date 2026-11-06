@@ -31,4 +31,4 @@
 3. 触控 `output` 里 `evidence` 的必填性与结构，A 的 schema 未明确（当前按 `[]`/`[{...}]` 发送）。
 4. nonfiction 无法细分 textbook/science，目前归 other。
 5. 导入流程（D）尚未调用 `POST /api/books`，所以 `book.server_book_id` 为空 → Live 的真实审核/分享被阻断（这是有意的诚实行为）。
-6. 本仓库当前 backend/app 里没有找到 interactions 路由实现（可能在 A 的未合并分支）→ 真实联调未验证。
+6. interactions 路由已在 backend/app/main.py (L593, L608) 证实存在，且已通过 scripts/run_backend_integration.py 完成端到端真实联调并输出 docs/backend-integration-results.json（留痕、回读、笔记生成、审核、分享、撤销、404拦截均已闭环验证）。

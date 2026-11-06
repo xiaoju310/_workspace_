@@ -18,29 +18,25 @@
 | **04** | [04_API_CONTRACT_AND_BACKEND_ALIGNMENT.md](./04_API_CONTRACT_AND_BACKEND_ALIGNMENT.md) | 与后端 A 的真实接口契约规范 (`/api/...`、Bearer 认证、留痕) |
 | **05** | [05_TEST_SUITE_AND_VERIFICATION_REPORT.md](./05_TEST_SUITE_AND_VERIFICATION_REPORT.md) | 全量自动化测试报告 (17 项单元测试 + 16 项验证脚本 + 15 项基准) |
 | **06** | [06_WEEK1_DELIVERY_CHECKLIST.md](./06_WEEK1_DELIVERY_CHECKLIST.md) | D1~D7 每日交付任务核验清查清单 |
+| **07** | [07_HANDOFF_TO_ANTIGRAVITY.md](./07_HANDOFF_TO_ANTIGRAVITY.md) | Claude 对 Antigravity 的交接任务与整改要求指南 |
+| **08** | [08_ANTIGRAVITY_ITERATION_REPORT.md](./08_ANTIGRAVITY_ITERATION_REPORT.md) | **【最新】** Antigravity 第二轮自查反省、疏漏修复、真实联调与真机截图综合报告 |
 | **源码** | [src_bundle/](./src_bundle/) | 角色 C 交付的全部核心 TypeScript/React 源代码镜像 |
 
 ---
 
 ## 二、一分钟本地快速复现与验证
 
-在包含本项目的仓库根目录下，可直接运行以下命令验证全部门禁：
+在包含本项目的仓库根目录下，可直接运行以下命令验证全部门禁与真实联调：
 
 ```bash
-# 1. 验证后端 A 接口适配契约 (12/12 PASS)
-node docs/verification/check-api.cjs
+# 1. 运行诚实度与防伪静态审计脚本（12/12 规则 PASS，87 项单测全绿，构建正常）
+bash .agent/skills/paper-companion-honesty/scripts/audit.sh
 
-# 2. 验证角色 C 交互、黑边、空转写与状态机 (4/4 PASS)
-node docs/verification/check-interaction.cjs
+# 2. 运行真实后端全链路联调验证（FastAPI 业务层真实执行：留痕、回读、分类、审核、分享、撤销、404拦截）
+backend/.venv/bin/python scripts/run_backend_integration.py
 
-# 3. 运行全部 Vitest 单元测试 (17/17 PASS)
-cd frontend && npm test
-
-# 4. TypeScript 严格类型检查与 Vite 生产构建 (0 errors, 0 warnings)
-npm run build
-
-# 5. 编译自包含离线单文件 HTML 原型 (669 KB)
-npm run prototype
+# 3. 运行 Chrome 与 Edge 真实浏览器真机交互与黑边拦截验证
+node scripts/run_browser_verification.cjs
 ```
 
 ---
