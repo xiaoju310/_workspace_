@@ -1,0 +1,152 @@
+{
+  "D3-001": {
+    "http_status": 201,
+    "body": {
+      "id": "e9e256c6-92fc-4386-a315-3b942ca85616",
+      "book_id": "59532fce-eb3f-4610-9f59-2612e1fe54d7",
+      "page_no": 1,
+      "sha256": "18ae3c113bc8de0b55a2ab8f474857643f03f04786111db6d9d9763ccf92e633",
+      "mime_type": "image/png",
+      "size_bytes": 132,
+      "image_path": "C:\\Users\\yxx\\AppData\\Local\\Temp\\pytest-of-yxx\\pytest-2\\test_upload_D3_001_0\\data\\books\\59532fce-eb3f-4610-9f59-2612e1fe54d7\\page-0001.png",
+      "created_at": "2026-11-06T12:17:03.301506Z"
+    }
+  },
+  "D3-002": {
+    "http_status": 201,
+    "body": {
+      "id": "54e2a2bd-b492-48db-b928-1880ba7038df",
+      "book_id": "4d18591b-d70a-4815-945c-edef43ed6c80",
+      "page_no": 1,
+      "sha256": "18404d03639304d8b2a7ce511ddb11c51a3765842111d55be4eb6dff511baa42",
+      "mime_type": "image/jpeg",
+      "size_bytes": 653,
+      "image_path": "C:\\Users\\yxx\\AppData\\Local\\Temp\\pytest-of-yxx\\pytest-2\\test_upload_D3_002_0\\data\\books\\4d18591b-d70a-4815-945c-edef43ed6c80\\page-0001.jpg",
+      "created_at": "2026-11-06T12:17:03.411307Z"
+    }
+  },
+  "D3-003": {
+    "http_status": 400,
+    "body": {
+      "detail": "不能上传空文件"
+    }
+  },
+  "D3-004": {
+    "http_status": 415,
+    "body": {
+      "detail": "只允许上传 JPG 或 PNG 图片"
+    }
+  },
+  "D3-005": {
+    "http_status": 415,
+    "body": {
+      "detail": "PNG 文件头不正确"
+    }
+  },
+  "D3-006": {
+    "http_status": 415,
+    "body": {
+      "detail": "图片无法完整解码或像素数过大"
+    }
+  },
+  "D3-007": {
+    "http_status": 415,
+    "body": {
+      "detail": "PNG 文件头不正确"
+    }
+  },
+  "D3-008": {
+    "http_status": 422,
+    "body": {
+      "detail": "page_no 必须从 1 开始"
+    }
+  },
+  "D3-010": {
+    "http_status": 415,
+    "body": {
+      "detail": "只允许上传 JPG 或 PNG 图片"
+    }
+  },
+  "D3-011": {
+    "http_status": 409,
+    "body": {
+      "detail": "该图书的页码已经存在"
+    }
+  },
+  "D3-012": {
+    "http_status": 200,
+    "body": [
+      {
+        "id": "e75d00bb-9f0d-4801-9b3c-14cd5882047c",
+        "book_id": "a0c87e3c-ba04-415a-bc23-9e5f7e4e1651",
+        "page_no": 1,
+        "sha256": "18ae3c113bc8de0b55a2ab8f474857643f03f04786111db6d9d9763ccf92e633",
+        "mime_type": "image/png",
+        "size_bytes": 132,
+        "image_path": "C:\\Users\\yxx\\AppData\\Local\\Temp\\pytest-of-yxx\\pytest-2\\test_duplicate_and_order0\\data\\books\\a0c87e3c-ba04-415a-bc23-9e5f7e4e1651\\page-0001.png",
+        "created_at": "2026-11-06T12:17:04.293940Z"
+      },
+      {
+        "id": "11de7eb5-974f-484c-b1cb-7f1aacd3f239",
+        "book_id": "a0c87e3c-ba04-415a-bc23-9e5f7e4e1651",
+        "page_no": 2,
+        "sha256": "18ae3c113bc8de0b55a2ab8f474857643f03f04786111db6d9d9763ccf92e633",
+        "mime_type": "image/png",
+        "size_bytes": 132,
+        "image_path": "C:\\Users\\yxx\\AppData\\Local\\Temp\\pytest-of-yxx\\pytest-2\\test_duplicate_and_order0\\data\\books\\a0c87e3c-ba04-415a-bc23-9e5f7e4e1651\\page-0002.png",
+        "created_at": "2026-11-06T12:17:04.271544Z"
+      }
+    ]
+  },
+  "D3-013": {
+    "http_status": 409,
+    "body": {
+      "detail": "请先确认图书类型"
+    }
+  },
+  "D3-014": {
+    "http_status": 409,
+    "body": {
+      "detail": "请先上传至少一页图书"
+    }
+  },
+  "D3-015": {
+    "http_status": 202,
+    "body": {
+      "job_id": "f2926c20-5a70-49ae-8ba8-b3d10e78ece4",
+      "run_id": "9a4c2566-1f91-4c6f-81ab-5461a7f06aee",
+      "status": "QUEUED",
+      "stage": "analyze",
+      "attempts": 0
+    }
+  },
+  "D3-016": {
+    "http_status": 200,
+    "body": {
+      "run_id": "9a4c2566-1f91-4c6f-81ab-5461a7f06aee",
+      "jobs": [
+        {
+          "id": "f2926c20-5a70-49ae-8ba8-b3d10e78ece4",
+          "run_id": "9a4c2566-1f91-4c6f-81ab-5461a7f06aee",
+          "stage": "analyze",
+          "status": "FAILED",
+          "attempts": 1,
+          "max_attempts": 3,
+          "error_code": "PROVIDER_NOT_CONFIGURED",
+          "error_message": "尚未接入真实分析服务",
+          "started_at": "2026-11-06T12:17:04.503161+00:00",
+          "ended_at": "2026-11-06T12:17:04.503161+00:00",
+          "created_at": "2026-11-06T12:17:04.491991+00:00"
+        }
+      ],
+      "segments": [],
+      "interactions": []
+    }
+  },
+  "D3-009": {
+    "http_status": 413,
+    "body": {
+      "detail": "单页图片不能超过 10MB"
+    }
+  }
+}

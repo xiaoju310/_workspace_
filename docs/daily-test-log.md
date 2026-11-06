@@ -26,3 +26,12 @@
 - 原D1“无代码”描述仅为当日历史，当前已有前后端；20条P0仍未实际执行。
 - D2仅为自制样本AI辅助标注及Windows OCR基线。E本人复核、PaddleOCR回归、真实授权样本和项目验收仍待办。
 - 修订验证与素材检查见 docs/test-results/d2/review-validation.md；PR描述草稿见同目录pr-description.md。
+
+## 2026-11-06 D3
+
+- 完成：D3专项12个pytest测试/16条接口记录全部通过；全量后端30通过（含专项），3条弃用警告。
+- 已覆盖：PNG/JPEG、损坏/伪装/空/超限/PDF、重复页码、页序、分析前置条件和provider缺失的明确失败。
+- 已登记：视频实验状态、来源许可待核查清单、四类图书各2正常1异常（12例未测）。
+- 阻塞：真实解析provider及真实I2V/T2V成片未接入；D2本人复核、PaddleOCR和授权真实页仍待办。
+- 证据：docs/test-results/d3/README.md及CSV/JSON/JUnit，docs/sources/model-and-material-sources.md。
+- 执行在同步main及E分支的独立副本；原仓库只同步交付文件，未推送或创建PR。
