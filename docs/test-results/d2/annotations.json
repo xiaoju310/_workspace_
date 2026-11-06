@@ -1,0 +1,141 @@
+﻿{
+  "schema_version": "e-d2-0.1",
+  "task_date": "2026-11-05",
+  "coordinate_convention": "左上原点；像素 xyxy；右下边界不包含；文本区域为宽松包围框，不用于精确定位指标",
+  "dataset_scope": "自制示意页，不代表真实绘本表现；AI辅助标注，待E本人复核",
+  "pages": [
+    {
+      "page_id": "D2-SYN-001",
+      "book_id": "e-d2-synthetic",
+      "page_no": 1,
+      "width": 1000,
+      "height": 700,
+      "image_ref": "images/page-01.png",
+      "kind": "synthetic",
+      "annotation_method": "图像生成后逐页视觉核对",
+      "annotator": "Codex",
+      "human_review_status": "待E本人复核",
+      "text": [
+        "自制测试页 1",
+        "小禾穿着蓝色上衣。",
+        "桌上有2个红苹果。",
+        "PAGE 1",
+        "测试插图；非授权绘本实测；无真实儿童数据"
+      ],
+      "entities": [
+        {
+          "label": "蓝衣人物",
+          "evidence": "图中人物外观；姓名来自正文，不由外观推断",
+          "attributes": [
+            "蓝色上衣"
+          ],
+          "kind": "person",
+          "bbox": [
+            95,
+            250,
+            205,
+            581
+          ],
+          "identity_from_text": "小禾",
+          "entity_id": "person-01"
+        },
+        {
+          "entity_id": "table-01",
+          "attributes": [
+            "棕色"
+          ],
+          "kind": "object",
+          "bbox": [
+            400,
+            400,
+            780,
+            580
+          ],
+          "label": "棕色桌子"
+        },
+        {
+          "label": "红苹果形物体",
+          "evidence": "红色圆形示意；苹果类别由正文辅助确认",
+          "attributes": [
+            "红色"
+          ],
+          "kind": "object",
+          "bbox": [
+            470,
+            330,
+            535,
+            400
+          ],
+          "entity_id": "apple-01"
+        },
+        {
+          "label": "红苹果形物体",
+          "evidence": "红色圆形示意；苹果类别由正文辅助确认",
+          "attributes": [
+            "红色"
+          ],
+          "kind": "object",
+          "bbox": [
+            610,
+            330,
+            675,
+            400
+          ],
+          "entity_id": "apple-02"
+        }
+      ]
+    },
+    {
+      "page_id": "D2-SYN-002",
+      "book_id": "e-d2-synthetic",
+      "page_no": 2,
+      "width": 1000,
+      "height": 700,
+      "image_ref": "images/page-02.png",
+      "kind": "synthetic",
+      "annotation_method": "图像生成后逐页视觉核对",
+      "annotator": "Codex",
+      "human_review_status": "待E本人复核",
+      "text": [
+        "自制测试页 2",
+        "小禾拿起一本绿色的书。",
+        "书名：《森林日记》。",
+        "PAGE 2  |  10:05",
+        "测试插图；非授权绘本实测；无真实儿童数据"
+      ],
+      "entities": [
+        {
+          "label": "蓝衣人物",
+          "evidence": "跨页身份按自制设定；真实绘本需逐页复核",
+          "attributes": [
+            "蓝色上衣"
+          ],
+          "kind": "person",
+          "bbox": [
+            95,
+            250,
+            205,
+            581
+          ],
+          "identity_from_text": "小禾",
+          "entity_id": "person-01"
+        },
+        {
+          "label": "绿色书形物体",
+          "evidence": "绿色矩形示意；书的类别和书名来自正文，封面无书名",
+          "attributes": [
+            "绿色"
+          ],
+          "kind": "object",
+          "bbox": [
+            190,
+            350,
+            341,
+            451
+          ],
+          "entity_id": "book-01"
+        }
+      ]
+    }
+  ]
+}

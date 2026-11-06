@@ -1,0 +1,4 @@
+﻿experiment_id,date,component,mode,input,status,elapsed_ms,peak_vram_mib,output_ref,evidence_ref,next_action
+D3-V01,2026-11-06,true I2V/T2V,real,authorized or self-created page,阻塞,,,,b-experiments-snapshot.md,B需提供真实provider和成片及版本成本许可；E复核
+D3-V02,2026-11-06,FFmpeg test clip,synthetic,generated blue clip,历史媒体工具测试非模型视频,,,,b-experiments-snapshot.md,不计为真实生成
+D3-V03,2026-11-06,frontend simulation,static,UI simulation recording,前端模拟非模型视频,,,,../../demo/frontend-simulation.mp4,不计为真实生成

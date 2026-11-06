@@ -1,0 +1,7 @@
+﻿"page_id","entity_id","kind","label","bbox_xyxy","evidence","source_ref","review_status"
+"D2-SYN-001","person-01","person","蓝衣人物","95,250,205,581","图中人物外观；姓名来自正文，不由外观推断","images/page-01.png","AI辅助标注，待E复核"
+"D2-SYN-001","table-01","object","棕色桌子","400,400,780,580",,"images/page-01.png","AI辅助标注，待E复核"
+"D2-SYN-001","apple-01","object","红苹果形物体","470,330,535,400","红色圆形示意；苹果类别由正文辅助确认","images/page-01.png","AI辅助标注，待E复核"
+"D2-SYN-001","apple-02","object","红苹果形物体","610,330,675,400","红色圆形示意；苹果类别由正文辅助确认","images/page-01.png","AI辅助标注，待E复核"
+"D2-SYN-002","person-01","person","蓝衣人物","95,250,205,581","跨页身份按自制设定；真实绘本需逐页复核","images/page-02.png","AI辅助标注，待E复核"
+"D2-SYN-002","book-01","object","绿色书形物体","190,350,341,451","绿色矩形示意；书的类别和书名来自正文，封面无书名","images/page-02.png","AI辅助标注，待E复核"

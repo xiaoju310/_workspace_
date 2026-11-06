@@ -1,0 +1,17 @@
+﻿case_id,date,feature,book_type,input_ref,expected,actual,status,duration_ms,evidence_ref,owner,next_action
+D3-001,2026-11-06,上传校验,picture_book,synthetic generated in test_e_d3.py,HTTP 201; semantic check true,HTTP 201; semantic=True,通过,17.821,raw-responses.json#D3-001,E,项目真实provider及授权样本待验收
+D3-002,2026-11-06,上传校验,picture_book,synthetic generated in test_e_d3.py,HTTP 201; semantic check true,HTTP 201; semantic=True,通过,15.872,raw-responses.json#D3-002,E,项目真实provider及授权样本待验收
+D3-003,2026-11-06,上传校验,picture_book,synthetic generated in test_e_d3.py,HTTP 400; semantic check true,HTTP 400; semantic=True,通过,11.754,raw-responses.json#D3-003,E,项目真实provider及授权样本待验收
+D3-004,2026-11-06,上传校验,picture_book,synthetic generated in test_e_d3.py,HTTP 415; semantic check true,HTTP 415; semantic=True,通过,7.105,raw-responses.json#D3-004,E,项目真实provider及授权样本待验收
+D3-005,2026-11-06,上传校验,picture_book,synthetic generated in test_e_d3.py,HTTP 415; semantic check true,HTTP 415; semantic=True,通过,8.384,raw-responses.json#D3-005,E,项目真实provider及授权样本待验收
+D3-006,2026-11-06,上传校验,picture_book,synthetic generated in test_e_d3.py,HTTP 415; semantic check true,HTTP 415; semantic=True,通过,55.452,raw-responses.json#D3-006,E,项目真实provider及授权样本待验收
+D3-007,2026-11-06,上传校验,picture_book,synthetic generated in test_e_d3.py,HTTP 415; semantic check true,HTTP 415; semantic=True,通过,1.906,raw-responses.json#D3-007,E,项目真实provider及授权样本待验收
+D3-008,2026-11-06,上传校验,picture_book,synthetic generated in test_e_d3.py,HTTP 422; semantic check true,HTTP 422; semantic=True,通过,14.764,raw-responses.json#D3-008,E,项目真实provider及授权样本待验收
+D3-009,2026-11-06,上传校验,picture_book,synthetic generated in test_e_d3.py,HTTP 413; semantic check true,HTTP 413; semantic=True,通过,9.271,raw-responses.json#D3-009,E,项目真实provider及授权样本待验收
+D3-010,2026-11-06,上传校验,picture_book,synthetic generated in test_e_d3.py,HTTP 415; semantic check true,HTTP 415; semantic=True,通过,7.56,raw-responses.json#D3-010,E,项目真实provider及授权样本待验收
+D3-011,2026-11-06,上传校验,picture_book,synthetic generated in test_e_d3.py,HTTP 409; semantic check true,HTTP 409; semantic=True,通过,8.752,raw-responses.json#D3-011,E,项目真实provider及授权样本待验收
+D3-012,2026-11-06,页序,picture_book,synthetic generated in test_e_d3.py,HTTP 200; semantic check true,HTTP 200; semantic=True,通过,5.2,raw-responses.json#D3-012,E,项目真实provider及授权样本待验收
+D3-013,2026-11-06,分析前置条件,picture_book,synthetic generated in test_e_d3.py,HTTP 409; semantic check true,HTTP 409; semantic=True,通过,15.472,raw-responses.json#D3-013,E,项目真实provider及授权样本待验收
+D3-014,2026-11-06,无页面分析,picture_book,synthetic generated in test_e_d3.py,HTTP 409; semantic check true,HTTP 409; semantic=True,通过,9.925,raw-responses.json#D3-014,E,项目真实provider及授权样本待验收
+D3-015,2026-11-06,分析任务接收,picture_book,synthetic generated in test_e_d3.py,HTTP 202; semantic check true,HTTP 202; semantic=True,通过,27.298,raw-responses.json#D3-015,E,项目真实provider及授权样本待验收
+D3-016,2026-11-06,缺provider明确失败,picture_book,synthetic generated in test_e_d3.py,HTTP 200; semantic check true,HTTP 200; semantic=True,通过,12.404,raw-responses.json#D3-016,E,项目真实provider及授权样本待验收

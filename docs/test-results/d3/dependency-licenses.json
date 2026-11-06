@@ -1,0 +1,196 @@
+{
+  "annotated-doc": {
+    "version": "0.0.5",
+    "license_expression": "MIT",
+    "license": null,
+    "license_classifiers": []
+  },
+  "annotated-types": {
+    "version": "0.8.0",
+    "license_expression": "MIT",
+    "license": null,
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  "anyio": {
+    "version": "4.16.0",
+    "license_expression": "MIT",
+    "license": null,
+    "license_classifiers": []
+  },
+  "certifi": {
+    "version": "2026.10.23",
+    "license_expression": null,
+    "license": "MPL-2.0",
+    "license_classifiers": [
+      "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)"
+    ]
+  },
+  "click": {
+    "version": "8.5.0",
+    "license_expression": "BSD-3-Clause",
+    "license": null,
+    "license_classifiers": []
+  },
+  "colorama": {
+    "version": "0.4.6",
+    "license_expression": null,
+    "license": null,
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  "fastapi": {
+    "version": "0.162.0",
+    "license_expression": "MIT",
+    "license": null,
+    "license_classifiers": []
+  },
+  "h11": {
+    "version": "0.16.0",
+    "license_expression": null,
+    "license": "MIT",
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  "httpcore": {
+    "version": "1.0.9",
+    "license_expression": "BSD-3-Clause",
+    "license": null,
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  "httptools": {
+    "version": "0.9.0",
+    "license_expression": "MIT",
+    "license": null,
+    "license_classifiers": []
+  },
+  "httpx": {
+    "version": "0.28.1",
+    "license_expression": null,
+    "license": "BSD-3-Clause",
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  "idna": {
+    "version": "3.20",
+    "license_expression": "BSD-3-Clause",
+    "license": null,
+    "license_classifiers": []
+  },
+  "iniconfig": {
+    "version": "2.3.1",
+    "license_expression": "MIT",
+    "license": null,
+    "license_classifiers": []
+  },
+  "opentelemetry-api": {
+    "version": "1.45.2",
+    "license_expression": "Apache-2.0",
+    "license": null,
+    "license_classifiers": []
+  },
+  "packaging": {
+    "version": "26.3",
+    "license_expression": "Apache-2.0 OR BSD-2-Clause",
+    "license": null,
+    "license_classifiers": []
+  },
+  "pillow": {
+    "version": "12.3.0",
+    "license_expression": "MIT-CMU",
+    "license": null,
+    "license_classifiers": []
+  },
+  "pluggy": {
+    "version": "1.7.0",
+    "license_expression": null,
+    "license": "MIT",
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  "pydantic": {
+    "version": "2.14.3",
+    "license_expression": "MIT",
+    "license": null,
+    "license_classifiers": []
+  },
+  "pydantic_core": {
+    "version": "2.50.4",
+    "license_expression": "MIT",
+    "license": null,
+    "license_classifiers": []
+  },
+  "Pygments": {
+    "version": "2.21.0",
+    "license_expression": "BSD-2-Clause",
+    "license": null,
+    "license_classifiers": []
+  },
+  "pytest": {
+    "version": "8.4.2",
+    "license_expression": null,
+    "license": "MIT",
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  "python-dotenv": {
+    "version": "1.2.4",
+    "license_expression": null,
+    "license": "BSD-3-Clause",
+    "license_classifiers": []
+  },
+  "PyYAML": {
+    "version": "6.0.3",
+    "license_expression": null,
+    "license": "MIT",
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  "starlette": {
+    "version": "1.10.0",
+    "license_expression": "BSD-3-Clause",
+    "license": null,
+    "license_classifiers": []
+  },
+  "typing_extensions": {
+    "version": "4.16.0",
+    "license_expression": "PSF-2.0",
+    "license": null,
+    "license_classifiers": []
+  },
+  "typing-inspection": {
+    "version": "0.4.5",
+    "license_expression": "MIT",
+    "license": null,
+    "license_classifiers": []
+  },
+  "uvicorn": {
+    "version": "0.54.0",
+    "license_expression": "BSD-3-Clause",
+    "license": null,
+    "license_classifiers": []
+  },
+  "watchfiles": {
+    "version": "1.3.0",
+    "license_expression": null,
+    "license": "MIT",
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  "websockets": {
+    "version": "17.4",
+    "license_expression": "BSD-3-Clause",
+    "license": null,
+    "license_classifiers": []
+  }
+}

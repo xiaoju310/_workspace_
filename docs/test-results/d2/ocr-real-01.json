@@ -1,0 +1,363 @@
+﻿{
+    "run_id":  "E-D2-WINOCR-20261105-01",
+    "task_date":  "2026-11-05",
+    "executed_at":  "2026-11-05T14:09:49.0856832+08:00",
+    "provider":  "Windows.Media.Ocr",
+    "language":  "zh-Hans-CN",
+    "os_version":  "Microsoft Windows NT 10.0.26200.0",
+    "model_version":  "Windows bundled OCR; model revision unavailable",
+    "status":  "real",
+    "input_sha256":  "FAD518FBD3D677ABE737182AA6475CB316C284D1341D7DD2A132FE4B89A08668",
+    "inference_duration_ms":  47.6224,
+    "duration_scope":  "RecognizeAsync only; excludes decode and engine initialization",
+    "text":  "自 制 测 试 页 1 小 禾 穿 着 蓝 色 上 衣 。 桌 上 有 2 个 红 苹 果 。 PAGE 1 测 试 插 图 ， 非 授 权 绘 本 实 测 ； 无 真 实 儿 童 数 据",
+    "lines":  [
+                  {
+                      "text":  "自 制 测 试 页 1",
+                      "words":  [
+                                    {
+                                        "text":  "自",
+                                        "x":  47,
+                                        "y":  31,
+                                        "width":  20,
+                                        "height":  26
+                                    },
+                                    {
+                                        "text":  "制",
+                                        "x":  70,
+                                        "y":  32,
+                                        "width":  24,
+                                        "height":  24
+                                    },
+                                    {
+                                        "text":  "测",
+                                        "x":  96,
+                                        "y":  32,
+                                        "width":  25,
+                                        "height":  24
+                                    },
+                                    {
+                                        "text":  "试",
+                                        "x":  122,
+                                        "y":  31,
+                                        "width":  26,
+                                        "height":  25
+                                    },
+                                    {
+                                        "text":  "页",
+                                        "x":  148,
+                                        "y":  33,
+                                        "width":  26,
+                                        "height":  23
+                                    },
+                                    {
+                                        "text":  "1",
+                                        "x":  184,
+                                        "y":  33,
+                                        "width":  8,
+                                        "height":  20
+                                    }
+                                ]
+                  },
+                  {
+                      "text":  "小 禾 穿 着 蓝 色 上 衣 。",
+                      "words":  [
+                                    {
+                                        "text":  "小",
+                                        "x":  44,
+                                        "y":  87,
+                                        "width":  26,
+                                        "height":  23
+                                    },
+                                    {
+                                        "text":  "禾",
+                                        "x":  70,
+                                        "y":  88,
+                                        "width":  26,
+                                        "height":  24
+                                    },
+                                    {
+                                        "text":  "穿",
+                                        "x":  96,
+                                        "y":  86,
+                                        "width":  25,
+                                        "height":  25
+                                    },
+                                    {
+                                        "text":  "着",
+                                        "x":  123,
+                                        "y":  86,
+                                        "width":  24,
+                                        "height":  25
+                                    },
+                                    {
+                                        "text":  "蓝",
+                                        "x":  149,
+                                        "y":  86,
+                                        "width":  25,
+                                        "height":  24
+                                    },
+                                    {
+                                        "text":  "色",
+                                        "x":  175,
+                                        "y":  86,
+                                        "width":  25,
+                                        "height":  25
+                                    },
+                                    {
+                                        "text":  "上",
+                                        "x":  201,
+                                        "y":  87,
+                                        "width":  25,
+                                        "height":  23
+                                    },
+                                    {
+                                        "text":  "衣",
+                                        "x":  226,
+                                        "y":  86,
+                                        "width":  26,
+                                        "height":  26
+                                    },
+                                    {
+                                        "text":  "。",
+                                        "x":  253,
+                                        "y":  104,
+                                        "width":  7,
+                                        "height":  7
+                                    }
+                                ]
+                  },
+                  {
+                      "text":  "桌 上 有 2 个 红 苹 果 。",
+                      "words":  [
+                                    {
+                                        "text":  "桌",
+                                        "x":  44,
+                                        "y":  131,
+                                        "width":  26,
+                                        "height":  26
+                                    },
+                                    {
+                                        "text":  "上",
+                                        "x":  71,
+                                        "y":  132,
+                                        "width":  25,
+                                        "height":  23
+                                    },
+                                    {
+                                        "text":  "有",
+                                        "x":  96,
+                                        "y":  131,
+                                        "width":  26,
+                                        "height":  25
+                                    },
+                                    {
+                                        "text":  "2",
+                                        "x":  123,
+                                        "y":  133,
+                                        "width":  13,
+                                        "height":  20
+                                    },
+                                    {
+                                        "text":  "个",
+                                        "x":  137,
+                                        "y":  132,
+                                        "width":  26,
+                                        "height":  24
+                                    },
+                                    {
+                                        "text":  "红",
+                                        "x":  164,
+                                        "y":  131,
+                                        "width":  25,
+                                        "height":  24
+                                    },
+                                    {
+                                        "text":  "苹",
+                                        "x":  190,
+                                        "y":  132,
+                                        "width":  25,
+                                        "height":  24
+                                    },
+                                    {
+                                        "text":  "果",
+                                        "x":  215,
+                                        "y":  133,
+                                        "width":  26,
+                                        "height":  23
+                                    },
+                                    {
+                                        "text":  "。",
+                                        "x":  242,
+                                        "y":  149,
+                                        "width":  7,
+                                        "height":  7
+                                    }
+                                ]
+                  },
+                  {
+                      "text":  "PAGE 1",
+                      "words":  [
+                                    {
+                                        "text":  "PAGE",
+                                        "x":  46,
+                                        "y":  177,
+                                        "width":  54,
+                                        "height":  17
+                                    },
+                                    {
+                                        "text":  "1",
+                                        "x":  110,
+                                        "y":  177,
+                                        "width":  7,
+                                        "height":  17
+                                    }
+                                ]
+                  },
+                  {
+                      "text":  "测 试 插 图 ， 非 授 权 绘 本 实 测 ； 无 真 实 儿 童 数 据",
+                      "words":  [
+                                    {
+                                        "text":  "测",
+                                        "x":  44,
+                                        "y":  640,
+                                        "width":  21,
+                                        "height":  21
+                                    },
+                                    {
+                                        "text":  "试",
+                                        "x":  66,
+                                        "y":  640,
+                                        "width":  22,
+                                        "height":  21
+                                    },
+                                    {
+                                        "text":  "插",
+                                        "x":  88,
+                                        "y":  639,
+                                        "width":  22,
+                                        "height":  22
+                                    },
+                                    {
+                                        "text":  "图",
+                                        "x":  111,
+                                        "y":  641,
+                                        "width":  20,
+                                        "height":  20
+                                    },
+                                    {
+                                        "text":  "，",
+                                        "x":  135,
+                                        "y":  655,
+                                        "width":  4,
+                                        "height":  6
+                                    },
+                                    {
+                                        "text":  "非",
+                                        "x":  154,
+                                        "y":  640,
+                                        "width":  22,
+                                        "height":  21
+                                    },
+                                    {
+                                        "text":  "授",
+                                        "x":  176,
+                                        "y":  639,
+                                        "width":  22,
+                                        "height":  22
+                                    },
+                                    {
+                                        "text":  "权",
+                                        "x":  198,
+                                        "y":  640,
+                                        "width":  21,
+                                        "height":  21
+                                    },
+                                    {
+                                        "text":  "绘",
+                                        "x":  220,
+                                        "y":  640,
+                                        "width":  22,
+                                        "height":  21
+                                    },
+                                    {
+                                        "text":  "本",
+                                        "x":  243,
+                                        "y":  640,
+                                        "width":  21,
+                                        "height":  21
+                                    },
+                                    {
+                                        "text":  "实",
+                                        "x":  264,
+                                        "y":  640,
+                                        "width":  22,
+                                        "height":  21
+                                    },
+                                    {
+                                        "text":  "测",
+                                        "x":  286,
+                                        "y":  640,
+                                        "width":  21,
+                                        "height":  21
+                                    },
+                                    {
+                                        "text":  "；",
+                                        "x":  311,
+                                        "y":  646,
+                                        "width":  4,
+                                        "height":  15
+                                    },
+                                    {
+                                        "text":  "无",
+                                        "x":  330,
+                                        "y":  641,
+                                        "width":  22,
+                                        "height":  20
+                                    },
+                                    {
+                                        "text":  "真",
+                                        "x":  353,
+                                        "y":  639,
+                                        "width":  21,
+                                        "height":  22
+                                    },
+                                    {
+                                        "text":  "实",
+                                        "x":  374,
+                                        "y":  640,
+                                        "width":  22,
+                                        "height":  21
+                                    },
+                                    {
+                                        "text":  "儿",
+                                        "x":  396,
+                                        "y":  640,
+                                        "width":  22,
+                                        "height":  21
+                                    },
+                                    {
+                                        "text":  "童",
+                                        "x":  418,
+                                        "y":  639,
+                                        "width":  22,
+                                        "height":  22
+                                    },
+                                    {
+                                        "text":  "数",
+                                        "x":  440,
+                                        "y":  640,
+                                        "width":  22,
+                                        "height":  21
+                                    },
+                                    {
+                                        "text":  "据",
+                                        "x":  462,
+                                        "y":  640,
+                                        "width":  22,
+                                        "height":  21
+                                    }
+                                ]
+                  }
+              ]
+}
