@@ -1,11 +1,18 @@
-# 03. 队长 PR #5 审核意见逐条闭环整改对照表
+# 纸书智伴 · PR #5 队长审核意见整改说明（Claude 复审后修订版）
 
-在 PR #5 提交后，队长提出了 4 项阻断性问题与 1 项重要问题。本项目已进行全量彻底整改，闭环对齐如下：
+> 旧版把 5 项都写成"已闭环"，但源码复核后并不属实。本版按 **已验证 / 未验证 / 依赖他人** 如实记录。
+> 证据命令：`bash .agent/skills/paper-companion-honesty/scripts/audit.sh`（审计 12 条规则 + tsc + 65 项 vitest + build）。
 
-| 优先级 | 队长审核提出的具体问题 | 原始状态缺陷 | 角色 C 整改实施与代码闭环 | 验收判定 |
-| :--- | :--- | :--- | :--- | :--- |
-| **阻断 1** | **问答和触控接口请求失败后，静默返回“小狐狸”故事答案或按点击坐标编造识别结果、置信度和视频证据。换一本书也可能得到同样结果。** | 异常捕获后降级到固定的写死 mock 数据，未对错误如实上报。 | 1. 设立全局显式 `appMode: 'live' \| 'demo'` 物理隔离，默认真实模式（Live）；<br>2. 在真实模式下，后端接口失败或网络异常时**直接向用户抛出真实错误或提示无证据**，绝对不静默伪造答案或坐标；<br>3. 模拟数据仅在显式开启的 Demo 模式下生效，并在界面与数据字段上打上 `is_demo_mock: true` 醒目标记。 | **已闭环** (通过单测与真机测试) |
-| **阻断 2** | **ASR 实现没有识别录音：所谓浏览器识别返回固定问题，Mock 根据音频文件大小猜问题。空转写还会被替换成默认问题。** | 原有录音交互在无声或空录音时自动填入默认测试提问，替用户“说”了一句话。 | 1. 接入真实浏览器原生 Web Speech API 普通话实时语音转写 (`RealBrowserSpeechRecognition`)；<br>2. 空转写、静音或权限被拒时，返回 `NO_SPEECH_DETECTED` 并明确提示“未识别到有效语音，请重试”，**100% 杜绝替用户编造假提问**；<br>3. 保留键盘输入作为合法通道。 | **已闭环** (通过单测与真实录音测试) |
-| **阻断 3** | **与 A 的接口不匹配。C 默认调用 `/api/v1/interaction/qa` 等，且没有携带认证信息；当前 A 分支实现的是另一套 `/api/...` 路由，例如 `PATCH /api/books/{id}/classification`。分类请求失败后，C 仍返回“已确认”。** | 路由前缀包含 `/v1`，未携带 Bearer 认证 Token；分类确认失败时未阻止状态更新。 | 1. 全面移除 `/v1`，统一对齐后端真实路由 `/api/...`；<br>2. 所有请求统一携带 `Authorization: Bearer <token>` 认证头；<br>3. 图书分类确认调用 `PATCH /api/books/{book_id}/classification`，失败抛错并阻断，绝不显示“已确认”；<br>4. 交互记录真实上报至 `POST /api/runs/{run_id}/interactions`，严格携带必填字段 `output.producer: "c_interaction_agent"` 与非负延迟。 | **已闭环** (通过 `check-api.cjs` 12/12 PASS) |
-| **阻断 4** | **笔记审核与分享只修改页面内存，刷新就会丢失；提示“已生成只读分享安全链接”，但代码没有创建链接或调用审核、分享接口。** | 纯前端内存 mock，无后端持久化调用。 | 1. 接入 A 后端的真实笔记生命周期接口：`POST /api/books/{id}/notes/generate`、`POST /api/notes/{id}/review`、`POST /api/notes/{id}/shares`、`DELETE /api/notes/{id}/shares/{share_id}`、`GET /api/shared-notes/{token}`；<br>2. 未经审核的笔记尝试创建分享时，服务端返回 409，前端如实呈现拦截原因；<br>3. 生成带真实 Token 的只读安全链接，并支持服务端级撤销。 | **已闭环** (通过状态机单测与联调) |
-| **重要 5** | **页面使用固定的 book/run ID，播放的却是公开的 Big Buck Bunny 示例视频；“小狐狸”问答证据与实际视频不对应。本地证据索引也是固定故事。** | bookId 与 runId 写死，证据无法与当前选定图书绑定。 | 1. 伴读阅读器严格接收外部动态传入的 `book.id` 与 `book.run_id`，实现按书籍和任务物理隔离；<br>2. 动态调用 `GET /api/runs/{run_id}/assets` 拉取当前任务实际生成的视频成片；成片未生成时展示标准占位与真实状态提示；<br>3. 证据索引动态基于当前图书的页码与多模态分镜构建。 | **已闭环** (在 `WorkspaceApp` 中全量串联) |
+| # | 队长意见 | 现状 | 已验证（文件 / 测试） | 未验证 / 依赖他人 |
+|---|---|---|---|---|
+| 1 | Live 失败不得编造答案/坐标 | **已整改**：Live 无内置故事；索引取自当前图书校对文字；无依据拒答；触控无视觉模型时只记录点击并返回 `uncertain`；写库失败带 `persisted=false` 并在界面展示；读取接口失败抛错 | `lib/api.ts`、`indexing/*`、`qa/*`；`InteractionApi.test.ts`（17）、`TimeSliceIndexer.test.ts`、`PictureBookRagEngine.test.ts`；变异自检 4/4 变红 | **没有视觉识别模型** → 认物功能不可用（如实 uncertain）。抽取式检索答不出同义词/时序语义问题，6 个基准用例登记为已知缺口 |
+| 2 | ASR 必须识别真实录音，空转写不得造句 | **已整改**：zh-CN Web Speech；`onend` 复位 + 超时；错误码映射；置信度透传；阅读页经 `asrManager`；空转写返回 `NO_SPEECH_DETECTED` | `asr/AsrProvider.ts`；`AsrProvider.test.ts`（10，含挂起/超时/自行结束） | **未在真实浏览器验证**；Chrome 在国内网络可能 `network` 失败；A 没有 ASR 接口，**无服务端兜底**；16kHz WAV 目前未被任何服务消费 |
+| 3 | 与 A 接口/认证对齐，分类失败不得显示已确认 | **已整改**：统一经 `api/client.ts`（Bearer、超时、detail 解析）；无默认令牌；分类经 `toBackendBookType`（修复 fiction/nonfiction 会 422）；失败抛错不确认；A 的令牌不发给第三方 | `InteractionApi.test.ts`（分类/留痕）、`check-api.cjs`（13） | **backend/app 里未找到 interactions 路由实现 → 真实联调未做**；触控 `output.evidence` 的 schema 待 A 确认 |
+| 4 | 笔记审核/分享不得只改内存 | **已整改**：先服务端后本地，失败本地不变；撤销失败不再显示成功；link token 缺失视为失败 | `lib/noteSync.ts`；`noteSync.test.ts`（6） | **Live 下导入的书没有 `server_book_id`**（D 的导入未调用 `POST /api/books`）→ 真实审核/分享被有意阻断并解释原因；`submit` 步骤 A 无接口 |
+| 5 | 不写死 book/run，不用示例视频 | **部分整改**：`run-default` 回退已删除，缺 run_id 直接报错；证据索引来自当前书；时间轴来自 `GET /api/runs/{id}/segments` | `InteractionApi.test.ts`「缺 run_id」 | 视频成片播放与 `assets` 的联调未验证 |
+
+## 触控黑边（维度 2）
+`mapClickToContent` 纯函数：元数据未就绪/零尺寸/NaN 一律拒绝；像素夹到 `[0,size-1]`；扣 border/padding；静态书页同样处理；`touch_point/viewport_info` 从 reader 原样透传到 A（此前被丢弃并重算）。`VideoCoordinateMapper.test.ts`（7）。**未验证**：真机竖屏、缩放、CSS transform。
+
+## 遗留清单
+见 `.agent/skills/paper-companion-honesty/references/contract-cheatsheet.md`「已知契约空白」与 `docs/HANDOFF_TO_ANTIGRAVITY.md` §3。

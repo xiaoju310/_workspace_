@@ -1,104 +1,69 @@
 import { describe, it, expect } from 'vitest';
-import { calculateVideoTouchCoordinates } from '../VideoCoordinateMapper';
+import {
+  calculateVideoTouchCoordinates,
+  calculateImageTouchCoordinates,
+  mapClickToContent,
+  computeContainViewport,
+} from '../VideoCoordinateMapper';
 
-describe('VideoCoordinateMapper (触控坐标换算与黑边拦截算法)', () => {
-  // 构造模拟的 HTMLVideoElement
-  function createMockVideoElement(options: {
-    videoWidth: number;
-    videoHeight: number;
-    containerWidth: number;
-    containerHeight: number;
-  }): HTMLVideoElement {
-    return {
-      videoWidth: options.videoWidth,
-      videoHeight: options.videoHeight,
-      getBoundingClientRect: () => ({
-        left: 100,
-        top: 100,
-        width: options.containerWidth,
-        height: options.containerHeight,
-        right: 100 + options.containerWidth,
-        bottom: 100 + options.containerHeight,
-        x: 100,
-        y: 100,
-        toJSON: () => {},
-      }),
-    } as unknown as HTMLVideoElement;
-  }
+function el(opts: { w: number; h: number; cw: number; ch: number; nat?: 'video' | 'image' }) {
+  const rect = { left: 100, top: 100, width: opts.cw, height: opts.ch, right: 100 + opts.cw, bottom: 100 + opts.ch, x: 100, y: 100, toJSON: () => {} };
+  return { videoWidth: opts.w, videoHeight: opts.h, naturalWidth: opts.w, naturalHeight: opts.h, getBoundingClientRect: () => rect } as any;
+}
 
-  it('用例 1: 视频宽高比与容器完全一致 (1280x720 视频在 640x360 容器)', () => {
-    const videoEl = createMockVideoElement({
-      videoWidth: 1280,
-      videoHeight: 720,
-      containerWidth: 640,
-      containerHeight: 360,
-    });
-
-    // 模拟点击容器正中心 (clientX=100+320, clientY=100+180)
-    const event = { clientX: 420, clientY: 280 } as MouseEvent;
-    const res = calculateVideoTouchCoordinates(event, videoEl);
-
-    expect(res.isInsideVideo).toBe(true);
-    expect(res.touchPoint?.norm_x).toBeCloseTo(0.5, 2);
-    expect(res.touchPoint?.norm_y).toBeCloseTo(0.5, 2);
-    expect(res.touchPoint?.video_pixel_x).toBe(640);
-    expect(res.touchPoint?.video_pixel_y).toBe(360);
+describe('VideoCoordinateMapper', () => {
+  it('宽高比一致：中心点 → 0.5/0.5，像素为原始分辨率', () => {
+    const r = calculateVideoTouchCoordinates({ clientX: 420, clientY: 280 }, el({ w: 1280, h: 720, cw: 640, ch: 360 }));
+    expect(r.isInsideVideo).toBe(true);
+    expect(r.touchPoint).toMatchObject({ norm_x: 0.5, norm_y: 0.5, video_pixel_x: 640, video_pixel_y: 360, video_width: 1280, video_height: 720 });
+    expect(r.viewport).toMatchObject({ offset_x: 0, offset_y: 0, is_letterbox: false });
   });
 
-  it('用例 2: 容器偏高产生上下黑边 (Letterbox) - 有效区域点击与黑边拦截', () => {
-    // 16:9 视频 (1920x1080) 放在 16:10 容器 (800x600)
-    // 渲染宽度 800, 渲染高度 800 * (9/16) = 450
-    // 上下各留黑 (600 - 450) / 2 = 75px
-    const videoEl = createMockVideoElement({
-      videoWidth: 1920,
-      videoHeight: 1080,
-      containerWidth: 800,
-      containerHeight: 600,
-    });
-
-    // 2.1 模拟点击顶部黑边 (clientY 在 0 ~ 74px 之间，即 clientY=130)
-    const topBlackEvent = { clientX: 500, clientY: 130 } as MouseEvent;
-    const topRes = calculateVideoTouchCoordinates(topBlackEvent, videoEl);
-    expect(topRes.isInsideVideo).toBe(false);
-    expect(topRes.reason).toContain('Letterbox');
-
-    // 2.2 模拟点击底部黑边 (clientY 在 526 ~ 600px 之间，即 clientY=680)
-    const bottomBlackEvent = { clientX: 500, clientY: 680 } as MouseEvent;
-    const bottomRes = calculateVideoTouchCoordinates(bottomBlackEvent, videoEl);
-    expect(bottomRes.isInsideVideo).toBe(false);
-
-    // 2.3 模拟点击有效画面正中 (offsetY=75, 画面中点 Y=75+225=300，即 clientY=400)
-    const validEvent = { clientX: 500, clientY: 400 } as MouseEvent;
-    const validRes = calculateVideoTouchCoordinates(validEvent, videoEl);
-    expect(validRes.isInsideVideo).toBe(true);
-    expect(validRes.touchPoint?.norm_x).toBeCloseTo(0.5, 2);
-    expect(validRes.touchPoint?.norm_y).toBeCloseTo(0.5, 2);
-    expect(validRes.touchPoint?.video_pixel_x).toBe(960);
-    expect(validRes.touchPoint?.video_pixel_y).toBe(540);
+  it('Letterbox(800x600 容器/16:9)：上下 75px 黑边被拦截，画面中心 → 960/540', () => {
+    const v = el({ w: 1920, h: 1080, cw: 800, ch: 600 });
+    const top = calculateVideoTouchCoordinates({ clientX: 500, clientY: 130 }, v);
+    expect(top.isInsideVideo).toBe(false);
+    expect(top.reason).toContain('Letterbox');
+    expect(calculateVideoTouchCoordinates({ clientX: 500, clientY: 680 }, v).isInsideVideo).toBe(false);
+    const mid = calculateVideoTouchCoordinates({ clientX: 500, clientY: 400 }, v);
+    expect(mid.touchPoint).toMatchObject({ video_pixel_x: 960, video_pixel_y: 540 });
+    expect(mid.viewport).toMatchObject({ offset_y: 75, render_height: 450, is_letterbox: true });
   });
 
-  it('用例 3: 容器偏宽产生左右黑边 (Pillarbox) - 有效区域点击与黑边拦截', () => {
-    // 4:3 绘本视频 (1200x900) 放在 16:9 容器 (960x540)
-    // 渲染高度 540, 渲染宽度 540 * (4/3) = 720
-    // 左右各留黑 (960 - 720) / 2 = 120px
-    const videoEl = createMockVideoElement({
-      videoWidth: 1200,
-      videoHeight: 900,
-      containerWidth: 960,
-      containerHeight: 540,
-    });
+  it('Pillarbox(960x540 容器/4:3)：左右 120px 黑边被拦截', () => {
+    const v = el({ w: 1200, h: 900, cw: 960, ch: 540 });
+    const left = calculateVideoTouchCoordinates({ clientX: 150, clientY: 370 }, v);
+    expect(left.isInsideVideo).toBe(false);
+    expect(left.reason).toContain('Pillarbox');
+    const ok = calculateVideoTouchCoordinates({ clientX: 100 + 120 + 360, clientY: 100 + 270 }, v);
+    expect(ok.touchPoint).toMatchObject({ norm_x: 0.5, norm_y: 0.5 });
+  });
 
-    // 3.1 模拟点击左侧黑边 (clientX 在 0~119px 之间，即 clientX=150)
-    const leftBlackEvent = { clientX: 150, clientY: 370 } as MouseEvent;
-    const leftRes = calculateVideoTouchCoordinates(leftBlackEvent, videoEl);
-    expect(leftRes.isInsideVideo).toBe(false);
-    expect(leftRes.reason).toContain('Pillarbox');
+  it('恰好落在画面边缘：算内部，像素夹在 [0, 尺寸-1]', () => {
+    const r = mapClickToContent({ clickX: 800, clickY: 75 + 450, containerW: 800, containerH: 600, origW: 1920, origH: 1080 });
+    expect(r.isInsideVideo).toBe(true);
+    expect(r.touchPoint!.video_pixel_x).toBe(1919);
+    expect(r.touchPoint!.video_pixel_y).toBe(1079);
+    const justOutside = mapClickToContent({ clickX: 400, clickY: 74, containerW: 800, containerH: 600, origW: 1920, origH: 1080 });
+    expect(justOutside.isInsideVideo).toBe(false);
+  });
 
-    // 3.2 模拟点击有效画面区域
-    const validEvent = { clientX: 100 + 120 + 360, clientY: 100 + 270 } as MouseEvent;
-    const validRes = calculateVideoTouchCoordinates(validEvent, videoEl);
-    expect(validRes.isInsideVideo).toBe(true);
-    expect(validRes.touchPoint?.norm_x).toBeCloseTo(0.5, 2);
-    expect(validRes.touchPoint?.norm_y).toBeCloseTo(0.5, 2);
+  it('视频元数据未就绪(videoWidth=0)：拒绝，不得退化成整个容器有效', () => {
+    const r = calculateVideoTouchCoordinates({ clientX: 300, clientY: 300 }, el({ w: 0, h: 0, cw: 640, ch: 360 }));
+    expect(r.isInsideVideo).toBe(false);
+    expect(r.reason).toContain('尚未就绪');
+  });
+
+  it('容器零尺寸 / NaN 坐标：拒绝且不产生 NaN', () => {
+    expect(mapClickToContent({ clickX: 1, clickY: 1, containerW: 0, containerH: 0, origW: 100, origH: 100 }).isInsideVideo).toBe(false);
+    expect(mapClickToContent({ clickX: NaN, clickY: 1, containerW: 100, containerH: 100, origW: 100, origH: 100 }).isInsideVideo).toBe(false);
+  });
+
+  it('静态书页图片使用 naturalWidth/Height，同样剔除黑边', () => {
+    const img = el({ w: 600, h: 800, cw: 800, ch: 600 }); // 3:4 图在 4:3 容器 → 左右黑边
+    const vp = computeContainViewport(800, 600, 600, 800);
+    expect(vp.renderWidth).toBeCloseTo(450);
+    expect(calculateImageTouchCoordinates({ clientX: 100 + 10, clientY: 300 }, img).isInsideVideo).toBe(false);
+    expect(calculateImageTouchCoordinates({ clientX: 100 + 400, clientY: 100 + 300 }, img).touchPoint).toMatchObject({ norm_x: 0.5, norm_y: 0.5 });
   });
 });

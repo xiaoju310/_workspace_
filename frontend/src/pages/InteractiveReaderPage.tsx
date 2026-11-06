@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
-import type { Interaction, ReaderProps, Source } from '../app/types'
+import type { Interaction, ReaderProps, Source, TouchDetail } from '../app/types'
 import { Badge, Button, Icon } from '../components/ui'
-import { calculateVideoTouchCoordinates } from '../features/interaction/VideoCoordinateMapper'
-import { RealBrowserSpeechRecognition } from '../features/interaction/asr/AsrProvider'
+import { calculateImageTouchCoordinates, calculateVideoTouchCoordinates } from '../features/interaction/VideoCoordinateMapper'
+import { asrManager, getSpeechRecognizer } from '../features/interaction/asr/AsrProvider'
+import type { RealBrowserSpeechRecognition } from '../features/interaction/asr/AsrProvider'
 import { TtsPlayerWidget } from '../features/interaction/tts/TtsPlayerWidget'
 
 export function formatTime(ms: number) {
@@ -40,6 +41,7 @@ export default function InteractiveReaderPage({
 
   // 真实语音录音与普通话识别 (C 负责人交付)
   const [isRecording, setIsRecording] = useState(false)
+  const [voiceInput, setVoiceInput] = useState(false)
   const [recordingTip, setRecordingTip] = useState<string | null>(null)
   const speechRecognizerRef = useRef<RealBrowserSpeechRecognition | null>(null)
 
@@ -59,7 +61,7 @@ export default function InteractiveReaderPage({
 
   useEffect(() => {
     mounted.current = true
-    speechRecognizerRef.current = new RealBrowserSpeechRecognition()
+    speechRecognizerRef.current = getSpeechRecognizer()
     return () => {
       mounted.current = false
       if (speechRecognizerRef.current) {
@@ -76,6 +78,7 @@ export default function InteractiveReaderPage({
     setResult(null)
     setError('')
     setQuestion('')
+    setVoiceInput(false)
     setVideoError(false)
     setDurationMs(36000)
   }, [book.id, book.run_id])
@@ -130,7 +133,7 @@ export default function InteractiveReaderPage({
     }
   }
 
-  async function ask(text: string) {
+  async function ask(text: string, inputMethod: 'speech' | 'keyboard' = 'keyboard') {
     if (busy) return
     const trimmed = text.trim()
     if (!trimmed) {
@@ -142,7 +145,7 @@ export default function InteractiveReaderPage({
     setLastAction({ kind: 'question', text: trimmed })
     const version = requestVersion.current
     try {
-      const item = await askQuestion(trimmed, currentTime.current)
+      const item = await askQuestion(trimmed, currentTime.current, inputMethod)
       if (mounted.current && requestVersion.current === version) {
         setResult(item)
         onInteraction(item)
@@ -158,14 +161,14 @@ export default function InteractiveReaderPage({
     }
   }
 
-  async function touch(x: number, y: number, box: { width: number; height: number }) {
+  async function touch(x: number, y: number, box: { width: number; height: number }, detail?: TouchDetail) {
     if (busy) return
     setBusy('touch')
     setError('')
     setLastAction({ kind: 'touch', x, y, box })
     const version = requestVersion.current
     try {
-      const item = await identifyTouch(x, y, currentTime.current, box)
+      const item = await identifyTouch(x, y, currentTime.current, box, detail)
       if (mounted.current && requestVersion.current === version) {
         setResult(item)
         onInteraction(item)
@@ -187,60 +190,60 @@ export default function InteractiveReaderPage({
     const element = videoRef.current ?? imageRef.current
     if (!element) return
 
-    if (element instanceof HTMLVideoElement) {
-      const calculation = calculateVideoTouchCoordinates(event.nativeEvent, element)
-      if (!calculation.isInsideVideo || !calculation.touchPoint) {
-        setError('⚠️ ' + (calculation.reason || '点击处于画面黑边留白区域，已自动拦截。请点击画面内的故事物体。'))
-        return
-      }
-      void touch(
-        calculation.touchPoint.norm_x,
-        calculation.touchPoint.norm_y,
-        {
-          width: calculation.debugInfo.renderWidth,
-          height: calculation.debugInfo.renderHeight,
-        }
-      )
-    } else {
-      // 静态画面
-      const rect = element.getBoundingClientRect()
-      const normX = Number(Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1).toFixed(4))
-      const normY = Number(Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 1).toFixed(4))
-      void touch(normX, normY, { width: rect.width, height: rect.height })
+    const calculation =
+      element instanceof HTMLVideoElement
+        ? calculateVideoTouchCoordinates(event.nativeEvent, element)
+        : calculateImageTouchCoordinates(event.nativeEvent, element as HTMLImageElement)
+    if (!calculation.isInsideVideo || !calculation.touchPoint || !calculation.viewport) {
+      setError('⚠️ ' + (calculation.reason || '点击处于画面黑边留白区域，已自动拦截。请点击画面内的故事物体。'))
+      return
     }
+    // 把映射算法的完整输出(原始像素 + 视口信息)原样透传，下游不得重算
+    void touch(
+      calculation.touchPoint.norm_x,
+      calculation.touchPoint.norm_y,
+      { width: calculation.debugInfo.renderWidth, height: calculation.debugInfo.renderHeight },
+      { touch_point: calculation.touchPoint, viewport_info: calculation.viewport }
+    )
   }
 
   // 真实普通话语音识别开始 / 停止控制
   const handleToggleVoiceRecord = async () => {
+    const rec = speechRecognizerRef.current
     if (isRecording) {
-      // 停止录音
-      if (speechRecognizerRef.current) {
-        const text = await speechRecognizerRef.current.stop()
-        setIsRecording(false)
-        setRecordingTip(null)
-        if (text && text.trim().length > 0) {
-          setQuestion(text.trim())
-          notify(`已识别到语音：“${text.trim()}”`)
-        } else {
-          setError('未能识别到有效语音。请说话声音清晰些后重试，系统不会自动编造问题。')
-        }
+      if (!rec) return
+      const stopped = await rec.stopDetailed()
+      setIsRecording(false)
+      setRecordingTip(null)
+      const asr = await asrManager.processSpeechRecognition(stopped.text, appMode, {
+        confidence: stopped.confidence,
+        errorCode: stopped.errorCode,
+      })
+      if (asr.errorCode === 'MICROPHONE_DENIED') {
+        setError('麦克风或语音识别权限被拒绝，请在浏览器中允许后重试，或直接键盘输入。')
+      } else if (asr.errorCode === 'TRANSCRIPTION_NETWORK_ERROR') {
+        setError('语音识别服务无法连接（Chrome 的识别依赖在线服务），请改用 Edge/Safari 或键盘输入。')
+      } else if (!asr.text) {
+        setError('未能识别到有效语音。请说话清晰些后重试，系统不会自动编造问题。')
+      } else {
+        setQuestion(asr.text)
+        setVoiceInput(true)
+        notify(stopped.isFinal ? `已识别到语音：“${asr.text}”，请确认后提交。` : `识别结果可能不完整：“${asr.text}”，请核对后再提交。`)
       }
-    } else {
-      // 开始录音
-      setError('')
-      if (!speechRecognizerRef.current || !speechRecognizerRef.current.isSupported()) {
-        setError('当前浏览器未启用语音识别，请在 Chrome / Edge 中授予麦克风权限，或使用键盘输入。')
-        return
-      }
-      try {
-        speechRecognizerRef.current.start()
-        setIsRecording(true)
-        setRecordingTip('正在聆听中… 请对着麦克风说出你的提问（例如：这只戴围巾的小动物是谁？）')
-      } catch (err: any) {
-        setError(`启动语音识别失败: ${err.message || '麦克风权限受限'}`)
-        setIsRecording(false)
-      }
+      return
     }
+    setError('')
+    if (!rec || !rec.isSupported()) {
+      setError('当前浏览器不支持普通话语音识别，请使用 Chrome / Edge / Safari，或使用键盘输入。')
+      return
+    }
+    const started = rec.start()
+    if (started !== true) {
+      setError('语音识别未能启动，请检查麦克风权限后重试，或使用键盘输入。')
+      return
+    }
+    setIsRecording(true)
+    setRecordingTip('正在聆听中… 请对着麦克风说出你的提问')
   }
 
   function goSource(source: Source) {
@@ -478,7 +481,8 @@ export default function InteractiveReaderPage({
           <form
             onSubmit={(event) => {
               event.preventDefault()
-              void ask(question)
+              void ask(question, voiceInput ? 'speech' : 'keyboard')
+              setVoiceInput(false)
             }}
           >
             <label htmlFor="reader-question">想问故事什么呢？</label>
@@ -486,7 +490,7 @@ export default function InteractiveReaderPage({
               id="reader-question"
               maxLength={500}
               value={question}
-              onChange={(event) => setQuestion(event.target.value)}
+              onChange={(event) => { setQuestion(event.target.value); setVoiceInput(false) }}
               placeholder="例如：小狐狸戴着什么颜色的围巾？"
               disabled={Boolean(busy) || isRecording}
             />
@@ -550,7 +554,7 @@ export default function InteractiveReaderPage({
               {lastAction && (
                 <button
                   onClick={() => {
-                    if (lastAction.kind === 'question') void ask(lastAction.text)
+                    if (lastAction.kind === 'question') void ask(lastAction.text, voiceInput ? 'speech' : 'keyboard')
                     else void touch(lastAction.x, lastAction.y, lastAction.box)
                   }}
                   disabled={Boolean(busy)}
@@ -601,6 +605,9 @@ export default function InteractiveReaderPage({
               <div className="answer-metrics">
                 <span>{latest.latency_ms === null ? '延迟未实测' : `请求延迟 ${latest.latency_ms} ms`}</span>
                 <span>{latest.cached ? '缓存命中' : '实时生成'}</span>
+                {latest.origin === 'real' && latest.persisted === false && (
+                  <span role="alert" style={{ color: '#b91c1c' }}>未写入后端：{latest.persist_error ?? '原因未知'}</span>
+                )}
               </div>
             </section>
           ) : (

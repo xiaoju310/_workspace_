@@ -1,42 +1,118 @@
-import {
+import { ApiError, createApiClient } from '../api/client';
+import type { ApiClient as TransportClient, InteractionIn } from '../api/client';
+import type {
+  AppMode,
   AskQuestionRequest,
   AskQuestionResponse,
-  TouchRecognitionRequest,
-  TouchRecognitionResponse,
-  ClassificationOut,
   BackendNoteOut,
   BackendShareOut,
+  ClassificationOut,
+  EvidenceSource,
   SegmentOut,
-  AppMode,
+  TouchRecognitionRequest,
+  TouchRecognitionResponse,
 } from '../types/interaction';
+import { TimeSliceIndexer, demoTimeSliceIndexer } from '../features/interaction/indexing/TimeSliceIndexer';
 import { pictureBookRagEngine } from '../features/interaction/qa/PictureBookRagEngine';
 
-const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+/**
+ * 角色 C 的业务层（语音问答 / 触控认物 / 交互留痕 / 笔记生命周期）。
+ * 传输层统一复用 `api/client.ts`（超时、detail 解析、422 可读化、令牌脱敏），不再自带一套 fetch。
+ *
+ * 诚实性铁律（每条都有单测，见 __tests__/InteractionApi.test.ts）：
+ *  1. Live 路径里不存在任何内置故事数据；索引必须由调用方传入"当前这本书"；
+ *  2. Live 没有视觉模型时，触控只如实记录点击并返回 uncertain，不编造物体名/置信度/包围框；
+ *  3. 写入后端失败 → 响应带 persisted=false 与原因，调用方必须展示；
+ *  4. 所有读取接口失败一律抛错，不再吞成空数组；
+ *  5. 不存在默认 token；A 的 Bearer 令牌绝不发往第三方模型服务。
+ */
+
+export const PRODUCER = 'c_interaction_agent';
+const TOKEN_KEY = 'AUTH_BEARER_TOKEN';
+
+/** 构造并校验写给 A 的交互载荷（纯函数，供单测直接调用） */
+export function buildInteractionPayload(
+  type: 'voice' | 'touch',
+  input: Record<string, unknown>,
+  output: Record<string, unknown>,
+  latencyMs: number
+): InteractionIn {
+  if (type !== 'voice' && type !== 'touch') throw new Error('交互类型无效');
+  if (!Number.isFinite(latencyMs) || latencyMs < 0) throw new Error('延迟必须为非负数');
+  if (!output || Object.keys(output).length === 0) throw new Error('output 不能为空');
+  return {
+    interaction_type: type,
+    input,
+    output: { ...output, producer: PRODUCER },
+    latency_ms: Math.round(latencyMs),
+  };
+}
 
 /**
- * 纸书智伴 API 综合客户端 (角色 C: 语音/触控与全链路联调)
- * 严格对齐后端 A 规范 (docs/api-contract.md) 与队长审查要求：
- * 1. 基础路径为 /api，支持 Bearer 认证；
- * 2. 真实模式 (Live) 下交互真实上报并入库 POST /api/runs/{run_id}/interactions (带有 producer: "c_interaction_agent")；
- * 3. 失败抛出真实错误，绝不静默伪造假成功；
- * 4. 演示模式 (Demo) 下显式标注 is_demo_mock: true；
- * 5. 笔记审核与分享完全由服务端驱动。
+ * 前端(D)的书籍类型 → A 后端枚举(picture_book/novel/textbook/science/other)。
+ * 之前直接把 'fiction'/'nonfiction' 发给 A，会被 422 拒绝。
+ * nonfiction 无法区分 textbook/science，统一归 'other'，需 A/D 约定后细化。
  */
-class ApiClient {
-  private base: string;
-  private token: string;
+export function toBackendBookType(type: string): ClassificationOut['predicted_type'] {
+  switch (type) {
+    case 'picture_book': return 'picture_book';
+    case 'fiction': return 'novel';
+    case 'nonfiction': return 'other';
+    case 'novel': case 'textbook': case 'science': case 'other': return type;
+    default: throw new Error('请选择一个有效的图书类型后再确认');
+  }
+}
 
-  constructor(base: string = API_BASE) {
-    this.base = base;
-    this.token = typeof localStorage !== 'undefined'
-      ? localStorage.getItem('AUTH_BEARER_TOKEN') || 'demo-token-123'
-      : 'demo-token-123';
+export interface ApiDeps {
+  client?: TransportClient;
+  /** 可选的外部模型服务地址（配置了就走它，未配置走本地抽取式检索） */
+  modelServiceUrl?: string;
+  fetchImpl?: typeof fetch;
+}
+
+export interface AskContext {
+  /** 当前图书的证据索引（由 buildSlicesFromBook 构建）。Live 必须提供，否则只能拒答 */
+  indexer?: TimeSliceIndexer;
+}
+export interface TouchContext {
+  /** 当前 run 的时间轴(来自 A)，用于给触控点附上真实字幕依据 */
+  segments?: SegmentOut[];
+}
+
+function nowMs() {
+  return performance.now();
+}
+
+export class ApiClient {
+  private token: string;
+  private client: TransportClient;
+  private modelServiceUrl?: string;
+  private fetchImpl: typeof fetch;
+
+  constructor(deps: ApiDeps = {}) {
+    this.token = this.loadToken();
+    this.modelServiceUrl = deps.modelServiceUrl ?? (import.meta.env.VITE_MODEL_SERVICE_URL || undefined);
+    this.fetchImpl = deps.fetchImpl ?? ((...a) => globalThis.fetch(...a));
+    const origin =
+      (import.meta.env.VITE_API_ORIGIN as string | undefined) ||
+      (typeof location !== 'undefined' && location.origin.startsWith('http') ? location.origin : 'http://127.0.0.1:8000');
+    this.client = deps.client ?? createApiClient(origin, { getToken: () => this.token });
+  }
+
+  private loadToken(): string {
+    try {
+      return (typeof localStorage !== 'undefined' && localStorage.getItem(TOKEN_KEY)) || '';
+    } catch {
+      return '';
+    }
   }
 
   setToken(token: string) {
     this.token = token.trim();
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('AUTH_BEARER_TOKEN', this.token);
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem(TOKEN_KEY, this.token);
+    } catch {
+      /* 隐私模式下仍可在内存中使用 */
     }
   }
 
@@ -44,363 +120,269 @@ class ApiClient {
     return this.token;
   }
 
-  private getHeaders(contentType: string = 'application/json'): HeadersInit {
-    return {
-      'Content-Type': contentType,
-      Authorization: `Bearer ${this.token}`,
-    };
-  }
-
-  // ==================== 1. 问答请求与上报 ====================
+  // ==================== 1. 语音/键盘问答 ====================
 
   async askQuestion(
     params: AskQuestionRequest,
     mode: AppMode,
-    audioBlob?: Blob
+    audioBlob?: Blob,
+    ctx: AskContext = {}
   ): Promise<AskQuestionResponse> {
-    const startTime = performance.now();
+    const t0 = nowMs();
+    const query = (params.query_text || '').trim();
+    if (!query) throw new Error('提问内容为空，请输入问题或对准麦克风清晰提问');
 
-    // 严禁空问题或替用户捏造问题
-    if (!params.query_text || !params.query_text.trim()) {
-      throw new Error('提问内容为空，请输入问题或对准麦克风清晰提问');
+    if (mode === 'demo') {
+      const resp = await pictureBookRagEngine.generateAnswer({ ...params, query_text: query }, demoTimeSliceIndexer);
+      resp.latency.total_roundtrip_ms = Math.round(nowMs() - t0);
+      resp.is_demo_mock = true;
+      resp.answer_source = 'demo_fixture';
+      return resp;
     }
 
-    if (mode === 'live') {
-      // 真实模式：
-      // 1. 若配置了外部大模型微服务，优先请求；否则基于当前绘本 OCR/多模态证据索引进行 RAG 答题
-      let data: AskQuestionResponse;
-      const modelServiceUrl = import.meta.env.VITE_MODEL_SERVICE_URL;
+    // ---- Live ----
+    if (!params.run_id || !params.run_id.trim()) {
+      throw new Error('当前图书还没有关联运行任务(run_id)，无法留痕，请先完成生成。');
+    }
 
-      if (modelServiceUrl) {
-        try {
-          const res = await fetch(`${modelServiceUrl}/interaction/qa`, {
-            method: 'POST',
-            headers: this.getHeaders(),
-            body: JSON.stringify(params),
-            signal: AbortSignal.timeout(4000),
-          });
-          if (!res.ok) throw new Error(`模型服务 HTTP ${res.status}`);
-          data = await res.json();
-        } catch (e: any) {
-          throw new Error(`外部模型服务请求失败: ${e.message}`);
-        }
-      } else {
-        // 使用内置高精度 RAG 引擎短答
-        data = await pictureBookRagEngine.generateAnswer(params);
+    let data: AskQuestionResponse;
+    if (this.modelServiceUrl) {
+      data = await this.callModelService<AskQuestionResponse>('/interaction/qa', { ...params, query_text: query }, 4000);
+      if (typeof data?.answer !== 'string' || !Array.isArray(data.evidence)) {
+        throw new Error('模型服务返回格式无效（缺少 answer / evidence）');
       }
-
-      const latencyMs = Math.round(performance.now() - startTime);
-      data.latency.total_roundtrip_ms = latencyMs;
-      data.is_demo_mock = false;
-
-      // 2. 真实上报交互记录至后端 A (POST /api/runs/{run_id}/interactions)
-      const recorded = await this.recordInteractionToBackend(
-        params.run_id,
-        'voice',
-        { query: params.query_text, video_ms: params.video_ms, audio_present: Boolean(audioBlob) },
-        {
-          answer: data.answer,
-          evidence: data.evidence,
-          uncertain: data.answer.includes('无法确定') || data.evidence.length === 0,
-          producer: 'c_interaction_agent',
-        },
-        latencyMs
-      );
-
-      if (!recorded) {
-        // 严格遵循队长 Review 意见：如果后端上报失败，必须如实提示，不能假装成功
-        console.warn(`[Live Mode] 后端 /api/runs/${params.run_id}/interactions 记录未能持久化，请确认后端服务状态与 Bearer Token。`);
-      }
-
-      return data;
+      data.answer_source = 'model_service';
     } else {
-      // 离线演示模式 (显式标明)
-      const mockResp = await pictureBookRagEngine.generateAnswer(params);
-      mockResp.latency.total_roundtrip_ms = Math.round(performance.now() - startTime);
-      mockResp.is_demo_mock = true;
-      return mockResp;
+      data = await pictureBookRagEngine.generateAnswer({ ...params, query_text: query }, ctx.indexer ?? new TimeSliceIndexer([]));
+      data.answer_source = 'local_extractive';
     }
+
+    data.is_demo_mock = false;
+    const latencyMs = Math.round(nowMs() - t0);
+    data.latency = { ...data.latency, total_roundtrip_ms: latencyMs };
+
+    const rec = await this.recordInteraction(
+      params.run_id,
+      'voice',
+      {
+        query,
+        video_ms: params.video_ms,
+        input_method: params.input_method ?? 'keyboard',
+        audio_present: Boolean(audioBlob),
+      },
+      {
+        answer: data.answer,
+        evidence: data.evidence,
+        status: data.status,
+        answer_source: data.answer_source,
+        uncertain: data.status !== 'success',
+      },
+      latencyMs
+    );
+    data.persisted = rec.ok;
+    if (!rec.ok) data.persist_error = rec.error;
+    return data;
   }
 
-  // ==================== 2. 触控识别请求与上报 ====================
+  // ==================== 2. 触控认物 ====================
 
   async recognizeTouch(
     params: TouchRecognitionRequest,
-    mode: AppMode
+    mode: AppMode,
+    ctx: TouchContext = {}
   ): Promise<TouchRecognitionResponse> {
-    const startTime = performance.now();
+    const t0 = nowMs();
+    const tp = params.touch_point;
 
-    if (mode === 'live') {
-      let data: TouchRecognitionResponse;
-      const modelServiceUrl = import.meta.env.VITE_MODEL_SERVICE_URL;
-
-      if (modelServiceUrl) {
-        try {
-          const res = await fetch(`${modelServiceUrl}/interaction/touch`, {
-            method: 'POST',
-            headers: this.getHeaders(),
-            body: JSON.stringify(params),
-            signal: AbortSignal.timeout(3000),
-          });
-          if (!res.ok) throw new Error(`模型服务 HTTP ${res.status}`);
-          data = await res.json();
-        } catch (e: any) {
-          throw new Error(`外部触控模型服务请求失败: ${e.message}`);
-        }
-      } else {
-        // 使用内置触控解析与视频时间轴索引
-        const normX = params.touch_point.norm_x;
-        const normY = params.touch_point.norm_y;
-
-        // 若命中黑边留白（容错防守）
-        if (normX < 0 || normX > 1 || normY < 0 || normY > 1) {
-          return {
-            run_id: params.run_id,
-            video_ms: params.video_ms,
-            status: 'out_of_bounds',
-            target_name: '画面留白',
-            explanation: '点击位置位于画面有效范围之外，已由客户端黑边算法拦截。',
-            confidence: 0,
-            evidence: {
-              page_no: 1,
-              video_start_ms: params.video_ms,
-              video_end_ms: params.video_ms,
-              evidence_type: 'none',
-              confidence: 0,
-              snippet: '黑边留白区域，无有效视觉实体。',
-            },
-            latency_ms: Math.round(performance.now() - startTime),
-            cache_hit: false,
-            is_demo_mock: false,
-          };
-        }
-
-        data = {
-          run_id: params.run_id,
-          video_ms: params.video_ms,
-          status: 'success',
-          target_name: '故事物体 / 人物',
-          explanation: `在视频时间 ${(params.video_ms / 1000).toFixed(1)}s 处点击位置 (${normX.toFixed(2)}, ${normY.toFixed(2)})，已完成实体定位与像素换算。`,
-          confidence: 0.88,
-          bounding_box: [Math.max(0, normX - 0.05), Math.max(0, normY - 0.05), Math.min(1, normX + 0.05), Math.min(1, normY + 0.05)],
-          evidence: {
-            page_no: Math.min(10, Math.floor(params.video_ms / 12000) + 1),
-            video_start_ms: Math.max(0, params.video_ms - 2000),
-            video_end_ms: params.video_ms + 2000,
-            evidence_type: 'video_frame',
-            confidence: 0.88,
-            snippet: `画面 [${(params.video_ms / 1000).toFixed(1)}s]：触控落点位于当前关键帧有效画面内部。`,
-          },
-          latency_ms: Math.round(performance.now() - startTime),
-          cache_hit: false,
-          is_demo_mock: false,
-        };
-      }
-
-      const latencyMs = Math.round(performance.now() - startTime);
-      data.latency_ms = latencyMs;
-
-      // 真实上报交互记录至后端 A (POST /api/runs/{run_id}/interactions)
-      await this.recordInteractionToBackend(
-        params.run_id,
-        'touch',
-        {
-          video_ms: params.video_ms,
-          norm_x: params.touch_point.norm_x,
-          norm_y: params.touch_point.norm_y,
-          pixel_x: params.touch_point.video_pixel_x,
-          pixel_y: params.touch_point.video_pixel_y,
-        },
-        {
-          target: data.target_name,
-          explanation: data.explanation,
-          confidence: data.confidence,
-          producer: 'c_interaction_agent',
-        },
-        latencyMs
-      );
-
-      return data;
-    } else {
-      // 演示模式
+    const outside =
+      !(tp.norm_x >= 0 && tp.norm_x <= 1 && tp.norm_y >= 0 && tp.norm_y <= 1) ||
+      tp.video_pixel_x < 0 || tp.video_pixel_x >= tp.video_width ||
+      tp.video_pixel_y < 0 || tp.video_pixel_y >= tp.video_height;
+    if (outside) {
       return {
         run_id: params.run_id,
         video_ms: params.video_ms,
-        status: 'success',
-        target_name: '画面示例目标',
-        explanation: `[演示模式] 点击位置 (${params.touch_point.norm_x.toFixed(2)}, ${params.touch_point.norm_y.toFixed(2)})。`,
-        confidence: 0.85,
-        evidence: {
-          page_no: 1,
-          video_start_ms: params.video_ms,
-          video_end_ms: params.video_ms + 2000,
-          evidence_type: 'video_frame',
-          confidence: 0.85,
-          snippet: '演示模式下的示例视觉定位。',
-        },
-        latency_ms: Math.round(performance.now() - startTime),
+        status: 'out_of_bounds',
+        target_name: '',
+        explanation: '点击位置位于画面有效范围之外，已由客户端黑边算法拦截（未上报）。',
+        confidence: 0,
+        evidence: null,
+        latency_ms: Math.round(nowMs() - t0),
+        cache_hit: false,
+        is_demo_mock: mode === 'demo',
+      };
+    }
+
+    if (mode === 'demo') {
+      return {
+        run_id: params.run_id,
+        video_ms: params.video_ms,
+        status: 'uncertain',
+        target_name: '',
+        explanation: `[演示模式] 点击位置 (${tp.norm_x.toFixed(2)}, ${tp.norm_y.toFixed(2)})，演示模式不做物体识别。`,
+        confidence: 0,
+        evidence: null,
+        latency_ms: Math.round(nowMs() - t0),
         cache_hit: false,
         is_demo_mock: true,
       };
     }
+
+    // ---- Live ----
+    if (!params.run_id || !params.run_id.trim()) {
+      throw new Error('当前图书还没有关联运行任务(run_id)，无法留痕，请先完成生成。');
+    }
+
+    let data: TouchRecognitionResponse;
+    if (this.modelServiceUrl) {
+      data = await this.callModelService<TouchRecognitionResponse>('/interaction/touch', params, 3000);
+      if (typeof data?.target_name !== 'string' || typeof data.confidence !== 'number') {
+        throw new Error('触控模型服务返回格式无效（缺少 target_name / confidence）');
+      }
+    } else {
+      // 没有视觉模型：只记录点击，绝不编造物体名称/置信度/包围框
+      const seg = (ctx.segments ?? []).find((s) => params.video_ms >= s.start_ms && params.video_ms < s.end_ms);
+      const evidence: EvidenceSource | null = seg
+        ? {
+            page_no: seg.page_no,
+            video_start_ms: seg.start_ms,
+            video_end_ms: seg.end_ms,
+            evidence_type: 'script',
+            confidence: 0,
+            snippet: seg.caption,
+          }
+        : null;
+      data = {
+        run_id: params.run_id,
+        video_ms: params.video_ms,
+        status: 'uncertain',
+        target_name: '',
+        explanation: seg
+          ? `视觉识别模型尚未接入，仅记录了点击位置。该时刻的画面字幕：“${seg.caption}”`
+          : '视觉识别模型尚未接入，仅记录了点击位置，无法确定点中的物体。',
+        confidence: 0,
+        evidence,
+        latency_ms: 0,
+        cache_hit: false,
+      };
+    }
+    data.is_demo_mock = false;
+    const latencyMs = Math.round(nowMs() - t0);
+    data.latency_ms = latencyMs;
+
+    const rec = await this.recordInteraction(
+      params.run_id,
+      'touch',
+      {
+        video_ms: params.video_ms,
+        norm_x: tp.norm_x,
+        norm_y: tp.norm_y,
+        pixel_x: tp.video_pixel_x,
+        pixel_y: tp.video_pixel_y,
+        video_width: tp.video_width,
+        video_height: tp.video_height,
+        viewport_info: params.viewport_info,
+      },
+      {
+        status: data.status,
+        target: data.target_name,
+        explanation: data.explanation,
+        confidence: data.confidence,
+        evidence: data.evidence ? [data.evidence] : [],
+      },
+      latencyMs
+    );
+    data.persisted = rec.ok;
+    if (!rec.ok) data.persist_error = rec.error;
+    return data;
   }
 
-  // ==================== 3. 对接后端 A: 上报交互记录 ====================
+  private async callModelService<T>(path: string, body: unknown, timeoutMs: number): Promise<T> {
+    // 注意：不携带 A 的 Bearer 令牌，避免泄露给第三方服务
+    try {
+      const res = await this.fetchImpl(`${this.modelServiceUrl}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+        credentials: 'omit',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as T;
+    } catch (e: any) {
+      throw new Error(`外部模型服务请求失败: ${e?.message ?? e}`);
+    }
+  }
 
-  async recordInteractionToBackend(
+  // ==================== 3. 对接 A: 交互留痕 ====================
+
+  /** 写入失败不抛异常，而是返回 {ok:false, error}，由调用方向用户展示 */
+  async recordInteraction(
     runId: string,
     type: 'voice' | 'touch',
-    input: any,
-    output: any,
+    input: Record<string, unknown>,
+    output: Record<string, unknown>,
     latencyMs: number
-  ): Promise<boolean> {
+  ): Promise<{ ok: boolean; error?: string }> {
     try {
-      const res = await fetch(`${this.base}/runs/${runId}/interactions`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({
-          interaction_type: type,
-          input,
-          output: {
-            ...output,
-            producer: 'c_interaction_agent', // A 要求的必填非空字段
-          },
-          latency_ms: Math.max(0, latencyMs),
-        }),
-      });
-      return res.ok;
-    } catch {
-      return false;
+      const payload = buildInteractionPayload(type, input, output, latencyMs);
+      await this.client.recordInteraction(runId, payload);
+      return { ok: true };
+    } catch (e: any) {
+      const msg = e instanceof ApiError ? `${e.message}（${e.code}）` : String(e?.message ?? e);
+      return { ok: false, error: msg };
     }
   }
 
-  // ==================== 4. 对接后端 A: 查询已保存的交互记录 ====================
-
-  async fetchRemoteInteractions(runId: string): Promise<any[]> {
-    try {
-      const res = await fetch(`${this.base}/runs/${runId}/interactions`, {
-        headers: this.getHeaders(),
-      });
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {}
-    return [];
+  /** 失败抛错；空数组只代表"确实没有记录" */
+  async fetchRemoteInteractions(runId: string): Promise<Record<string, unknown>[]> {
+    return this.client.interactions(runId);
   }
-
-  // ==================== 5. 对接后端 A: 图书分类确认 ====================
-
-  async confirmCategory(bookId: string, confirmedType: string): Promise<ClassificationOut> {
-    const res = await fetch(`${this.base}/books/${bookId}/classification`, {
-      method: 'PATCH',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ confirmed_type: confirmedType }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`分类保存失败: HTTP ${res.status} ${errText}`);
-    }
-
-    return await res.json();
-  }
-
-  // ==================== 6. 对接后端 A: 动态获取时间轴与成片 ====================
 
   async getRunSegments(runId: string): Promise<SegmentOut[]> {
-    try {
-      const res = await fetch(`${this.base}/runs/${runId}/segments`, {
-        headers: this.getHeaders(),
-      });
-      if (res.ok) return await res.json();
-    } catch {}
-    return [];
+    return (await this.client.segments(runId)) as unknown as SegmentOut[];
   }
 
-  async getRunAssets(runId: string): Promise<any[]> {
-    try {
-      const res = await fetch(`${this.base}/runs/${runId}/assets`, {
-        headers: this.getHeaders(),
-      });
-      if (res.ok) return await res.json();
-    } catch {}
-    return [];
+  async getRunAssets(runId: string) {
+    return this.client.assets(runId);
   }
 
-  // ==================== 7. 对接后端 A: 笔记与审核分享全生命周期 ====================
+  // ==================== 4. 对接 A: 分类确认 ====================
+
+  async confirmCategory(bookId: string, confirmedType: string): Promise<ClassificationOut> {
+    return (await this.client.confirmClassification(bookId, toBackendBookType(confirmedType))) as unknown as ClassificationOut;
+  }
+
+  // ==================== 5. 对接 A: 笔记与分享（状态以服务端为准） ====================
 
   async generateNoteDraft(bookId: string): Promise<BackendNoteOut> {
-    const res = await fetch(`${this.base}/books/${bookId}/notes/generate`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ note_template: 'standard' }),
-    });
-
-    if (!res.ok) {
-      const err = await res.text().catch(() => '');
-      throw new Error(`生成笔记草稿失败 (HTTP ${res.status}): ${err}`);
-    }
-    return await res.json();
+    const raw = (await this.client.generateNote(bookId)) as any;
+    // 契约写 {note_id,status}，实现返回完整对象；两种都兼容
+    const id = raw.id ?? raw.note_id;
+    if (!id) throw new Error('服务端未返回笔记 ID');
+    return { ...raw, id } as BackendNoteOut;
   }
-
   async getNote(noteId: string): Promise<BackendNoteOut> {
-    const res = await fetch(`${this.base}/notes/${noteId}`, {
-      headers: this.getHeaders(),
-    });
-    if (!res.ok) throw new Error(`获取笔记失败: HTTP ${res.status}`);
-    return await res.json();
+    return (await this.client.getNote(noteId)) as unknown as BackendNoteOut;
   }
-
-  async updateNote(noteId: string, content: any): Promise<BackendNoteOut> {
-    const res = await fetch(`${this.base}/notes/${noteId}`, {
-      method: 'PATCH',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ content }),
-    });
-    if (!res.ok) throw new Error(`更新笔记失败: HTTP ${res.status}`);
-    return await res.json();
+  async updateNote(noteId: string, content: Record<string, unknown>): Promise<BackendNoteOut> {
+    return (await this.client.updateNote(noteId, content)) as unknown as BackendNoteOut;
   }
-
   async reviewNote(noteId: string, action: 'approve' | 'revise'): Promise<BackendNoteOut> {
-    const res = await fetch(`${this.base}/notes/${noteId}/review`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ action }),
-    });
-    if (!res.ok) {
-      const err = await res.text().catch(() => '');
-      throw new Error(`审核操作失败 (HTTP ${res.status}): ${err}`);
-    }
-    return await res.json();
+    return (await this.client.reviewNote(noteId, action)) as unknown as BackendNoteOut;
   }
-
-  async createNoteShare(noteId: string, shareMode: 'link' | 'invite_only' = 'link'): Promise<BackendShareOut> {
-    const res = await fetch(`${this.base}/notes/${noteId}/shares`, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ share_mode: shareMode }),
-    });
-    if (!res.ok) {
-      const err = await res.text().catch(() => '');
-      throw new Error(`创建分享失败 (HTTP ${res.status}): ${err}`);
-    }
-    return await res.json();
+  async createNoteShare(
+    noteId: string,
+    shareMode: 'link' | 'invite_only' = 'link',
+    opts: { shared_user_id?: string; expires_at?: string } = {}
+  ): Promise<BackendShareOut> {
+    return (await this.client.createShare(noteId, { share_mode: shareMode, ...opts })) as unknown as BackendShareOut;
   }
-
   async revokeNoteShare(noteId: string, shareId: string): Promise<void> {
-    const res = await fetch(`${this.base}/notes/${noteId}/shares/${shareId}`, {
-      method: 'DELETE',
-      headers: this.getHeaders(),
-    });
-    if (!res.ok && res.status !== 204) {
-      throw new Error(`撤销分享失败: HTTP ${res.status}`);
-    }
+    await this.client.revokeShare(noteId, shareId);
   }
-
   async getSharedNote(token: string): Promise<BackendNoteOut> {
-    const res = await fetch(`${this.base}/shared-notes/${encodeURIComponent(token)}`);
-    if (!res.ok) throw new Error(`读取分享笔记失败: HTTP ${res.status}`);
-    return await res.json();
+    return (await this.client.sharedNote(token)) as unknown as BackendNoteOut;
   }
 }
 

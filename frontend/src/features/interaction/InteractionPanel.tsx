@@ -11,6 +11,7 @@ import {
 import { AudioRecorder } from './AudioRecorder';
 import { apiClient } from '../../lib/api';
 import { TtsPlayerWidget } from './tts/TtsPlayerWidget';
+import type { TimeSliceIndexer } from './indexing/TimeSliceIndexer';
 
 interface InteractionPanelProps {
   bookId: string;
@@ -20,6 +21,8 @@ interface InteractionPanelProps {
   seekVideoToMs?: (ms: number) => void;
   onActiveTouchResultChange?: (result: TouchRecognitionResponse | null) => void;
   onNewHistoryItem?: (item: InteractionHistoryItem) => void;
+  /** 当前图书的证据索引(Live 必须提供，否则只能拒答) */
+  indexer?: TimeSliceIndexer;
 }
 
 export const InteractionPanel: React.FC<InteractionPanelProps> = ({
@@ -30,6 +33,7 @@ export const InteractionPanel: React.FC<InteractionPanelProps> = ({
   seekVideoToMs,
   onActiveTouchResultChange,
   onNewHistoryItem,
+  indexer,
 }) => {
   const [status, setStatus] = useState<InteractionStatus>('idle');
   const [qaResult, setQaResult] = useState<AskQuestionResponse | null>(null);
@@ -72,10 +76,12 @@ export const InteractionPanel: React.FC<InteractionPanelProps> = ({
       query_text: query,
       audio_mime: mimeType,
       stream: false,
+      input_method: audioBlob ? 'speech' : 'keyboard',
     };
 
     try {
-      const resp = await apiClient.askQuestion(req, appMode, audioBlob);
+      const resp = await apiClient.askQuestion(req, appMode, audioBlob, { indexer });
+      if (resp.persisted === false) setLastError(`回答已生成，但未能写入后端：${resp.persist_error ?? '未知原因'}`);
       setQaResult(resp);
       setStatus(resp.status === 'no_evidence' ? 'no_evidence' : 'success');
 
@@ -108,7 +114,8 @@ export const InteractionPanel: React.FC<InteractionPanelProps> = ({
     try {
       const resp = await apiClient.recognizeTouch(touchReq, appMode);
       setTouchResult(resp);
-      setStatus(resp.status === 'success' ? 'success' : 'error');
+      setStatus(resp.status === 'success' ? 'success' : 'idle');
+      if (resp.persisted === false) setLastError(`触控已识别，但未能写入后端：${resp.persist_error ?? '未知原因'}`);
       if (onActiveTouchResultChange) {
         onActiveTouchResultChange(resp);
       }
@@ -120,8 +127,8 @@ export const InteractionPanel: React.FC<InteractionPanelProps> = ({
           video_ms: touchReq.video_ms,
           query: `点击画面 [${touchReq.touch_point.norm_x}, ${touchReq.touch_point.norm_y}]`,
           response_text: `识别目标：${resp.target_name} (${resp.explanation})`,
-          status: 'success',
-          evidence: [resp.evidence],
+          status: resp.status === 'success' ? 'success' : 'no_evidence',
+          evidence: resp.evidence ? [resp.evidence] : [],
           latency_ms: resp.latency_ms,
           cache_hit: resp.cache_hit,
           is_demo_mock: resp.is_demo_mock,
@@ -397,8 +404,8 @@ export const InteractionPanel: React.FC<InteractionPanelProps> = ({
             }}
           >
             <span>端到端总耗时: {qaResult.latency.total_roundtrip_ms}ms</span>
-            {qaResult.latency.retrieval_ms > 0 && <span>检索: {qaResult.latency.retrieval_ms}ms</span>}
-            {qaResult.latency.llm_total_ms > 0 && <span>短答: {qaResult.latency.llm_total_ms}ms</span>}
+            {qaResult.latency.retrieval_ms !== null && qaResult.latency.retrieval_ms > 0 && <span>检索: {qaResult.latency.retrieval_ms}ms</span>}
+            {qaResult.latency.llm_total_ms !== null && qaResult.latency.llm_total_ms > 0 && <span>短答: {qaResult.latency.llm_total_ms}ms</span>}
           </div>
         </div>
       )}

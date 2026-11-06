@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { TouchPoint, TouchRecognitionRequest, TouchRecognitionResponse } from '../../types/interaction';
-import { calculateVideoTouchCoordinates } from './VideoCoordinateMapper';
+import { calculateVideoTouchCoordinates, computeContainViewport } from './VideoCoordinateMapper';
 
 interface TouchOverlayProps {
   videoRef: React.RefObject<HTMLVideoElement>;
@@ -40,7 +40,7 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
     const localX = e.clientX - rect.left;
     const localY = e.clientY - rect.top;
 
-    if (!result.isInsideVideo) {
+    if (!result.isInsideVideo || !result.touchPoint || !result.viewport) {
       if (tipTimeoutRef.current) clearTimeout(tipTimeoutRef.current);
       setWarningTip(result.reason || '点击在画面留黑区域，已忽略');
       tipTimeoutRef.current = setTimeout(() => setWarningTip(null), 2000);
@@ -58,15 +58,7 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
       run_id: runId,
       video_ms: currentVideoMs,
       touch_point: touchPoint,
-      viewport_info: {
-        container_width: result.debugInfo.containerWidth,
-        container_height: result.debugInfo.containerHeight,
-        render_width: result.debugInfo.renderWidth,
-        render_height: result.debugInfo.renderHeight,
-        offset_x: result.debugInfo.offsetX,
-        offset_y: result.debugInfo.offsetY,
-        is_letterbox: result.debugInfo.isLetterbox,
-      },
+      viewport_info: result.viewport,
     };
 
     onTouchRecognize(req);
@@ -163,23 +155,8 @@ const BoundingBoxRenderer: React.FC<{
   const origW = videoEl.videoWidth || rect.width;
   const origH = videoEl.videoHeight || rect.height;
 
-  const containerRatio = rect.width / rect.height;
-  const videoRatio = origW / origH;
-
-  let renderW = rect.width;
-  let renderH = rect.height;
-  let offsetX = 0;
-  let offsetY = 0;
-
-  if (containerRatio > videoRatio) {
-    renderH = rect.height;
-    renderW = rect.height * videoRatio;
-    offsetX = (rect.width - renderW) / 2;
-  } else {
-    renderW = rect.width;
-    renderH = rect.width / videoRatio;
-    offsetY = (rect.height - renderH) / 2;
-  }
+  const vp = computeContainViewport(rect.width, rect.height, origW, origH);
+  const { renderWidth: renderW, renderHeight: renderH, offsetX, offsetY } = vp;
 
   const left = offsetX + xMin * renderW;
   const top = offsetY + yMin * renderH;

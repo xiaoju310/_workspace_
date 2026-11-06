@@ -12,8 +12,11 @@ export interface PictureBookSliceData {
   snippet: string;
 }
 
-/** 绘本默认时间轴与多模态数据样本 (6页全书) */
-export const DEFAULT_BOOK_SLICES: PictureBookSliceData[] = [
+/**
+ * 【仅限 Demo 夹具】小狐狸样例书的时间轴与多模态数据。
+ * Live 模式严禁使用；Live 的索引必须由 buildSlicesFromBook(当前图书) 构建。
+ */
+export const DEMO_BOOK_SLICES: PictureBookSliceData[] = [
   {
     page_no: 1,
     video_start_ms: 0,
@@ -84,128 +87,122 @@ export const DEFAULT_BOOK_SLICES: PictureBookSliceData[] = [
 
 export interface SearchMatchResult {
   slice: PictureBookSliceData;
-  score: number;
-  matchedKeywords: string[];
-  isTimeWindowMatch: boolean;
+  coverage: number;
+  matchedTerms: string[];
+}
+
+/** 提问里不承载检索信息的功能字（语气词/疑问词/助词），去掉后再切二元组 */
+const STOP_CHARS = new Set('的了吗呢吧啊呀么什为是在有和与或这那它他她你我个一里都也就还会能可以请问谁哪几怎样从到把被让给对跟向地得着过？?，,。.！!、；;：:"“”‘’（）() '.split(''));
+
+/** 时序意图词（与具体故事无关）：结局 → 最后一页；开头 → 第一页 */
+const ENDING_WORDS = ['最后', '结局', '最终', '结尾', '后来怎么样'];
+const BEGINNING_WORDS = ['一开始', '开头', '最初', '起初', '故事开始'];
+
+/** 把文本切成"去功能字后的连续片段 → 字符二元组" */
+export function contentBigrams(text: string): string[] {
+  const runs: string[] = [];
+  let cur = '';
+  for (const ch of text.toLowerCase()) {
+    if (STOP_CHARS.has(ch) || /\s/.test(ch)) {
+      if (cur) runs.push(cur);
+      cur = '';
+    } else cur += ch;
+  }
+  if (cur) runs.push(cur);
+  const out: string[] = [];
+  for (const run of runs) {
+    if (run.length === 1) continue; // 单字噪声大，忽略
+    for (let i = 0; i + 1 < run.length; i++) out.push(run.slice(i, i + 2));
+  }
+  return Array.from(new Set(out));
+}
+
+function sliceText(s: PictureBookSliceData): string {
+  return [s.ocr_content, s.script, s.entities.join(' '), s.frame_objects.join(' '), s.snippet].join(' ');
 }
 
 /**
- * 纸书智伴 · 时间片与多模态证据检索器
+ * 纸书智伴 · 时间片与多模态证据检索器（抽取式，无任何故事专用词表）
+ *
+ * 判定规则（防幻觉的核心）：
+ *  - 覆盖率 coverage = 命中的提问二元组数 / 提问二元组总数；
+ *  - 必须至少命中一个"区分性"二元组（只出现在不超过一半页面里），
+ *    只命中"小狐狸"这种全书都有的词不算证据；
+ *  - 覆盖率 < MIN_COVERAGE 一律视为无证据 → 返回空数组，由上层拒答。
+ * 时序信息只用来在相近得分时打破平局，不能单独制造证据。
  */
 export class TimeSliceIndexer {
+  static readonly MIN_COVERAGE = 0.4;
   private slices: PictureBookSliceData[];
 
-  constructor(slices: PictureBookSliceData[] = DEFAULT_BOOK_SLICES) {
+  constructor(slices: PictureBookSliceData[] = []) {
     this.slices = slices;
   }
 
-  /**
-   * 根据当前视频时间戳定位所在的页片
-   */
-  findSliceByVideoMs(videoMs: number): PictureBookSliceData | undefined {
-    return this.slices.find((s) => videoMs >= s.video_start_ms && videoMs < s.video_end_ms);
+  size(): number {
+    return this.slices.length;
   }
 
-  /**
-   * 联合检索：结合当前播放毫秒数 (video_ms) 与文本查询
-   * 规则：
-   * 1. 优先在当前时间前后 4 秒内检索（时序偏置）；
-   * 2. 计算文本在 OCR、分镜、实体、视觉帧列表中的重合度；
-   * 3. 过滤明显无关的超纲词汇（如外星人、航天、手机等）。
-   */
+  findSliceByVideoMs(videoMs: number): PictureBookSliceData | undefined {
+    return this.slices.find((s) => s.video_start_ms >= 0 && videoMs >= s.video_start_ms && videoMs < s.video_end_ms);
+  }
+
   searchEvidence(query: string, currentVideoMs: number): EvidenceSource[] {
-    const cleanQuery = query.toLowerCase().trim();
+    const grams = contentBigrams(query);
+    if (grams.length === 0 || this.slices.length === 0) return [];
 
-    // 负样本关键词直接拦截
-    const negativeTokens = ['外星人', '飞船', '宇宙', '航天', '恐龙', '机器人', '汽车'];
-    if (negativeTokens.some((token) => cleanQuery.includes(token))) {
-      return [];
-    }
+    const texts = this.slices.map(sliceText);
+    const df = new Map<string, number>();
+    for (const g of grams) df.set(g, texts.filter((t) => t.toLowerCase().includes(g)).length);
+    const half = Math.ceil(this.slices.length / 2);
 
-    const matches: SearchMatchResult[] = [];
+    const wantsEnding = ENDING_WORDS.some((w) => query.includes(w));
+    const wantsBeginning = BEGINNING_WORDS.some((w) => query.includes(w));
+    const lastIdx = this.slices.length - 1;
 
-    for (const slice of this.slices) {
-      let score = 0;
-      const matchedKeywords: string[] = [];
-
-      // 1. 时序权重 (当前正在播放这一页，得基础分 0.3)
-      const isCurrentTime = currentVideoMs >= slice.video_start_ms && currentVideoMs <= slice.video_end_ms;
-      if (isCurrentTime) {
-        score += 0.3;
+    const matches: (SearchMatchResult & { rank: number; discriminative: boolean })[] = [];
+    this.slices.forEach((slice, idx) => {
+      const lower = texts[idx].toLowerCase();
+      const matched = grams.filter((g) => lower.includes(g));
+      let coverage = matched.length / grams.length;
+      let discriminative = matched.some((g) => (df.get(g) ?? 0) <= half && (df.get(g) ?? 0) > 0);
+      if ((wantsEnding && idx === lastIdx) || (wantsBeginning && idx === 0)) {
+        coverage = Math.min(1, coverage + 0.3);
+        discriminative = true;
       }
+      if (coverage < TimeSliceIndexer.MIN_COVERAGE || !discriminative) return;
+      const inWindow =
+        slice.video_start_ms >= 0 && currentVideoMs >= slice.video_start_ms && currentVideoMs <= slice.video_end_ms;
+      matches.push({ slice, coverage, matchedTerms: matched, rank: coverage + (inWindow ? 0.05 : 0), discriminative });
+    });
 
-      // 2. 实体匹配
-      for (const entity of slice.entities) {
-        if (cleanQuery.includes(entity.toLowerCase())) {
-          score += 0.4;
-          matchedKeywords.push(entity);
-        }
-      }
+    matches.sort((a, b) => b.rank - a.rank);
 
-      // 3. OCR 文本匹配
-      const tokens = ['小狐狸', '妈妈', '红围巾', '大树', '大雁', '啄木鸟', '花', '悬崖', '小溪', '天黑', '回家', '迷路', '采野果'];
-      for (const t of tokens) {
-        if (cleanQuery.includes(t) && (slice.ocr_content.includes(t) || slice.script.includes(t))) {
-          score += 0.25;
-          if (!matchedKeywords.includes(t)) matchedKeywords.push(t);
-        }
-      }
-
-      // 4. 时序词匹配（如天黑了吗）
-      if (cleanQuery.includes('天黑') || cleanQuery.includes('晚上') || cleanQuery.includes('太阳')) {
-        if (slice.page_no >= 5) score += 0.5;
-        if (slice.page_no === 1) score += 0.4;
-      }
-
-      // 5. 跨页结尾匹配（如找到妈妈了吗）
-      if ((cleanQuery.includes('最后') || cleanQuery.includes('找到') || cleanQuery.includes('结局')) && slice.page_no === 6) {
-        score += 0.6;
-      }
-
-      if (score >= 0.35 || (isCurrentTime && matchedKeywords.length > 0)) {
-        matches.push({
-          slice,
-          score: Math.min(score, 0.98),
-          matchedKeywords,
-          isTimeWindowMatch: isCurrentTime,
-        });
-      }
-    }
-
-    // 降序排序
-    matches.sort((a, b) => b.score - a.score);
-
-    // 转换为标准 EvidenceSource
     return matches.slice(0, 2).map((m) => {
-      const p: PageEvidence = {
-        page_no: m.slice.page_no,
-        ocr_text: m.slice.ocr_content,
-        key_entities: m.slice.entities,
-      };
-      const s: ScriptEvidence = {
-        page_no: m.slice.page_no,
-        storyline: m.slice.script,
-        scene_description: m.slice.lighting,
-      };
+      const hasTimeline = m.slice.video_start_ms >= 0 && m.slice.video_end_ms > m.slice.video_start_ms;
+      const p: PageEvidence = { page_no: m.slice.page_no, ocr_text: m.slice.ocr_content, key_entities: m.slice.entities };
+      const s: ScriptEvidence = { page_no: m.slice.page_no, storyline: m.slice.script, scene_description: m.slice.lighting };
       const v: VideoFrameEvidence = {
         start_ms: m.slice.video_start_ms,
         end_ms: m.slice.video_end_ms,
         detected_objects: m.slice.frame_objects,
         lighting_or_time_of_day: m.slice.lighting,
       };
-
       return {
         page_no: m.slice.page_no,
-        video_start_ms: m.slice.video_start_ms,
-        video_end_ms: m.slice.video_end_ms,
-        evidence_type: 'page',
-        confidence: Number(m.score.toFixed(2)),
+        // 没有时间轴的页：用 0/0 占位并以 evidence_type='page' 表示"仅页级证据"，调用方不得当作视频时间
+        video_start_ms: hasTimeline ? m.slice.video_start_ms : 0,
+        video_end_ms: hasTimeline ? m.slice.video_end_ms : 0,
+        evidence_type: hasTimeline ? 'video_frame' : 'page',
+        // 检索覆盖率，不是模型置信度
+        confidence: Number(Math.min(0.98, 0.35 + 0.6 * m.coverage).toFixed(2)),
         snippet: m.slice.snippet,
         source_quote: m.slice.ocr_content,
-        details: { page: p, script: s, video_frame: v },
-      };
+        details: { page: p, script: s, video_frame: hasTimeline ? v : undefined },
+      } as EvidenceSource;
     });
   }
 }
 
-export const timeSliceIndexer = new TimeSliceIndexer();
+/** Demo 专用单例（小狐狸夹具）。Live 路径不得引用。 */
+export const demoTimeSliceIndexer = new TimeSliceIndexer(DEMO_BOOK_SLICES);

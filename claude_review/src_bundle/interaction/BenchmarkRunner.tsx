@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { apiClient } from '../../lib/api';
-import { AskQuestionResponse, TouchRecognitionResponse } from '../../types/interaction';
+import { AskQuestionResponse } from '../../types/interaction';
+import { mapClickToContent } from './VideoCoordinateMapper';
 
 export interface TestCaseResult {
   id: string;
@@ -14,9 +15,11 @@ export interface TestCaseResult {
   confidence: number;
   cacheHit: boolean;
   notes: string;
+  /** true: 该项需要尚未接入的视觉模型，无法评测，不计入通过率 */
+  skipped?: boolean;
 }
 
-const QA_TEST_CASES = [
+export const QA_TEST_CASES = [
   {
     id: 'QA-01',
     title: '当前帧角色确认 (正例)',
@@ -201,57 +204,34 @@ export const BenchmarkRunner: React.FC<{ bookId: string; runId: string }> = ({
       await new Promise((r) => setTimeout(r, 60)); // 适当间隔
     }
 
-    // 2. 跑 5 次触控点击
+    // 2. 触控：黑边拦截用真实映射算法验证；"点中了什么"需要视觉模型，未接入则如实跳过
     for (const tc of TOUCH_TEST_CASES) {
       index++;
       setProgress({ current: index, total });
 
       if (tc.normX < 0) {
-        // 黑边拦截测试（本地算法验证）
+        // 800x600 容器 + 1920x1080 视频 → 上下各 75px 黑边；960x540 容器 + 1200x900 视频 → 左右各 120px 黑边
+        const letterbox = tc.normX === -1;
+        const t0 = performance.now();
+        const res = letterbox
+          ? mapClickToContent({ clickX: 400, clickY: 30, containerW: 800, containerH: 600, origW: 1920, origH: 1080 })
+          : mapClickToContent({ clickX: 50, clickY: 270, containerW: 960, containerH: 540, origW: 1200, origH: 900 });
         testResults.push({
           id: tc.id,
           type: 'touch',
           title: tc.title,
-          input: tc.normX === -1 ? '点击顶部 Letterbox 黑边' : '点击左侧 Pillarbox 黑边',
-          expected: '前端即时拦截，不发送后端请求',
-          actual: '已拦截并弹出警告提示，阻止无效上报',
-          passed: true,
-          latencyMs: 1,
-          confidence: 1.0,
+          input: letterbox ? '点击顶部 Letterbox 黑边 (800x600 容器/16:9 视频)' : '点击左侧 Pillarbox 黑边 (960x540 容器/4:3 视频)',
+          expected: 'VideoCoordinateMapper 判定 isInsideVideo=false',
+          actual: res.isInsideVideo ? '未拦截（缺陷）' : res.reason || '已拦截',
+          passed: !res.isInsideVideo,
+          latencyMs: Math.round(performance.now() - t0),
+          confidence: 1,
           cacheHit: false,
-          notes: '核心坐标算法前置过滤',
+          notes: '真实调用坐标映射算法',
         });
         setResults([...testResults]);
         continue;
       }
-
-      const touchResp: TouchRecognitionResponse = await apiClient.recognizeTouch(
-        {
-          book_id: bookId,
-          run_id: runId,
-          video_ms: tc.videoMs,
-          touch_point: {
-            norm_x: tc.normX,
-            norm_y: tc.normY,
-            video_pixel_x: Math.round(tc.normX * 1280),
-            video_pixel_y: Math.round(tc.normY * 720),
-            video_width: 1280,
-            video_height: 720,
-          },
-          viewport_info: {
-            container_width: 800,
-            container_height: 450,
-            render_width: 800,
-            render_height: 450,
-            offset_x: 0,
-            offset_y: 0,
-            is_letterbox: false,
-          },
-        },
-        'demo'
-      );
-
-      const passed = touchResp.status === 'success' && touchResp.target_name.includes(tc.expectedName);
 
       testResults.push({
         id: tc.id,
@@ -259,22 +239,23 @@ export const BenchmarkRunner: React.FC<{ bookId: string; runId: string }> = ({
         title: tc.title,
         input: `点击归一化坐标 [${tc.normX}, ${tc.normY}] @ ${tc.videoMs}ms`,
         expected: `识别到目标 "${tc.expectedName}"`,
-        actual: `[${touchResp.status}] ${touchResp.target_name} (${touchResp.explanation})`,
-        passed,
-        latencyMs: touchResp.latency_ms,
-        confidence: touchResp.confidence,
-        cacheHit: touchResp.cache_hit,
-        notes: `检测框 [${touchResp.bounding_box?.map((v) => v.toFixed(2)).join(', ')}]`,
+        actual: '未评测：视觉识别模型尚未接入，系统不会编造物体名称',
+        passed: false,
+        skipped: true,
+        latencyMs: 0,
+        confidence: 0,
+        cacheHit: false,
+        notes: '待视觉模型接入后启用',
       });
-
       setResults([...testResults]);
-      await new Promise((r) => setTimeout(r, 60));
     }
 
     setIsRunning(false);
   };
 
-  const passedCount = results.filter((r) => r.passed).length;
+  const evaluated = results.filter((r) => !r.skipped);
+  const skippedCount = results.length - evaluated.length;
+  const passedCount = evaluated.filter((r) => r.passed).length;
   const avgLatency =
     results.length > 0
       ? Math.round(results.reduce((sum, r) => sum + r.latencyMs, 0) / results.length)
@@ -283,11 +264,11 @@ export const BenchmarkRunner: React.FC<{ bookId: string; runId: string }> = ({
   const copyMarkdownReport = () => {
     let md = `### 纸书智伴 · 交互基准测试报告 (D1 自动化回归)\n`;
     md += `- **测试批次**: ${runId} ｜ **书籍**: ${bookId}\n`;
-    md += `- **用例总数**: ${results.length} ｜ **通过率**: ${results.length > 0 ? ((passedCount / results.length) * 100).toFixed(1) : 0}% ｜ **平均延迟**: ${avgLatency}ms\n\n`;
+    md += `- **用例总数**: ${results.length} ｜ **通过率**: ${evaluated.length > 0 ? ((passedCount / evaluated.length) * 100).toFixed(1) : 0}%（已评测 ${evaluated.length} 项，跳过 ${skippedCount} 项） ｜ **平均延迟**: ${avgLatency}ms\n\n`;
     md += `| 用例ID | 类型 | 标题 | 测试输入 | 实际结果 | 状态 | 耗时 | 置信度 |\n`;
     md += `|---|---|---|---|---|---|---|---|\n`;
     results.forEach((r) => {
-      md += `| ${r.id} | ${r.type.toUpperCase()} | ${r.title} | ${r.input} | ${r.actual.replace(/\|/g, '-')} | ${r.passed ? '✅ 通过' : '❌ 失败'} | ${r.latencyMs}ms | ${(r.confidence * 100).toFixed(0)}% |\n`;
+      md += `| ${r.id} | ${r.type.toUpperCase()} | ${r.title} | ${r.input} | ${r.actual.replace(/\|/g, '-')} | ${r.skipped ? '⏭ 跳过' : r.passed ? '✅ 通过' : '❌ 失败'} | ${r.latencyMs}ms | ${(r.confidence * 100).toFixed(0)}% |\n`;
     });
     navigator.clipboard.writeText(md);
     setCopyTip(true);
@@ -312,7 +293,7 @@ export const BenchmarkRunner: React.FC<{ bookId: string; runId: string }> = ({
             🧪 D1 交互基准自动化测试工作台 (10 条问答 + 5 次点击)
           </h3>
           <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
-            无缝覆盖 `docs/qa-samples.md` 中的所有正反例、拒答验证、时间片绑定与黑边拦截
+            覆盖 `docs/qa-samples.md` 的正反例与拒答验证（基于内置演示夹具，仅用于回归，不代表对真实图书的准确率）；黑边拦截调用真实算法；认物准确率待视觉模型接入
           </p>
         </div>
 
@@ -370,7 +351,7 @@ export const BenchmarkRunner: React.FC<{ bookId: string; runId: string }> = ({
           <div style={{ padding: '10px', backgroundColor: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
             <div style={{ fontSize: '12px', color: '#166534' }}>用例通过率</div>
             <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#15803d' }}>
-              {((passedCount / results.length) * 100).toFixed(0)}% ({passedCount}/{results.length})
+              {evaluated.length > 0 ? ((passedCount / evaluated.length) * 100).toFixed(0) : 0}% ({passedCount}/{evaluated.length}，跳过 {skippedCount})
             </div>
           </div>
           <div style={{ padding: '10px', backgroundColor: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
@@ -423,11 +404,11 @@ export const BenchmarkRunner: React.FC<{ bookId: string; runId: string }> = ({
                         borderRadius: '4px',
                         fontSize: '11px',
                         fontWeight: 600,
-                        backgroundColor: r.passed ? '#dcfce7' : '#fee2e2',
-                        color: r.passed ? '#166534' : '#991b1b',
+                        backgroundColor: r.skipped ? '#f1f5f9' : r.passed ? '#dcfce7' : '#fee2e2',
+                        color: r.skipped ? '#475569' : r.passed ? '#166534' : '#991b1b',
                       }}
                     >
-                      {r.passed ? 'PASSED' : 'FAILED'}
+                      {r.skipped ? 'SKIPPED' : r.passed ? 'PASSED' : 'FAILED'}
                     </span>
                   </td>
                 </tr>

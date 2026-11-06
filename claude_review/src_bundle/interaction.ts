@@ -68,13 +68,17 @@ export interface EvidenceSource {
 
 // ==================== 3. 耗时度量 ====================
 
+/**
+ * 耗时度量。只允许写入"真实测得"的值；没有测量的阶段必须是 null，
+ * 严禁填常数冒充（答辩时会被追问真实首音延迟）。
+ */
 export interface LatencyBreakdown {
-  asr_ms: number;
-  retrieval_ms: number;
-  llm_first_token_ms: number;
-  llm_total_ms: number;
-  tts_first_audio_ms: number;
-  tts_total_ms: number;
+  asr_ms: number | null;
+  retrieval_ms: number | null;
+  llm_first_token_ms: number | null;
+  llm_total_ms: number | null;
+  tts_first_audio_ms: number | null;
+  tts_total_ms: number | null;
   total_roundtrip_ms: number;
 }
 
@@ -85,6 +89,8 @@ export interface AskQuestionRequest {
   run_id: string;
   video_ms: number;
   query_text: string; // 必须是真实用户输入或真实 ASR 转写文本，严禁自动伪造默认问题
+  /** 输入方式；A 的 interaction_type 只有 voice/touch，键盘输入靠此字段区分 */
+  input_method?: 'speech' | 'keyboard';
   audio_mime?: string;
   stream?: boolean;
 }
@@ -100,6 +106,11 @@ export interface AskQuestionResponse {
   latency: LatencyBreakdown;
   cache_hit: boolean;
   is_demo_mock?: boolean; // 显式标识是否为本地离线演示数据
+  /** 答案来源：外部模型服务 / 基于当前书页的本地抽取式检索 / 演示夹具 */
+  answer_source?: 'model_service' | 'local_extractive' | 'demo_fixture';
+  /** 是否已成功写入后端 A (POST /api/runs/{run_id}/interactions) */
+  persisted?: boolean;
+  persist_error?: string;
   error_code?: AsrErrorCode | string;
   error_message?: string;
 }
@@ -115,20 +126,22 @@ export interface TouchPoint {
   video_height: number;
 }
 
+export interface ViewportInfo {
+  container_width: number;
+  container_height: number;
+  render_width: number;
+  render_height: number;
+  offset_x: number;
+  offset_y: number;
+  is_letterbox: boolean;
+}
+
 export interface TouchRecognitionRequest {
   book_id: string;
   run_id: string;
   video_ms: number;
   touch_point: TouchPoint;
-  viewport_info: {
-    container_width: number;
-    container_height: number;
-    render_width: number;
-    render_height: number;
-    offset_x: number;
-    offset_y: number;
-    is_letterbox: boolean;
-  };
+  viewport_info: ViewportInfo;
 }
 
 export interface TouchRecognitionResponse {
@@ -139,10 +152,12 @@ export interface TouchRecognitionResponse {
   explanation: string;
   confidence: number;
   bounding_box?: [number, number, number, number];
-  evidence: EvidenceSource;
+  evidence: EvidenceSource | null;
   latency_ms: number;
   cache_hit: boolean;
   is_demo_mock?: boolean;
+  persisted?: boolean;
+  persist_error?: string;
   error_message?: string;
 }
 

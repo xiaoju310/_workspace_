@@ -18,14 +18,14 @@ export default function ShareNotePage({ book, note, grants, state, setState, nav
   const approved = !!note && note.review_status === 'approved' && note.reviewed_revision === note.revision
   const noteGrants = grants.filter(grant => grant.note_id === note?.id)
   const selected = noteGrants.find(grant => grant.id === selectedId) ?? noteGrants.find(grant => activeGrant(grant, now)) ?? noteGrants[0] ?? null
-  function create() {
+  async function create() {
     if (!approved) { setError('请先让主人审核当前笔记版本。'); return }
     const ids = [...new Set(recipients.split(/[,，\s]+/).map(item => item.trim()).filter(Boolean))]
     if (mode === 'named_users' && !ids.length) { setError('请至少填写一个演示用户 ID。'); return }
     if (ids.some(id => !/^[a-zA-Z0-9_-]{1,40}$/.test(id))) { setError('演示用户 ID 只支持 1–40 位字母、数字、下划线或短横线。'); return }
-    const grant = onCreate({ mode, recipients: mode === 'named_users' ? ids : [], minutes })
-    if (!grant) { setError('分享未创建，请检查当前审核状态。'); return }
-    setSelectedId(grant.id); setError(''); notify('已创建本地模拟分享，可预览只读结果。')
+    const grant = await onCreate({ mode, recipients: mode === 'named_users' ? ids : [], minutes })
+    if (!grant) { setError('分享未创建，原因见页面提示。'); return }
+    setSelectedId(grant.id); setError(''); notify(grant.server ? '已在服务端创建分享。' : '已创建本地模拟分享，可预览只读结果。')
   }
   async function copy() {
     if (!selected || !activeGrant(selected, now)) return

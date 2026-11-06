@@ -4,7 +4,17 @@ import {
   encodeAudioBufferToWav,
   calculateRMS,
 } from './AudioRecorderHelper';
-import { realSpeechRecognizer } from './asr/AsrProvider';
+import { getSpeechRecognizer } from './asr/AsrProvider';
+import type { AsrErrorCode } from '../../types/interaction';
+
+const realSpeechRecognizer = getSpeechRecognizer();
+
+const ASR_ERROR_TEXT: Partial<Record<AsrErrorCode, string>> = {
+  MICROPHONE_DENIED: '麦克风或语音识别权限被拒绝，请在浏览器地址栏允许后重试，或直接打字提问。',
+  TRANSCRIPTION_NETWORK_ERROR: '语音识别服务无法连接（Chrome 的识别依赖在线服务），请改用 Edge/Safari 或直接打字提问。',
+  AUDIO_RECORD_FAILED: '语音识别未能启动，请重试或直接打字提问。',
+  FORMAT_UNSUPPORTED: '当前浏览器不支持普通话语音识别，请使用 Chrome/Edge/Safari 或直接打字提问。',
+};
 
 interface AudioRecorderProps {
   onRecordingComplete: (audioBlob: Blob, mimeType: string, realTranscript: string) => void;
@@ -100,7 +110,10 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
 
       // 2. 启动原生实时语音转写
       if (realSpeechRecognizer.isSupported()) {
-        realSpeechRecognizer.start();
+        const started = realSpeechRecognizer.start();
+        if (started !== true) setErrorMsg(ASR_ERROR_TEXT[started] ?? '语音识别未能启动，请直接打字提问。');
+      } else {
+        setErrorMsg(ASR_ERROR_TEXT.FORMAT_UNSUPPORTED ?? null);
       }
 
       // 3. 初始化 MediaRecorder
@@ -122,7 +135,11 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         // 获取最终识别的文本
         let finalTranscript = '';
         if (realSpeechRecognizer.isSupported()) {
-          finalTranscript = await realSpeechRecognizer.stop();
+          const stopped = await realSpeechRecognizer.stopDetailed();
+          finalTranscript = stopped.text;
+          if (!stopped.text && stopped.errorCode && stopped.errorCode !== 'NO_SPEECH_DETECTED') {
+            setErrorMsg(ASR_ERROR_TEXT[stopped.errorCode] ?? null);
+          }
         }
 
         if (audioChunksRef.current.length === 0) {

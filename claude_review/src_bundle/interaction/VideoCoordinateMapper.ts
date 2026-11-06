@@ -1,8 +1,22 @@
-import { TouchPoint } from '../../types/interaction';
+import type { TouchPoint, ViewportInfo } from '../../types/interaction';
+
+/**
+ * 触控坐标映射：把 DOM 点击换算成"内容(视频/图片)自身"的归一化坐标与原始像素，
+ * 并拦截 `object-fit: contain` 产生的黑边(Letterbox / Pillarbox)。
+ *
+ * 设计约束（审查整改）：
+ * 1. 纯数学核心 `mapClickToContent` 与 DOM 解耦，可被单测直接覆盖；
+ * 2. 内容区(content box)需扣除 border/padding，因为 object-fit 作用在 content box 上；
+ * 3. 元数据未就绪 / 容器零尺寸 → 一律拒绝(isInsideVideo=false)，不得退化成"整个容器都有效"；
+ * 4. 像素坐标夹到 [0, 原始宽高-1]，不得越界；
+ * 5. 默认假设 object-position 为 center(CSS 默认值)。
+ */
 
 export interface VideoViewportCalculation {
   isInsideVideo: boolean;
   touchPoint?: TouchPoint;
+  /** 与 TouchRecognitionRequest.viewport_info 同构，调用方应原样透传，不要自行重算 */
+  viewport?: ViewportInfo;
   debugInfo: {
     containerWidth: number;
     containerHeight: number;
@@ -17,133 +31,189 @@ export interface VideoViewportCalculation {
   reason?: string;
 }
 
-/**
- * 触控核心算法：将浏览器 DOM 点击事件的屏幕坐标精确换算为视频画面的归一化坐标与原始分辨率像素
- * 
- * 解决痛点：
- * 1. 播放器使用 CSS `object-fit: contain` 导致的横向黑边 (Letterbox) 或纵向黑边 (Pillarbox)。
- * 2. 避免点击在黑边时发送无效或错误请求。
- * 3. 严格计算缩放比例，保证无论是在桌面大屏还是平板触屏上，实体识别像素级对齐。
- * 
- * @param event 鼠标/触摸事件 (MouseEvent 或 PointerEvent 或 React.PointerEvent)
- * @param videoEl 对应的 HTMLVideoElement
- */
-export function calculateVideoTouchCoordinates(
-  event: React.PointerEvent<HTMLVideoElement> | PointerEvent | MouseEvent,
-  videoEl: HTMLVideoElement
-): VideoViewportCalculation {
-  const rect = videoEl.getBoundingClientRect();
-  const clickX = event.clientX - rect.left;
-  const clickY = event.clientY - rect.top;
+export interface ContainViewport {
+  renderWidth: number;
+  renderHeight: number;
+  offsetX: number;
+  offsetY: number;
+  /** true: 上下黑边(容器偏高)；false: 左右黑边或无黑边 */
+  isLetterbox: boolean;
+}
 
-  // 视频原始固有尺寸
-  const origW = videoEl.videoWidth;
-  const origH = videoEl.videoHeight;
+/** 计算 object-fit: contain 的实际渲染矩形。要求四个参数均为正有限数。 */
+export function computeContainViewport(
+  containerW: number,
+  containerH: number,
+  origW: number,
+  origH: number
+): ContainViewport {
+  const scale = Math.min(containerW / origW, containerH / origH);
+  const renderWidth = origW * scale;
+  const renderHeight = origH * scale;
+  return {
+    renderWidth,
+    renderHeight,
+    offsetX: (containerW - renderWidth) / 2,
+    offsetY: (containerH - renderHeight) / 2,
+    isLetterbox: (containerH - renderHeight) / 2 > 1e-6,
+  };
+}
 
-  // 容错处理：若视频尚未加载元数据，则使用容器自身尺寸
-  if (!origW || !origH) {
-    return {
-      isInsideVideo: true,
-      touchPoint: {
-        norm_x: Math.min(Math.max(clickX / rect.width, 0), 1),
-        norm_y: Math.min(Math.max(clickY / rect.height, 0), 1),
-        video_pixel_x: Math.round(clickX),
-        video_pixel_y: Math.round(clickY),
-        video_width: Math.round(rect.width),
-        video_height: Math.round(rect.height),
-      },
-      debugInfo: {
-        containerWidth: rect.width,
-        containerHeight: rect.height,
-        renderWidth: rect.width,
-        renderHeight: rect.height,
-        offsetX: 0,
-        offsetY: 0,
-        isLetterbox: false,
-        clickX,
-        clickY,
-      },
-    };
+export interface MapInput {
+  /** 相对内容区左上角的点击坐标 */
+  clickX: number;
+  clickY: number;
+  containerW: number;
+  containerH: number;
+  origW: number;
+  origH: number;
+}
+
+const EPS = 1e-6;
+
+function invalid(input: MapInput, reason: string): VideoViewportCalculation {
+  return {
+    isInsideVideo: false,
+    reason,
+    debugInfo: {
+      containerWidth: Math.round(input.containerW) || 0,
+      containerHeight: Math.round(input.containerH) || 0,
+      renderWidth: 0,
+      renderHeight: 0,
+      offsetX: 0,
+      offsetY: 0,
+      isLetterbox: false,
+      clickX: Math.round(input.clickX) || 0,
+      clickY: Math.round(input.clickY) || 0,
+    },
+  };
+}
+
+export function mapClickToContent(input: MapInput): VideoViewportCalculation {
+  const { clickX, clickY, containerW, containerH, origW, origH } = input;
+  const finitePositive = (n: number) => Number.isFinite(n) && n > 0;
+
+  if (!finitePositive(origW) || !finitePositive(origH)) {
+    return invalid(input, '画面尺寸尚未就绪（视频元数据未加载），已拒绝本次点击');
+  }
+  if (!finitePositive(containerW) || !finitePositive(containerH)) {
+    return invalid(input, '播放器容器尺寸为 0，已拒绝本次点击');
+  }
+  if (!Number.isFinite(clickX) || !Number.isFinite(clickY)) {
+    return invalid(input, '点击坐标无效，已拒绝本次点击');
   }
 
-  const containerW = rect.width;
-  const containerH = rect.height;
+  const v = computeContainViewport(containerW, containerH, origW, origH);
+  const isLetterbox = v.offsetY > EPS; // 上下有留白
+  const isPillarbox = v.offsetX > EPS; // 左右有留白
 
-  const containerRatio = containerW / containerH;
-  const videoRatio = origW / origH;
-
-  let renderW = 0;
-  let renderH = 0;
-  let offsetX = 0;
-  let offsetY = 0;
-  let isLetterbox = false;
-
-  // 比较宽高比，计算 object-fit: contain 的实际画面区域与黑边
-  if (containerRatio > videoRatio) {
-    // 容器偏宽：画面高度填满，左右出现垂直黑边 (Pillarbox)
-    renderH = containerH;
-    renderW = containerH * videoRatio;
-    offsetX = (containerW - renderW) / 2;
-    offsetY = 0;
-    isLetterbox = false;
-  } else {
-    // 容器偏高：画面宽度填满，上下出现水平黑边 (Letterbox)
-    renderW = containerW;
-    renderH = containerW / videoRatio;
-    offsetX = 0;
-    offsetY = (containerH - renderH) / 2;
-    isLetterbox = true;
-  }
-
-  // 判断点击是否落在黑边内
-  const isInsideVideo =
-    clickX >= offsetX &&
-    clickX <= offsetX + renderW &&
-    clickY >= offsetY &&
-    clickY <= offsetY + renderH;
+  const inside =
+    clickX >= v.offsetX - EPS &&
+    clickX <= v.offsetX + v.renderWidth + EPS &&
+    clickY >= v.offsetY - EPS &&
+    clickY <= v.offsetY + v.renderHeight + EPS;
 
   const debugInfo = {
     containerWidth: Math.round(containerW),
     containerHeight: Math.round(containerH),
-    renderWidth: Math.round(renderW),
-    renderHeight: Math.round(renderH),
-    offsetX: Math.round(offsetX),
-    offsetY: Math.round(offsetY),
+    renderWidth: Math.round(v.renderWidth),
+    renderHeight: Math.round(v.renderHeight),
+    offsetX: Math.round(v.offsetX),
+    offsetY: Math.round(v.offsetY),
     isLetterbox,
     clickX: Math.round(clickX),
     clickY: Math.round(clickY),
   };
 
-  if (!isInsideVideo) {
+  if (!inside) {
+    const outsideVertically = clickY < v.offsetY || clickY > v.offsetY + v.renderHeight;
     return {
       isInsideVideo: false,
       debugInfo,
-      reason: isLetterbox
+      reason: outsideVertically && isLetterbox
         ? '点击落在上下黑边区域 (Letterbox)，已拦截上报'
-        : '点击落在左右黑边区域 (Pillarbox)，已拦截上报',
+        : isPillarbox
+          ? '点击落在左右黑边区域 (Pillarbox)，已拦截上报'
+          : '点击落在画面之外，已拦截上报',
     };
   }
 
-  // 转换成有效视频画面内的像素与归一化比例
-  const innerX = clickX - offsetX;
-  const innerY = clickY - offsetY;
-
-  const normX = Math.min(Math.max(innerX / renderW, 0), 1);
-  const normY = Math.min(Math.max(innerY / renderH, 0), 1);
-
-  const videoPixelX = Math.round(normX * origW);
-  const videoPixelY = Math.round(normY * origH);
+  const normX = Math.min(Math.max((clickX - v.offsetX) / v.renderWidth, 0), 1);
+  const normY = Math.min(Math.max((clickY - v.offsetY) / v.renderHeight, 0), 1);
+  const touchPoint: TouchPoint = {
+    norm_x: Number(normX.toFixed(4)),
+    norm_y: Number(normY.toFixed(4)),
+    // 原始分辨率像素，合法范围 [0, 尺寸-1]
+    video_pixel_x: Math.min(origW - 1, Math.round(normX * origW)),
+    video_pixel_y: Math.min(origH - 1, Math.round(normY * origH)),
+    video_width: origW,
+    video_height: origH,
+  };
 
   return {
     isInsideVideo: true,
-    touchPoint: {
-      norm_x: Number(normX.toFixed(4)),
-      norm_y: Number(normY.toFixed(4)),
-      video_pixel_x: videoPixelX,
-      video_pixel_y: videoPixelY,
-      video_width: origW,
-      video_height: origH,
+    touchPoint,
+    viewport: {
+      container_width: debugInfo.containerWidth,
+      container_height: debugInfo.containerHeight,
+      render_width: debugInfo.renderWidth,
+      render_height: debugInfo.renderHeight,
+      offset_x: debugInfo.offsetX,
+      offset_y: debugInfo.offsetY,
+      is_letterbox: isLetterbox,
     },
     debugInfo,
   };
+}
+
+type PointerLike = { clientX: number; clientY: number };
+
+/** 读取元素 content box（扣除 border/padding）。测试环境无 getComputedStyle 时回退为整个 rect。 */
+function contentBox(el: HTMLElement): { left: number; top: number; width: number; height: number } {
+  const rect = el.getBoundingClientRect();
+  let bl = 0, bt = 0, br = 0, bb = 0, pl = 0, pt = 0, pr = 0, pb = 0;
+  if (typeof getComputedStyle === 'function') {
+    try {
+      const cs = getComputedStyle(el);
+      const n = (v: string) => Number.parseFloat(v) || 0;
+      bl = n(cs.borderLeftWidth); bt = n(cs.borderTopWidth); br = n(cs.borderRightWidth); bb = n(cs.borderBottomWidth);
+      pl = n(cs.paddingLeft); pt = n(cs.paddingTop); pr = n(cs.paddingRight); pb = n(cs.paddingBottom);
+    } catch {
+      /* 保持 0 */
+    }
+  }
+  return {
+    left: rect.left + bl + pl,
+    top: rect.top + bt + pt,
+    width: rect.width - bl - br - pl - pr,
+    height: rect.height - bt - bb - pt - pb,
+  };
+}
+
+function mapElement(event: PointerLike, el: HTMLElement, origW: number, origH: number): VideoViewportCalculation {
+  const box = contentBox(el);
+  return mapClickToContent({
+    clickX: event.clientX - box.left,
+    clickY: event.clientY - box.top,
+    containerW: box.width,
+    containerH: box.height,
+    origW,
+    origH,
+  });
+}
+
+/** 视频：使用 videoWidth/videoHeight（元数据未就绪时拒绝）。 */
+export function calculateVideoTouchCoordinates(
+  event: PointerLike,
+  videoEl: HTMLVideoElement
+): VideoViewportCalculation {
+  return mapElement(event, videoEl, videoEl.videoWidth, videoEl.videoHeight);
+}
+
+/** 静态书页图片：使用 naturalWidth/naturalHeight，同样剔除 contain 黑边。 */
+export function calculateImageTouchCoordinates(
+  event: PointerLike,
+  imgEl: HTMLImageElement
+): VideoViewportCalculation {
+  return mapElement(event, imgEl, imgEl.naturalWidth, imgEl.naturalHeight);
 }

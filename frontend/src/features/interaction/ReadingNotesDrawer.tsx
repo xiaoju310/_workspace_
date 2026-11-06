@@ -92,8 +92,8 @@ export const ReadingNotesDrawer: React.FC<ReadingNotesDrawerProps> = ({
         setActiveShareId(share.id);
         setStatusMsg({ text: `✅ 真实只读分享已生成! 任何人凭令牌只读访问。`, isError: false });
       } else {
-        const demoToken = `share-demo-token-${Date.now()}`;
-        setActiveShareUrl(`${window.location.origin}/api/shared-notes/${demoToken}`);
+        // 演示模式不产生任何看起来像真实接口的 URL
+        setActiveShareUrl('（演示模式：未生成真实链接）');
         setActiveShareId('demo-share-id');
         setStatusMsg({ text: '⚠️ [演示模式] 生成模拟只读链接', isError: false });
       }

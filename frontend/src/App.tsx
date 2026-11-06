@@ -135,7 +135,7 @@ export const App: React.FC = () => {
               type="text"
               value={bearerToken}
               onChange={(e) => setBearerToken(e.target.value)}
-              placeholder="demo-token-123"
+              placeholder="粘贴 A 配置的 Bearer 令牌"
               style={{
                 backgroundColor: '#0f172a',
                 border: '1px solid #475569',

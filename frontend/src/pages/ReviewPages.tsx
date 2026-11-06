@@ -75,7 +75,7 @@ export function ReviewPage({ book, state, setState, updateBook, navigate, notify
   </div>
 }
 
-export function ClassificationPage({ book, state, setState, updateBook, navigate, notify, onGenerate }: WorkflowProps) {
+export function ClassificationPage({ book, state, setState, updateBook, navigate, notify, onGenerate, appMode }: WorkflowProps) {
   const [selectedType, setSelectedType] = useState<BookType>(book.classification.confirmed_type ?? book.classification.predicted_type)
   const [confirmed, setConfirmed] = useState(book.classification.owner_confirmed)
   const [ageBand, setAgeBand] = useState(book.age_band.startsWith('3') ? '3–6 岁（成人陪同）' : book.age_band.startsWith('9') ? '9–12 岁' : book.age_band.startsWith('12') ? '12 岁以上' : '6–9 岁')
@@ -89,15 +89,18 @@ export function ClassificationPage({ book, state, setState, updateBook, navigate
     if (selectedType === 'unknown') { setError('请选择一个图书类型后确认；暂不确定时可以先返回校对。'); return }
     if (!pagesReady) { setError('请先完成全部书页校对，再确认分类。'); return }
     
-    // 严格按照队长 Review 意见：真实模式下调用后端 PATCH /api/books/{book_id}/classification，保存失败绝不显示成功
-    if (book.origin === 'real' || (window as any).__APP_MODE__ === 'live') {
+    // 只有真正在 A 后端建档的书(server_book_id)才调用 PATCH /api/books/{id}/classification；
+    // 失败时绝不显示"已确认"。本地导入的书只做本地确认，并明确告知未同步。
+    if (book.server_book_id) {
       try {
-        await apiClient.confirmCategory(book.id, selectedType)
+        await apiClient.confirmCategory(book.server_book_id, selectedType)
       } catch (err: any) {
         setError(`后端保存分类失败: ${err.message || '网络或鉴权错误'}。保存失败不能确认。`)
         notify(`分类确认失败: ${err.message}`)
         return
       }
+    } else if (appMode === 'live') {
+      notify('该书尚未在服务端建档，类型仅在本地确认，未同步到后端。')
     }
 
     updateBook(current => ({ ...current, age_band: ageBand, classification: { ...current.classification, confirmed_type: selectedType, owner_confirmed: true } }))

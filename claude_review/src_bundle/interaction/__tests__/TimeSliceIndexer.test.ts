@@ -1,42 +1,48 @@
 import { describe, it, expect } from 'vitest';
-import { TimeSliceIndexer, DEFAULT_BOOK_SLICES } from '../indexing/TimeSliceIndexer';
+import { TimeSliceIndexer, DEMO_BOOK_SLICES, contentBigrams } from '../indexing/TimeSliceIndexer';
+import { buildSlicesFromBook } from '../indexing/buildSlices';
 
-describe('TimeSliceIndexer (绘本视频时间片与多模态证据索引测试)', () => {
-  const indexer = new TimeSliceIndexer(DEFAULT_BOOK_SLICES);
+describe('TimeSliceIndexer（抽取式检索，无故事专用词表）', () => {
+  const idx = new TimeSliceIndexer(DEMO_BOOK_SLICES);
 
-  it('用例 1: 根据时间毫秒数精确定位当前页', () => {
-    const sliceP1 = indexer.findSliceByVideoMs(3500);
-    expect(sliceP1?.page_no).toBe(1);
-
-    const sliceP3 = indexer.findSliceByVideoMs(22000);
-    expect(sliceP3?.page_no).toBe(3);
-
-    const sliceP6 = indexer.findSliceByVideoMs(50000);
-    expect(sliceP6?.page_no).toBe(6);
+  it('按时间定位页片', () => {
+    expect(idx.findSliceByVideoMs(3500)?.page_no).toBe(1);
+    expect(idx.findSliceByVideoMs(50000)?.page_no).toBe(6);
   });
 
-  it('用例 2: 实体与情节关联检索 (召回当前页事实证据)', () => {
-    const evidence = indexer.searchEvidence('这只戴红围巾的小动物是谁？', 3500);
-    expect(evidence.length).toBeGreaterThan(0);
-    expect(evidence[0].page_no).toBe(1);
-    expect(evidence[0].snippet).toContain('戴红围巾');
-    expect(evidence[0].confidence).toBeGreaterThanOrEqual(0.7);
+  it('实体检索：红围巾 → 第 1 页', () => {
+    const ev = idx.searchEvidence('这只戴红围巾的小动物是谁？', 3500);
+    expect(ev[0]?.page_no).toBe(1);
   });
 
-  it('用例 3: 跨时间片结尾剧情检索 (找到妈妈了吗)', () => {
-    const evidence = indexer.searchEvidence('它最后找到妈妈了吗？', 2000);
-    expect(evidence.length).toBeGreaterThan(0);
-    // 应当成功召回到第 6 页的团聚剧情
-    const p6 = evidence.find((e) => e.page_no === 6);
-    expect(p6).toBeDefined();
-    expect(p6?.snippet).toContain('团聚');
+  it('结局意图（通用规则）→ 最后一页', () => {
+    const ev = idx.searchEvidence('它最后找到妈妈了吗？', 2000);
+    expect(ev.find((e) => e.page_no === 6)).toBeDefined();
   });
 
-  it('用例 4: 负样本与超纲词汇过滤 (防幻觉)', () => {
-    const negativeEv1 = indexer.searchEvidence('森林里有外星人飞船吗？', 10000);
-    expect(negativeEv1).toHaveLength(0);
+  it('超纲问题无证据（不依赖黑名单）', () => {
+    expect(idx.searchEvidence('森林里有外星人飞船吗？', 10000)).toHaveLength(0);
+    expect(idx.searchEvidence('小狐狸的爸爸是宇航员吗？', 3000)).toHaveLength(0);
+    expect(idx.searchEvidence('今天天气怎么样', 3000)).toHaveLength(0);
+  });
 
-    const negativeEv2 = indexer.searchEvidence('恐龙和汽车在比赛吗？', 15000);
-    expect(negativeEv2).toHaveLength(0);
+  it('只命中全书都有的词（小狐狸）不构成证据', () => {
+    expect(idx.searchEvidence('小狐狸会开飞机吗', 3000)).toHaveLength(0);
+  });
+
+  it('换一本书：索引完全由该书内容决定，不会出现小狐狸', () => {
+    const other = new TimeSliceIndexer(buildSlicesFromBook([{ ocr_text: '小熊在河边钓到一条金色的大鱼。' }, { ocr_text: '大鱼说谢谢你放了我。' }]));
+    expect(other.searchEvidence('小熊钓到了什么', 0)[0]?.page_no).toBe(1);
+    expect(other.searchEvidence('小狐狸戴什么围巾', 0)).toHaveLength(0);
+  });
+
+  it('没有时间轴的页：证据标为 page 级，不伪造视频时间', () => {
+    const noTl = new TimeSliceIndexer(buildSlicesFromBook([{ ocr_text: '小熊在河边钓到一条金色的大鱼。' }]));
+    const ev = noTl.searchEvidence('小熊钓到了什么', 5000);
+    expect(ev[0].evidence_type).toBe('page');
+  });
+
+  it('切词会丢弃功能字', () => {
+    expect(contentBigrams('为什么吗')).toEqual([]);
   });
 });
