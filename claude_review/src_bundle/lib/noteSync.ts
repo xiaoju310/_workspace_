@@ -77,3 +77,21 @@ export async function createShareOnServer(
 export async function revokeShareOnServer(api: NoteServerApi, serverNoteId: string, shareId: string): Promise<void> {
   await api.revokeNoteShare(serverNoteId, shareId);
 }
+
+/**
+ * 本地笔记 → A 的 content。A 只有在 summary 非空且 sources 非空时才解除占位，
+ * 占位笔记不允许审核通过；is_placeholder 由服务端决定，这里不发送。
+ */
+export function noteToServerContent(note: {
+  title: string;
+  summary: string;
+  concepts: string[];
+  sources: { page_no: number; quote: string; start_ms: number | null; end_ms: number | null }[];
+}): Record<string, unknown> {
+  return {
+    title: note.title,
+    summary: note.summary,
+    concepts: note.concepts,
+    sources: note.sources.map((s) => ({ page_no: s.page_no, quote: s.quote, start_ms: s.start_ms, end_ms: s.end_ms })),
+  };
+}

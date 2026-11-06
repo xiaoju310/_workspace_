@@ -46,6 +46,7 @@ export function ReviewPage({ book, state, setState, updateBook, navigate, notify
       ...current,
       status: 'REVIEW_REQUIRED',
       safety_reviewed: false,
+      pages_only: false,
       classification: current.pages.some(page => page.id === selected.id && page.ocr_text !== text) ? { ...current.classification, owner_confirmed: false } : current.classification,
       pages: current.pages.map(page => page.id === selected.id ? { ...page, ocr_text: text, revision: page.revision + (page.ocr_text === text ? 0 : 1), confirmed: confirm } : page),
     }))

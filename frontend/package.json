@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "prototype": "node scripts/build-offline.cjs",
+    "prototype": "node scripts/build-offline.cjs && node scripts/verify-prototype.cjs",
     "test": "vitest run"
   },
   "dependencies": {

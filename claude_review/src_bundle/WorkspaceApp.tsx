@@ -15,10 +15,12 @@ import type { ImportedBookInput, Interaction, JobState, Page, ReadingBook, Readi
 import type { PreviewState } from '../features/books/types'
 import type { AppMode } from '../types/interaction'
 import { Icon } from '../components/ui'
-import { apiClient } from '../lib/api'
+import { apiClient, fromBackendBookType } from '../lib/api'
 import { buildSlicesFromBook } from '../features/interaction/indexing/buildSlices'
 import { TimeSliceIndexer } from '../features/interaction/indexing/TimeSliceIndexer'
-import { createShareOnServer, revokeShareOnServer, reviewOnServer } from '../lib/noteSync'
+import { createShareOnServer, noteToServerContent, revokeShareOnServer, reviewOnServer } from '../lib/noteSync'
+import { registerServerBook, startServerAnalysis, summarizeRunJobs } from '../lib/liveBookFlow'
+import { pageImageBlob } from '../features/books/pageImage'
 import type { SegmentOut } from '../types/interaction'
 
 const SESSION_KEY = 'paper-companion-full-v1'
@@ -31,6 +33,12 @@ function uid(prefix:string) { return `${prefix}-${crypto.randomUUID()}` }
 function timestamp() { return new Date().toISOString() }
 function makeNote(book:ReadingBook):ReadingNote {return {id:uid('note'),book_id:book.id,title:`《${book.title}》的阅读发现`,summary:book.pages.map(p=>p.ocr_text).filter(Boolean).join('\n\n'),concepts:['人物','情节','我的发现'],sources:book.pages.map((p,i)=>({source:'original_page',page_no:i+1,start_ms:null,end_ms:null,quote:p.ocr_text.slice(0,140)})),review_status:'draft',visibility:'private',revision:1,reviewed_revision:null,updated_at:timestamp()}}
 
+/** 后端任务的进度以服务端为准：切书或刷新后重新轮询，不显示本地"演示任务"文案 */
+function serverJobFor(book:ReadingBook):JobState{
+  if(book.status==='READY'&&book.safety_reviewed)return {...emptyJob(),status:'ready',stage:5,progress:100,run_id:book.run_id,server:true}
+  return {...emptyJob(),status:'running',run_id:book.run_id,server:true,events:[{stage:'后端任务',message:'正在读取后端任务状态。',time:timestamp()}]}
+}
+
 export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }) {
   const restored=useRef(readSession())
   const [books,setBooks]=useState<ReadingBook[]>(()=>restored.current?.books??initialBooks())
@@ -42,6 +50,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   const [state,setState]=useState<PreviewState>('success')
   const [job,setJob]=useState<JobState>(()=>{
     const initial=books.find(item=>item.id===selectedId)??books[0]
+    if(initial.server_book_id&&initial.run_id)return serverJobFor(initial)
     return initial.status==='READY'?{...emptyJob(),status:'ready',stage:5,progress:100,run_id:initial.run_id,events:[{stage:'历史状态',message:'已有的本地演示结果，不是本次实时生成。',time:timestamp()}]}:initial.status==='GENERATING'?{...emptyJob(),status:'failed',run_id:initial.run_id,error:'演示任务尚未完成或会话已刷新，请重新确认后重试。'}:emptyJob()
   })
   const [toast,setToast]=useState('')
@@ -56,7 +65,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   const note=notes.find(item=>item.book_id===book.id)??null
   const grant=grants.find(item=>item.token===shareToken)??null
 
-  useEffect(()=>{if(previousBookId.current===book.id)return;previousBookId.current=book.id;setJob(book.status==='READY'?{...emptyJob(),status:'ready',progress:100,stage:5,run_id:book.run_id,events:[{stage:'历史状态',message:'此书为已有的本地演示结果，不是本次实时生成。',time:timestamp()}]}:book.status==='GENERATING'?{...emptyJob(),status:'failed',run_id:book.run_id,error:'演示会话已切换，本次任务未继续执行。请重试以创建新的模拟运行。'}:emptyJob())},[book.id,book.status,book.run_id])
+  useEffect(()=>{if(previousBookId.current===book.id)return;previousBookId.current=book.id;setJob(book.server_book_id&&book.run_id?serverJobFor(book):book.status==='READY'?{...emptyJob(),status:'ready',progress:100,stage:5,run_id:book.run_id,events:[{stage:'历史状态',message:'此书为已有的本地演示结果，不是本次实时生成。',time:timestamp()}]}:book.status==='GENERATING'?{...emptyJob(),status:'failed',run_id:book.run_id,error:'演示会话已切换，本次任务未继续执行。请重试以创建新的模拟运行。'}:emptyJob())},[book.id,book.status,book.run_id])
   const notify=useCallback((text:string)=>setToast(text),[])
   const navigate=useCallback((next:Page,bookId?:string)=>{
     if(bookId)setSelectedId(bookId)
@@ -86,7 +95,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   }
 
   useEffect(()=>{
-    if(job.status!=='running')return
+    if(job.status!=='running'||job.server)return
     const timer=setTimeout(()=>{
       setJob(current=>{
         if(current.status!=='running')return current
@@ -98,39 +107,97 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     return()=>clearTimeout(timer)
   },[job])
   useEffect(()=>{if(job.status==='ready')setBooks(current=>current.map(item=>item.run_id===job.run_id?{...item,status:'READY',safety_reviewed:true}:item))},[job.status,job.run_id])
-  useEffect(()=>{if(job.status!=='ready')return;const completed=books.find(item=>item.run_id===job.run_id);if(!completed||notes.some(item=>item.book_id===completed.id))return;setNotes(current=>[makeNote(completed),...current])},[job.status,job.run_id,books,notes])
+  useEffect(()=>{if(job.status!=='ready')return;const completed=books.find(item=>item.run_id===job.run_id);if(!completed||completed.server_book_id||notes.some(item=>item.book_id===completed.id))return;setNotes(current=>[makeNote(completed),...current])},[job.status,job.run_id,books,notes])
 
-  function generate(){
+  const patchBook=useCallback((id:string,updater:(current:ReadingBook)=>ReadingBook)=>{
+    setBooks(current=>current.map(item=>item.id===id?updater(item):item))
+  },[])
+
+  // 轮询后端真实任务；进度只反映服务端状态，不模拟百分比
+  useEffect(()=>{
+    if(job.status!=='running'||!job.server||!job.run_id)return
+    const runId=job.run_id
+    let stopped=false
+    let timer:ReturnType<typeof setTimeout>|undefined
+    const tick=async()=>{
+      try{
+        const result=summarizeRunJobs(await apiClient.runJobs(runId))
+        if(stopped)return
+        if(result.phase==='running'){timer=setTimeout(tick,1500);return}
+        if(result.phase==='failed'){
+          setBooks(current=>current.map(item=>item.run_id===runId?{...item,status:'FAILED'}:item))
+          setJob(current=>({...current,status:'failed',error:result.error,events:[...current.events,{stage:'后端任务',message:result.error,time:timestamp()}]}))
+          return
+        }
+        setJob(current=>({...current,status:'review',stage:5,progress:100,events:[...current.events,{stage:'后端任务',message:'后端分析任务已成功，等待主人复核。',time:timestamp()}]}))
+      }catch(e:any){
+        if(!stopped)setJob(current=>({...current,status:'failed',error:`读取后端任务状态失败：${e.message}`}))
+      }
+    }
+    void tick()
+    return()=>{stopped=true;if(timer)clearTimeout(timer)}
+  },[job.status,job.server,job.run_id])
+
+  async function generate(){
     if(!book.pages.length||book.pages.some(p=>!p.confirmed)||!book.classification.owner_confirmed){notify('请先完成逐页文字校对和主人类型确认。');return}
+
+    if(appMode==='live'){
+      if(!book.server_book_id){notify('这本书没有在后端建档，真实模式不会模拟生成。请填好令牌后重新导入，或切换到演示模式。');return}
+      const target=book
+      try{
+        const started=await startServerAnalysis(apiClient,target.server_book_id!,target.pages.map(p=>({ocr_text:p.ocr_text,server_page_no:p.server_page_no,server_synced_text:p.server_synced_text,getImage:()=>pageImageBlob(p.image_url)})),(index,patch)=>{
+          const pageId=target.pages[index].id
+          patchBook(target.id,current=>({...current,pages:current.pages.map(p=>p.id===pageId?{...p,...patch}:p)}))
+        })
+        patchBook(target.id,current=>({...current,status:'GENERATING',safety_reviewed:false,pages_only:false,run_id:started.run_id,job_id:started.job_id}))
+        setJob({...emptyJob(),status:'running',run_id:started.run_id,server:true,events:[{stage:'后端任务',message:'已上传书页和校对文字，后端分析任务已创建。',time:timestamp()}]})
+        navigate('progress',target.id)
+      }catch(e:any){
+        notify(`发起分析失败：${e.message}`)
+      }
+      return
+    }
+
     const runId=uid('run')
     updateBook(current=>({...current,status:'GENERATING',safety_reviewed:false,run_id:runId,job_id:uid('job')}))
     setJob({status:'running',stage:0,progress:0,error:null,run_id:runId,events:[{stage:jobStages[0],message:'生成任务已启动，正在分析图书多模态资产。',time:timestamp()}]})
     navigate('progress',book.id)
   }
 
+  function openPagesOnly(){
+    if(!book.run_id||!book.server_book_id||book.pages.some(p=>!p.confirmed)){notify('需要已校对的书页和后端运行记录，才能开启书页问答。');return}
+    patchBook(book.id,current=>({...current,pages_only:true}))
+    navigate('reader',book.id)
+  }
+
   async function completeImport(input:ImportedBookInput){
     const id=uid('book')
     const pages=await Promise.all(input.pages.map(async p=>{let imageUrl=p.url;if(!p.demo){const blob=await (await fetch(p.url)).blob();imageUrl=URL.createObjectURL(blob)}return {id:p.id,name:p.name,image_url:imageUrl,ocr_text:p.demo?(originalPages[Number(p.id.replace('demo-',''))-1]??''):'',confidence:p.demo?.86:0,revision:1,confirmed:false,demo:Boolean(p.demo)}}))
-    
-    let serverBookId: string | null = null
-    let bookOrigin: 'real' | 'mock' = 'mock'
-    if (appMode === 'live' && apiClient.getToken()) {
-      try {
-        const created = await apiClient.createBook({ title: input.title, authorization_ref: input.authorization_ref })
-        serverBookId = created.id
-        bookOrigin = 'real'
-        notify(`已在服务端成功建档（ID: ${created.id.slice(0, 8)}…），可进行真实校对与笔记流转。`)
-      } catch (e: any) {
-        notify(`服务端建档未完成（${e.message}），已自动切换为本地离线模式。`)
+
+    let classification:ReadingBook['classification']={predicted_type:input.type,confidence:input.type==='unknown'?null:.72,reasons:['根据图书书页排版与图文特征初步分类。'],confirmed_type:null,owner_confirmed:false}
+    let serverBookId:string|null=null
+    if(appMode==='live'){
+      if(apiClient.getToken()){
+        // 失败时直接抛出，不留下一本"看似已建档"的书
+        const registered=await registerServerBook(apiClient,{title:input.title,authorization_ref:input.authorization_ref})
+        serverBookId=registered.bookId
+        classification={predicted_type:fromBackendBookType(registered.classification.predicted_type),confidence:registered.classification.confidence,reasons:registered.classification.reasons,confirmed_type:null,owner_confirmed:false}
+        notify('已在后端建档并完成自动分类。下一步请校对文字并确认类型。')
+      }else{
+        notify('没有填写令牌：这本书只保存在本地，不会写入后端。')
       }
     }
 
-    setBooks(current=>[{id,title:input.title,subtitle:'刚刚带进来的新故事。',cover:'/art/cover-forest.svg',page_count:pages.length,status:'REVIEW_REQUIRED',classification:{predicted_type:input.type,confidence:input.type==='unknown'?null:.72,reasons:['根据图书书页排版与图文特征初步分类。'],confirmed_type:null,owner_confirmed:false},updated_label:'刚刚',authorization_ref:input.authorization_ref,pages,age_band:'6–9 岁（待人工审核）',run_id:null,job_id:null,video_url:null,origin:bookOrigin,server_book_id:serverBookId,safety_reviewed:false},...current])
+    setBooks(current=>[{id,title:input.title,subtitle:'刚刚带进来的新故事。',cover:'/art/cover-forest.svg',page_count:pages.length,status:'REVIEW_REQUIRED',classification,updated_label:'刚刚',authorization_ref:input.authorization_ref,pages,age_band:'6–9 岁（待人工审核）',run_id:null,job_id:null,video_url:null,origin:serverBookId?'real':'mock',server_book_id:serverBookId,safety_reviewed:false},...current])
     navigate('review',id)
   }
 
-  function saveNote(patch:Pick<ReadingNote,'title'|'summary'|'concepts'>){
+  async function saveNote(patch:Pick<ReadingNote,'title'|'summary'|'concepts'>){
     if(!patch.title.trim()||!patch.summary.trim()){notify('笔记标题和摘要不能为空。');return}
+    if(note?.server_id){
+      try{await apiClient.updateNote(note.server_id,noteToServerContent({...note,...patch,title:patch.title.trim(),summary:patch.summary.trim()}))}
+      catch(e:any){notify(`服务端保存笔记失败: ${e.message}。修改未保存。`);return}
+    }
     setNotes(current=>current.map(item=>item.id===note?.id?{...item,...patch,title:patch.title.trim(),summary:patch.summary.trim(),review_status:'draft',visibility:'private',reviewed_revision:null,revision:item.revision+1,updated_at:timestamp()}:item))
     setGrants(current=>current.map(item=>item.note_id===note?.id&&item.status==='active'?{...item,status:'revoked'}:item))
     notify('修改已保存为私密草稿；旧审核和旧分享已失效。')
@@ -147,6 +214,8 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     if(appMode==='live'&&decision!=='submit'){
       if(!note.server_id){notify(LOCAL_ONLY);return}
       try{
+        // A 要求有摘要和来源才能解除占位，审核前先把当前内容写上去
+        if(decision==='approve')await apiClient.updateNote(note.server_id,noteToServerContent(note))
         const out=await reviewOnServer(apiClient,note.server_id,decision==='approve'?'approve':'revise')
         nextStatus=out.local==='approved'?'approved':'rejected'
       }catch(e:any){
@@ -210,7 +279,17 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
 
   function openGrant(item:ShareGrant){setShareToken(item.token);setRecipient('');setPage('shared');setState('success');location.hash=`#/shared?token=${encodeURIComponent(item.token)}`;window.scrollTo({top:0})}
   function seek(source:Source){if(source.start_ms!==null){setSeekTo(source.start_ms);navigate('reader',book.id)}else{try{sessionStorage.setItem('paper-companion-focus-page',String(source.page_no))}catch{/* 页面仍可打开 */}navigate('review',book.id)}}
-  function generateNote(){if(book.status!=='READY'){notify('请先完成生成阶段和内容复核。');return}if(note){navigate('notes');return}setNotes(current=>[makeNote(book),...current]);navigate('notes')}
+  async function generateNote(){
+    if(book.server_book_id){
+      if(note){navigate('notes');return}
+      try{
+        const created=await apiClient.generateNoteDraft(book.server_book_id)
+        setNotes(current=>[{...makeNote(book),server_id:created.id},...current])
+        navigate('notes')
+      }catch(e:any){notify(`服务端未能生成笔记：${e.message}`)}
+      return
+    }
+    if(book.status!=='READY'){notify('请先完成生成阶段和内容复核。');return}if(note){navigate('notes');return}setNotes(current=>[makeNote(book),...current]);navigate('notes')}
 
   // 取当前 run 的时间轴(A)；带缓存与错误提示防抖，失败不阻断问答，但会用于触控字幕依据与检索时间窗口
   async function loadSegments(runId:string):Promise<SegmentOut[]>{
@@ -218,7 +297,8 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     if(cached)return cached
     try{
       const segs=await apiClient.getRunSegments(runId)
-      segmentsCacheRef.current.set(runId,segs)
+      // 空结果不缓存：B 之后登记时间轴时要能读到
+      if(segs.length)segmentsCacheRef.current.set(runId,segs)
       return segs
     }catch(e:any){
       if(!warnedSegmentsRef.current.has(runId)){
@@ -232,6 +312,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   // 智能伴读提问：Live 严格按"当前这本书"的校对文字检索；无依据如实拒答；不使用任何内置故事。
   async function question(text:string,videoMs:number,inputMethod:'speech'|'keyboard'='keyboard'):Promise<Interaction>{
     if(appMode === 'live') {
+      if(!book.server_book_id)throw new Error('这本书是本地数据，没有在后端建档，真实模式下不能提问或留痕。请切换到演示模式，或填好令牌后重新导入。')
       if(!book.run_id)throw new Error('这本书还没有生成运行任务(run_id)，暂时无法提问留痕。请先完成校对与生成。')
       const segments=await loadSegments(book.run_id)
       const indexer=new TimeSliceIndexer(buildSlicesFromBook(book.pages.filter(p=>p.confirmed),segments))
@@ -281,6 +362,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     if(x<0||x>1||y<0||y>1||box.width<=0||box.height<=0)throw new Error('点击位于画面内容之外。')
 
     if(appMode === 'live') {
+      if(!book.server_book_id)throw new Error('这本书是本地数据，没有在后端建档，真实模式下不能提问或留痕。请切换到演示模式，或填好令牌后重新导入。')
       if(!book.run_id)throw new Error('这本书还没有生成运行任务(run_id)，暂时无法触控留痕。请先完成校对与生成。')
       if(!detail)throw new Error('缺少坐标映射结果(touch_point/viewport_info)，已拒绝上报，避免记录错误像素。')
       const segments=await loadSegments(book.run_id)
@@ -320,7 +402,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   }
 
   const context={book,state,setState,navigate,notify,appMode}
-  const workflow={...context,updateBook,job,setJob,onGenerate:generate}
+  const workflow={...context,updateBook,job,setJob,onGenerate:()=>{void generate()},onOpenPagesOnly:openPagesOnly}
   const missingPages=book.pages.length===0&&page!=='home'&&page!=='import'&&page!=='settings'&&page!=='shared'
 
   return (
@@ -338,7 +420,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
       )}
       {missingPages?<div className="page-content"><div className="state-panel"><Icon name="image" size={32}/><h2>本次书页预览已结束</h2><p>用户选择的图片只保留在内存，刷新后需要重新导入。图书名和笔记仍保留在当前会话。</p><button className="button button-primary" onClick={()=>navigate('import')}>重新导入书页</button></div></div>:<>
       {page==='home'&&<HomePage books={books} notes={notes} state={state} setState={setState} onImport={()=>navigate('import')} onBook={item=>navigate(item.status==='READY'?'reader':'review',item.id)} onNote={id=>{const target=notes.find(n=>n.id===id);navigate('notes',target?.book_id)}}/>}
-      {page==='import'&&<ImportBookPage state={state} setState={setState} onHome={()=>navigate('home')} onComplete={input=>{void completeImport(input).catch(()=>notify('图片转移到校对页失败，请重新导入。'))}}/>}
+      {page==='import'&&<ImportBookPage state={state} setState={setState} serverSync={appMode==='live'&&Boolean(apiClient.getToken())} onHome={()=>navigate('home')} onComplete={input=>{void completeImport(input).catch((e:any)=>notify(`导入未完成：${e.message}`))}}/>}
       {page==='review'&&<ReviewPage {...workflow}/>}{page==='classification'&&<ClassificationPage {...workflow}/>}{page==='progress'&&<ProgressPage {...workflow}/>}
       {page==='reader'&&<><InteractiveReaderPage {...context} interactions={interactions.filter(i=>i.book_id===book.id)} onInteraction={item=>setInteractions(current=>[item,...current])} seekTo={seekTo} onSeekHandled={()=>setSeekTo(null)} askQuestion={question} identifyTouch={touch} appMode={appMode}/><div className="reader-next"><button className="button button-secondary" onClick={generateNote}>整理阅读笔记<Icon name="note" size={16}/></button><button className="button button-ghost" onClick={()=>navigate('history')}>查看阅读历史<Icon name="arrow" size={16}/></button></div></>}
       {page==='history'&&<HistoryPage {...context} interactions={interactions.filter(i=>i.book_id===book.id)} onSeek={ms=>{setSeekTo(ms);navigate('reader')}}/>}

@@ -7,7 +7,7 @@ import { apiClient } from './lib/api';
 
 export const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<'workspace' | 'benchmark' | 'metrics'>('workspace');
-  const [appMode, setAppMode] = useState<AppMode>('live');
+  const [appMode, setAppMode] = useState<AppMode>(import.meta.env.VITE_DEFAULT_MODE === 'demo' ? 'demo' : 'live');
   const [bearerToken, setBearerToken] = useState(apiClient.getToken());
   const [tokenMsg, setTokenMsg] = useState<string | null>(null);
 

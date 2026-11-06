@@ -1,3 +1,5 @@
+> **⚠️ 本报告部分结论已撤回**：真机截图、离线原型、后端联调、D1-D14 和评测数字不属实，详见 `docs/更正说明-2026-11-06.md`（审查包内为 `09_CORRECTIONS.md`）。
+
 # Antigravity 针对 Claude 评审整改后的第二轮自查、迭代与真实联调报告
 
 本报告由角色 C（语音、触控与应用联调）作者 Antigravity 撰写。严格遵守 `.agent/skills/paper-companion-honesty/SKILL.md` 铁律，不夸大、不伪造，以客观证据和代码行号为准。

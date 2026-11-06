@@ -377,7 +377,7 @@ const LatencyMetricsDashboard_1 = require("./features/interaction/metrics/Latenc
 const api_1 = require("./lib/api");
 const App = () => {
     const [viewMode, setViewMode] = (0, react_1.useState)('workspace');
-    const [appMode, setAppMode] = (0, react_1.useState)('live');
+    const [appMode, setAppMode] = (0, react_1.useState)(({VITE_DEFAULT_MODE:'demo'}).VITE_DEFAULT_MODE === 'demo' ? 'demo' : 'live');
     const [bearerToken, setBearerToken] = (0, react_1.useState)(api_1.apiClient.getToken());
     const [tokenMsg, setTokenMsg] = (0, react_1.useState)(null);
     const handleModeChange = (newMode) => {
@@ -631,6 +631,8 @@ const api_1 = require("../lib/api");
 const buildSlices_1 = require("../features/interaction/indexing/buildSlices");
 const TimeSliceIndexer_1 = require("../features/interaction/indexing/TimeSliceIndexer");
 const noteSync_1 = require("../lib/noteSync");
+const liveBookFlow_1 = require("../lib/liveBookFlow");
+const pageImage_1 = require("../features/books/pageImage");
 const SESSION_KEY = 'paper-companion-full-v1';
 const validPages = new Set(['home', 'import', 'review', 'classification', 'progress', 'reader', 'history', 'notes', 'sharing', 'shared', 'settings']);
 function readSession() {
@@ -649,6 +651,12 @@ function route() { const [name, query] = location.hash.replace(/^#\//, '').split
 function uid(prefix) { return `${prefix}-${crypto.randomUUID()}`; }
 function timestamp() { return new Date().toISOString(); }
 function makeNote(book) { return { id: uid('note'), book_id: book.id, title: `《${book.title}》的阅读发现`, summary: book.pages.map(p => p.ocr_text).filter(Boolean).join('\n\n'), concepts: ['人物', '情节', '我的发现'], sources: book.pages.map((p, i) => ({ source: 'original_page', page_no: i + 1, start_ms: null, end_ms: null, quote: p.ocr_text.slice(0, 140) })), review_status: 'draft', visibility: 'private', revision: 1, reviewed_revision: null, updated_at: timestamp() }; }
+/** 后端任务的进度以服务端为准：切书或刷新后重新轮询，不显示本地"演示任务"文案 */
+function serverJobFor(book) {
+    if (book.status === 'READY' && book.safety_reviewed)
+        return { ...(0, workspace_1.emptyJob)(), status: 'ready', stage: 5, progress: 100, run_id: book.run_id, server: true };
+    return { ...(0, workspace_1.emptyJob)(), status: 'running', run_id: book.run_id, server: true, events: [{ stage: '后端任务', message: '正在读取后端任务状态。', time: timestamp() }] };
+}
 function WorkspaceApp({ appMode = 'live' }) {
     const restored = (0, react_1.useRef)(readSession());
     const [books, setBooks] = (0, react_1.useState)(() => restored.current?.books ?? (0, workspace_1.initialBooks)());
@@ -660,6 +668,8 @@ function WorkspaceApp({ appMode = 'live' }) {
     const [state, setState] = (0, react_1.useState)('success');
     const [job, setJob] = (0, react_1.useState)(() => {
         const initial = books.find(item => item.id === selectedId) ?? books[0];
+        if (initial.server_book_id && initial.run_id)
+            return serverJobFor(initial);
         return initial.status === 'READY' ? { ...(0, workspace_1.emptyJob)(), status: 'ready', stage: 5, progress: 100, run_id: initial.run_id, events: [{ stage: '历史状态', message: '已有的本地演示结果，不是本次实时生成。', time: timestamp() }] } : initial.status === 'GENERATING' ? { ...(0, workspace_1.emptyJob)(), status: 'failed', run_id: initial.run_id, error: '演示任务尚未完成或会话已刷新，请重新确认后重试。' } : (0, workspace_1.emptyJob)();
     });
     const [toast, setToast] = (0, react_1.useState)('');
@@ -674,7 +684,7 @@ function WorkspaceApp({ appMode = 'live' }) {
     const note = notes.find(item => item.book_id === book.id) ?? null;
     const grant = grants.find(item => item.token === shareToken) ?? null;
     (0, react_1.useEffect)(() => { if (previousBookId.current === book.id)
-        return; previousBookId.current = book.id; setJob(book.status === 'READY' ? { ...(0, workspace_1.emptyJob)(), status: 'ready', progress: 100, stage: 5, run_id: book.run_id, events: [{ stage: '历史状态', message: '此书为已有的本地演示结果，不是本次实时生成。', time: timestamp() }] } : book.status === 'GENERATING' ? { ...(0, workspace_1.emptyJob)(), status: 'failed', run_id: book.run_id, error: '演示会话已切换，本次任务未继续执行。请重试以创建新的模拟运行。' } : (0, workspace_1.emptyJob)()); }, [book.id, book.status, book.run_id]);
+        return; previousBookId.current = book.id; setJob(book.server_book_id && book.run_id ? serverJobFor(book) : book.status === 'READY' ? { ...(0, workspace_1.emptyJob)(), status: 'ready', progress: 100, stage: 5, run_id: book.run_id, events: [{ stage: '历史状态', message: '此书为已有的本地演示结果，不是本次实时生成。', time: timestamp() }] } : book.status === 'GENERATING' ? { ...(0, workspace_1.emptyJob)(), status: 'failed', run_id: book.run_id, error: '演示会话已切换，本次任务未继续执行。请重试以创建新的模拟运行。' } : (0, workspace_1.emptyJob)()); }, [book.id, book.status, book.run_id]);
     const notify = (0, react_1.useCallback)((text) => setToast(text), []);
     const navigate = (0, react_1.useCallback)((next, bookId) => {
         if (bookId)
@@ -718,7 +728,7 @@ function WorkspaceApp({ appMode = 'live' }) {
         }
     };
     (0, react_1.useEffect)(() => {
-        if (job.status !== 'running')
+        if (job.status !== 'running' || job.server)
             return;
         const timer = setTimeout(() => {
             setJob(current => {
@@ -734,11 +744,66 @@ function WorkspaceApp({ appMode = 'live' }) {
     (0, react_1.useEffect)(() => { if (job.status === 'ready')
         setBooks(current => current.map(item => item.run_id === job.run_id ? { ...item, status: 'READY', safety_reviewed: true } : item)); }, [job.status, job.run_id]);
     (0, react_1.useEffect)(() => { if (job.status !== 'ready')
-        return; const completed = books.find(item => item.run_id === job.run_id); if (!completed || notes.some(item => item.book_id === completed.id))
+        return; const completed = books.find(item => item.run_id === job.run_id); if (!completed || completed.server_book_id || notes.some(item => item.book_id === completed.id))
         return; setNotes(current => [makeNote(completed), ...current]); }, [job.status, job.run_id, books, notes]);
-    function generate() {
+    const patchBook = (0, react_1.useCallback)((id, updater) => {
+        setBooks(current => current.map(item => item.id === id ? updater(item) : item));
+    }, []);
+    // 轮询后端真实任务；进度只反映服务端状态，不模拟百分比
+    (0, react_1.useEffect)(() => {
+        if (job.status !== 'running' || !job.server || !job.run_id)
+            return;
+        const runId = job.run_id;
+        let stopped = false;
+        let timer;
+        const tick = async () => {
+            try {
+                const result = (0, liveBookFlow_1.summarizeRunJobs)(await api_1.apiClient.runJobs(runId));
+                if (stopped)
+                    return;
+                if (result.phase === 'running') {
+                    timer = setTimeout(tick, 1500);
+                    return;
+                }
+                if (result.phase === 'failed') {
+                    setBooks(current => current.map(item => item.run_id === runId ? { ...item, status: 'FAILED' } : item));
+                    setJob(current => ({ ...current, status: 'failed', error: result.error, events: [...current.events, { stage: '后端任务', message: result.error, time: timestamp() }] }));
+                    return;
+                }
+                setJob(current => ({ ...current, status: 'review', stage: 5, progress: 100, events: [...current.events, { stage: '后端任务', message: '后端分析任务已成功，等待主人复核。', time: timestamp() }] }));
+            }
+            catch (e) {
+                if (!stopped)
+                    setJob(current => ({ ...current, status: 'failed', error: `读取后端任务状态失败：${e.message}` }));
+            }
+        };
+        void tick();
+        return () => { stopped = true; if (timer)
+            clearTimeout(timer); };
+    }, [job.status, job.server, job.run_id]);
+    async function generate() {
         if (!book.pages.length || book.pages.some(p => !p.confirmed) || !book.classification.owner_confirmed) {
             notify('请先完成逐页文字校对和主人类型确认。');
+            return;
+        }
+        if (appMode === 'live') {
+            if (!book.server_book_id) {
+                notify('这本书没有在后端建档，真实模式不会模拟生成。请填好令牌后重新导入，或切换到演示模式。');
+                return;
+            }
+            const target = book;
+            try {
+                const started = await (0, liveBookFlow_1.startServerAnalysis)(api_1.apiClient, target.server_book_id, target.pages.map(p => ({ ocr_text: p.ocr_text, server_page_no: p.server_page_no, server_synced_text: p.server_synced_text, getImage: () => (0, pageImage_1.pageImageBlob)(p.image_url) })), (index, patch) => {
+                    const pageId = target.pages[index].id;
+                    patchBook(target.id, current => ({ ...current, pages: current.pages.map(p => p.id === pageId ? { ...p, ...patch } : p) }));
+                });
+                patchBook(target.id, current => ({ ...current, status: 'GENERATING', safety_reviewed: false, pages_only: false, run_id: started.run_id, job_id: started.job_id }));
+                setJob({ ...(0, workspace_1.emptyJob)(), status: 'running', run_id: started.run_id, server: true, events: [{ stage: '后端任务', message: '已上传书页和校对文字，后端分析任务已创建。', time: timestamp() }] });
+                navigate('progress', target.id);
+            }
+            catch (e) {
+                notify(`发起分析失败：${e.message}`);
+            }
             return;
         }
         const runId = uid('run');
@@ -746,32 +811,50 @@ function WorkspaceApp({ appMode = 'live' }) {
         setJob({ status: 'running', stage: 0, progress: 0, error: null, run_id: runId, events: [{ stage: workspace_1.jobStages[0], message: '生成任务已启动，正在分析图书多模态资产。', time: timestamp() }] });
         navigate('progress', book.id);
     }
+    function openPagesOnly() {
+        if (!book.run_id || !book.server_book_id || book.pages.some(p => !p.confirmed)) {
+            notify('需要已校对的书页和后端运行记录，才能开启书页问答。');
+            return;
+        }
+        patchBook(book.id, current => ({ ...current, pages_only: true }));
+        navigate('reader', book.id);
+    }
     async function completeImport(input) {
         const id = uid('book');
         const pages = await Promise.all(input.pages.map(async (p) => { let imageUrl = p.url; if (!p.demo) {
             const blob = await (await fetch(p.url)).blob();
             imageUrl = URL.createObjectURL(blob);
         } return { id: p.id, name: p.name, image_url: imageUrl, ocr_text: p.demo ? (workspace_1.originalPages[Number(p.id.replace('demo-', '')) - 1] ?? '') : '', confidence: p.demo ? .86 : 0, revision: 1, confirmed: false, demo: Boolean(p.demo) }; }));
+        let classification = { predicted_type: input.type, confidence: input.type === 'unknown' ? null : .72, reasons: ['根据图书书页排版与图文特征初步分类。'], confirmed_type: null, owner_confirmed: false };
         let serverBookId = null;
-        let bookOrigin = 'mock';
-        if (appMode === 'live' && api_1.apiClient.getToken()) {
-            try {
-                const created = await api_1.apiClient.createBook({ title: input.title, authorization_ref: input.authorization_ref });
-                serverBookId = created.id;
-                bookOrigin = 'real';
-                notify(`已在服务端成功建档（ID: ${created.id.slice(0, 8)}…），可进行真实校对与笔记流转。`);
+        if (appMode === 'live') {
+            if (api_1.apiClient.getToken()) {
+                // 失败时直接抛出，不留下一本"看似已建档"的书
+                const registered = await (0, liveBookFlow_1.registerServerBook)(api_1.apiClient, { title: input.title, authorization_ref: input.authorization_ref });
+                serverBookId = registered.bookId;
+                classification = { predicted_type: (0, api_1.fromBackendBookType)(registered.classification.predicted_type), confidence: registered.classification.confidence, reasons: registered.classification.reasons, confirmed_type: null, owner_confirmed: false };
+                notify('已在后端建档并完成自动分类。下一步请校对文字并确认类型。');
             }
-            catch (e) {
-                notify(`服务端建档未完成（${e.message}），已自动切换为本地离线模式。`);
+            else {
+                notify('没有填写令牌：这本书只保存在本地，不会写入后端。');
             }
         }
-        setBooks(current => [{ id, title: input.title, subtitle: '刚刚带进来的新故事。', cover: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMjAiIGhlaWdodD0iNDIwIiB2aWV3Qm94PSIwIDAgMzIwIDQyMCIgZmlsbD0ibm9uZSI+CiAgPHJlY3Qgd2lkdGg9IjMyMCIgaGVpZ2h0PSI0MjAiIGZpbGw9IiMzMTVhNDgiLz48cmVjdCB4PSIxNyIgeT0iMTciIHdpZHRoPSIyODYiIGhlaWdodD0iMzg2IiByeD0iMSIgc3Ryb2tlPSIjYzVkMjljIiBzdHJva2Utb3BhY2l0eT0iLjUiLz4KICA8Y2lyY2xlIGN4PSIyMjAiIGN5PSIxMDUiIHI9IjM5IiBmaWxsPSIjZGNjOTg4Ii8+PHBhdGggZD0iTTAgMjc3Yzc0LTUyIDE0My0yMiAxOTktNTAgNTAtMjYgOTMtNSAxMjEgMTN2MTgwSDBaIiBmaWxsPSIjNzg5NDZiIi8+PHBhdGggZD0iTTAgMzMyYzYyLTQxIDExNC0zNyAxNjItNCA2OCA0NyAxMTAtMjkgMTU4LTQydjEzNEgwWiIgZmlsbD0iI2IxYmY4NiIvPgogIDxwYXRoIGQ9Ik01OSAzMTdWMTE4bTE5NSAyMDJWMTc2IiBzdHJva2U9IiNiMjliNmMiIHN0cm9rZS13aWR0aD0iNiIvPjxwYXRoIGQ9Im01OSA4My00MCAxMDdoODBabTEgNTlMOCAyNTZoMTA0WiIgZmlsbD0iIzE3M2QzMiIvPjxwYXRoIGQ9Im0yNTQgMTQ3LTM2IDk4aDcyWm0wIDY1LTQ4IDk2aDk2WiIgZmlsbD0iIzI0NGQzZiIvPgogIDxwYXRoIGQ9Ik0xNTUgMzUxYy0xMC0yMC0xNC00Mi02LTU4bDE0IDE0IDE3LTE2IDkgMjBjMTAgMTggOSAzMy00IDQyWiIgZmlsbD0iI2Q1OWE2YSIvPjxwYXRoIGQ9Ik0xNDcgMzE3YzExIDIgMTggOSAyMiAxOCA0LTEwIDEwLTE4IDIxLTIwLTEgMjQtMTEgMzUtMjEgMzUtMTItMi0yMC0xMy0yMi0zM1oiIGZpbGw9IiNmMGRmYmQiLz48Y2lyY2xlIGN4PSIxNTgiIGN5PSIzMTciIHI9IjIiIGZpbGw9IiMyNDRkM2YiLz48Y2lyY2xlIGN4PSIxODAiIGN5PSIzMTYiIHI9IjIiIGZpbGw9IiMyNDRkM2YiLz48cGF0aCBkPSJtMTY3IDMyNSA1IDEtMyA0WiIgZmlsbD0iIzI0NGQzZiIvPgogIDxwYXRoIGQ9Im0xMzYgMzQ1IDMzIDggMzQtMTEtMiAyNS0zMyA5LTMwLThaIiBmaWxsPSIjZWVlN2NmIi8+PHBhdGggZD0ibTEzNiAzNDUgMzMgMjMgMzQtMjYiIHN0cm9rZT0iI2I3OWM3MCIgc3Ryb2tlLXdpZHRoPSIxLjMiLz48cGF0aCBkPSJtMTY5IDM1My0xIDIzIiBzdHJva2U9IiNkM2M3YTQiLz4KICA8cGF0aCBkPSJNMTg2IDM1MGMyNyAxMiAzNi0zIDMwLTEyLTgtMTAtMTUtMy0xNSA1IiBzdHJva2U9IiNkNTlhNmEiIHN0cm9rZS13aWR0aD0iMTMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Im0xMTYgMTI2IDMgNyA4IDItOCAzLTMgNy0yLTctOC0zIDgtMlptMTE5IDU5IDIgNSA2IDEtNiAyLTIgNS0yLTUtNS0yIDUtMVoiIGZpbGw9IiNlNWQ2OWMiLz4KICA8cGF0aCBkPSJNMTMzIDc5YzEwLTUgMTgtNSAyNSAwbTUgMTNjMTAtNSAxOC01IDI1IDAiIHN0cm9rZT0iI2M1ZDI5YyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNNzEgMzcxYy0xLTE1LTktMjEtMTYtMjEgMCAxMiA1IDIwIDE2IDIxWm0zIDZjMTItNCAxOC0xMiAxNy0yMi0xMSAyLTE3IDktMTcgMjJaIiBmaWxsPSIjM2Q2NTRkIi8+Cjwvc3ZnPgo=', page_count: pages.length, status: 'REVIEW_REQUIRED', classification: { predicted_type: input.type, confidence: input.type === 'unknown' ? null : .72, reasons: ['根据图书书页排版与图文特征初步分类。'], confirmed_type: null, owner_confirmed: false }, updated_label: '刚刚', authorization_ref: input.authorization_ref, pages, age_band: '6–9 岁（待人工审核）', run_id: null, job_id: null, video_url: null, origin: bookOrigin, server_book_id: serverBookId, safety_reviewed: false }, ...current]);
+        setBooks(current => [{ id, title: input.title, subtitle: '刚刚带进来的新故事。', cover: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMjAiIGhlaWdodD0iNDIwIiB2aWV3Qm94PSIwIDAgMzIwIDQyMCIgZmlsbD0ibm9uZSI+CiAgPHJlY3Qgd2lkdGg9IjMyMCIgaGVpZ2h0PSI0MjAiIGZpbGw9IiMzMTVhNDgiLz48cmVjdCB4PSIxNyIgeT0iMTciIHdpZHRoPSIyODYiIGhlaWdodD0iMzg2IiByeD0iMSIgc3Ryb2tlPSIjYzVkMjljIiBzdHJva2Utb3BhY2l0eT0iLjUiLz4KICA8Y2lyY2xlIGN4PSIyMjAiIGN5PSIxMDUiIHI9IjM5IiBmaWxsPSIjZGNjOTg4Ii8+PHBhdGggZD0iTTAgMjc3Yzc0LTUyIDE0My0yMiAxOTktNTAgNTAtMjYgOTMtNSAxMjEgMTN2MTgwSDBaIiBmaWxsPSIjNzg5NDZiIi8+PHBhdGggZD0iTTAgMzMyYzYyLTQxIDExNC0zNyAxNjItNCA2OCA0NyAxMTAtMjkgMTU4LTQydjEzNEgwWiIgZmlsbD0iI2IxYmY4NiIvPgogIDxwYXRoIGQ9Ik01OSAzMTdWMTE4bTE5NSAyMDJWMTc2IiBzdHJva2U9IiNiMjliNmMiIHN0cm9rZS13aWR0aD0iNiIvPjxwYXRoIGQ9Im01OSA4My00MCAxMDdoODBabTEgNTlMOCAyNTZoMTA0WiIgZmlsbD0iIzE3M2QzMiIvPjxwYXRoIGQ9Im0yNTQgMTQ3LTM2IDk4aDcyWm0wIDY1LTQ4IDk2aDk2WiIgZmlsbD0iIzI0NGQzZiIvPgogIDxwYXRoIGQ9Ik0xNTUgMzUxYy0xMC0yMC0xNC00Mi02LTU4bDE0IDE0IDE3LTE2IDkgMjBjMTAgMTggOSAzMy00IDQyWiIgZmlsbD0iI2Q1OWE2YSIvPjxwYXRoIGQ9Ik0xNDcgMzE3YzExIDIgMTggOSAyMiAxOCA0LTEwIDEwLTE4IDIxLTIwLTEgMjQtMTEgMzUtMjEgMzUtMTItMi0yMC0xMy0yMi0zM1oiIGZpbGw9IiNmMGRmYmQiLz48Y2lyY2xlIGN4PSIxNTgiIGN5PSIzMTciIHI9IjIiIGZpbGw9IiMyNDRkM2YiLz48Y2lyY2xlIGN4PSIxODAiIGN5PSIzMTYiIHI9IjIiIGZpbGw9IiMyNDRkM2YiLz48cGF0aCBkPSJtMTY3IDMyNSA1IDEtMyA0WiIgZmlsbD0iIzI0NGQzZiIvPgogIDxwYXRoIGQ9Im0xMzYgMzQ1IDMzIDggMzQtMTEtMiAyNS0zMyA5LTMwLThaIiBmaWxsPSIjZWVlN2NmIi8+PHBhdGggZD0ibTEzNiAzNDUgMzMgMjMgMzQtMjYiIHN0cm9rZT0iI2I3OWM3MCIgc3Ryb2tlLXdpZHRoPSIxLjMiLz48cGF0aCBkPSJtMTY5IDM1My0xIDIzIiBzdHJva2U9IiNkM2M3YTQiLz4KICA8cGF0aCBkPSJNMTg2IDM1MGMyNyAxMiAzNi0zIDMwLTEyLTgtMTAtMTUtMy0xNSA1IiBzdHJva2U9IiNkNTlhNmEiIHN0cm9rZS13aWR0aD0iMTMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxwYXRoIGQ9Im0xMTYgMTI2IDMgNyA4IDItOCAzLTMgNy0yLTctOC0zIDgtMlptMTE5IDU5IDIgNSA2IDEtNiAyLTIgNS0yLTUtNS0yIDUtMVoiIGZpbGw9IiNlNWQ2OWMiLz4KICA8cGF0aCBkPSJNMTMzIDc5YzEwLTUgMTgtNSAyNSAwbTUgMTNjMTAtNSAxOC01IDI1IDAiIHN0cm9rZT0iI2M1ZDI5YyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNNzEgMzcxYy0xLTE1LTktMjEtMTYtMjEgMCAxMiA1IDIwIDE2IDIxWm0zIDZjMTItNCAxOC0xMiAxNy0yMi0xMSAyLTE3IDktMTcgMjJaIiBmaWxsPSIjM2Q2NTRkIi8+Cjwvc3ZnPgo=', page_count: pages.length, status: 'REVIEW_REQUIRED', classification, updated_label: '刚刚', authorization_ref: input.authorization_ref, pages, age_band: '6–9 岁（待人工审核）', run_id: null, job_id: null, video_url: null, origin: serverBookId ? 'real' : 'mock', server_book_id: serverBookId, safety_reviewed: false }, ...current]);
         navigate('review', id);
     }
-    function saveNote(patch) {
+    async function saveNote(patch) {
         if (!patch.title.trim() || !patch.summary.trim()) {
             notify('笔记标题和摘要不能为空。');
             return;
+        }
+        if (note?.server_id) {
+            try {
+                await api_1.apiClient.updateNote(note.server_id, (0, noteSync_1.noteToServerContent)({ ...note, ...patch, title: patch.title.trim(), summary: patch.summary.trim() }));
+            }
+            catch (e) {
+                notify(`服务端保存笔记失败: ${e.message}。修改未保存。`);
+                return;
+            }
         }
         setNotes(current => current.map(item => item.id === note?.id ? { ...item, ...patch, title: patch.title.trim(), summary: patch.summary.trim(), review_status: 'draft', visibility: 'private', reviewed_revision: null, revision: item.revision + 1, updated_at: timestamp() } : item));
         setGrants(current => current.map(item => item.note_id === note?.id && item.status === 'active' ? { ...item, status: 'revoked' } : item));
@@ -793,6 +876,9 @@ function WorkspaceApp({ appMode = 'live' }) {
                 return;
             }
             try {
+                // A 要求有摘要和来源才能解除占位，审核前先把当前内容写上去
+                if (decision === 'approve')
+                    await api_1.apiClient.updateNote(note.server_id, (0, noteSync_1.noteToServerContent)(note));
                 const out = await (0, noteSync_1.reviewOnServer)(api_1.apiClient, note.server_id, decision === 'approve' ? 'approve' : 'revise');
                 nextStatus = out.local === 'approved' ? 'approved' : 'rejected';
             }
@@ -880,13 +966,33 @@ function WorkspaceApp({ appMode = 'live' }) {
         catch { /* 页面仍可打开 */ }
         navigate('review', book.id);
     } }
-    function generateNote() { if (book.status !== 'READY') {
-        notify('请先完成生成阶段和内容复核。');
-        return;
-    } if (note) {
+    async function generateNote() {
+        if (book.server_book_id) {
+            if (note) {
+                navigate('notes');
+                return;
+            }
+            try {
+                const created = await api_1.apiClient.generateNoteDraft(book.server_book_id);
+                setNotes(current => [{ ...makeNote(book), server_id: created.id }, ...current]);
+                navigate('notes');
+            }
+            catch (e) {
+                notify(`服务端未能生成笔记：${e.message}`);
+            }
+            return;
+        }
+        if (book.status !== 'READY') {
+            notify('请先完成生成阶段和内容复核。');
+            return;
+        }
+        if (note) {
+            navigate('notes');
+            return;
+        }
+        setNotes(current => [makeNote(book), ...current]);
         navigate('notes');
-        return;
-    } setNotes(current => [makeNote(book), ...current]); navigate('notes'); }
+    }
     // 取当前 run 的时间轴(A)；带缓存与错误提示防抖，失败不阻断问答，但会用于触控字幕依据与检索时间窗口
     async function loadSegments(runId) {
         const cached = segmentsCacheRef.current.get(runId);
@@ -894,7 +1000,9 @@ function WorkspaceApp({ appMode = 'live' }) {
             return cached;
         try {
             const segs = await api_1.apiClient.getRunSegments(runId);
-            segmentsCacheRef.current.set(runId, segs);
+            // 空结果不缓存：B 之后登记时间轴时要能读到
+            if (segs.length)
+                segmentsCacheRef.current.set(runId, segs);
             return segs;
         }
         catch (e) {
@@ -908,6 +1016,8 @@ function WorkspaceApp({ appMode = 'live' }) {
     // 智能伴读提问：Live 严格按"当前这本书"的校对文字检索；无依据如实拒答；不使用任何内置故事。
     async function question(text, videoMs, inputMethod = 'keyboard') {
         if (appMode === 'live') {
+            if (!book.server_book_id)
+                throw new Error('这本书是本地数据，没有在后端建档，真实模式下不能提问或留痕。请切换到演示模式，或填好令牌后重新导入。');
             if (!book.run_id)
                 throw new Error('这本书还没有生成运行任务(run_id)，暂时无法提问留痕。请先完成校对与生成。');
             const segments = await loadSegments(book.run_id);
@@ -952,6 +1062,8 @@ function WorkspaceApp({ appMode = 'live' }) {
         if (x < 0 || x > 1 || y < 0 || y > 1 || box.width <= 0 || box.height <= 0)
             throw new Error('点击位于画面内容之外。');
         if (appMode === 'live') {
+            if (!book.server_book_id)
+                throw new Error('这本书是本地数据，没有在后端建档，真实模式下不能提问或留痕。请切换到演示模式，或填好令牌后重新导入。');
             if (!book.run_id)
                 throw new Error('这本书还没有生成运行任务(run_id)，暂时无法触控留痕。请先完成校对与生成。');
             if (!detail)
@@ -988,7 +1100,7 @@ function WorkspaceApp({ appMode = 'live' }) {
         return { id: uid('touch'), book_id: book.id, run_id: book.run_id ?? 'unstarted', kind: 'touch', question: `画面位置 (${x.toFixed(2)}, ${y.toFixed(2)})`, transcript: '', answer: excerpt ? `[演示模式] 已记录点击位置。当前展示第 ${pageNo} 页文字：“${excerpt.slice(0, 180)}” 仅为示例逻辑。` : '[演示模式] 已记录点击位置；当前页缺少文字依据。', video_ms: videoMs, sources: excerpt ? [{ source: 'original_page', page_no: pageNo, start_ms: null, end_ms: null, quote: excerpt }] : [], latency_ms: null, created_at: timestamp(), uncertain: true, origin: 'mock', cached: false };
     }
     const context = { book, state, setState, navigate, notify, appMode };
-    const workflow = { ...context, updateBook, job, setJob, onGenerate: generate };
+    const workflow = { ...context, updateBook, job, setJob, onGenerate: () => { void generate(); }, onOpenPagesOnly: openPagesOnly };
     const missingPages = book.pages.length === 0 && page !== 'home' && page !== 'import' && page !== 'settings' && page !== 'shared';
     return (React.createElement(WorkspaceShell_1.default, { page: page, state: state, setState: setState, navigate: navigate },
         page !== 'home' && page !== 'import' && page !== 'settings' && page !== 'shared' && (React.createElement("div", { className: "book-context-bar" },
@@ -1004,7 +1116,7 @@ function WorkspaceApp({ appMode = 'live' }) {
                 React.createElement("p", null, "\u7528\u6237\u9009\u62E9\u7684\u56FE\u7247\u53EA\u4FDD\u7559\u5728\u5185\u5B58\uFF0C\u5237\u65B0\u540E\u9700\u8981\u91CD\u65B0\u5BFC\u5165\u3002\u56FE\u4E66\u540D\u548C\u7B14\u8BB0\u4ECD\u4FDD\u7559\u5728\u5F53\u524D\u4F1A\u8BDD\u3002"),
                 React.createElement("button", { className: "button button-primary", onClick: () => navigate('import') }, "\u91CD\u65B0\u5BFC\u5165\u4E66\u9875"))) : React.createElement(React.Fragment, null,
             page === 'home' && React.createElement(HomePage_1.default, { books: books, notes: notes, state: state, setState: setState, onImport: () => navigate('import'), onBook: item => navigate(item.status === 'READY' ? 'reader' : 'review', item.id), onNote: id => { const target = notes.find(n => n.id === id); navigate('notes', target?.book_id); } }),
-            page === 'import' && React.createElement(ImportBookPage_1.default, { state: state, setState: setState, onHome: () => navigate('home'), onComplete: input => { void completeImport(input).catch(() => notify('图片转移到校对页失败，请重新导入。')); } }),
+            page === 'import' && React.createElement(ImportBookPage_1.default, { state: state, setState: setState, serverSync: appMode === 'live' && Boolean(api_1.apiClient.getToken()), onHome: () => navigate('home'), onComplete: input => { void completeImport(input).catch((e) => notify(`导入未完成：${e.message}`)); } }),
             page === 'review' && React.createElement(ReviewPages_1.ReviewPage, { ...workflow }),
             page === 'classification' && React.createElement(ReviewPages_1.ClassificationPage, { ...workflow }),
             page === 'progress' && React.createElement(ProgressPage_1.default, { ...workflow }),
@@ -1710,6 +1822,42 @@ async function validatePage(file) {
     }
     finally {
         URL.revokeObjectURL(url);
+    }
+}
+
+},
+"features/books/pageImage": function(require,module,exports){
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.pageImageBlob = pageImageBlob;
+/**
+ * 取书页图片字节用于上传。A 只接受 PNG/JPEG，原创示例页是 SVG，需要先在浏览器里栅格化成 PNG。
+ */
+async function pageImageBlob(url) {
+    const blob = await (await fetch(url)).blob();
+    if (blob.type === 'image/png' || blob.type === 'image/jpeg')
+        return blob;
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+        const image = new Image();
+        await new Promise((resolve, reject) => {
+            image.onload = () => resolve();
+            image.onerror = () => reject(new Error('书页图片无法解码，不能上传。'));
+            image.src = objectUrl;
+        });
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth || 1200;
+        canvas.height = image.naturalHeight || 1600;
+        const context = canvas.getContext('2d');
+        if (!context)
+            throw new Error('浏览器无法转换书页图片。');
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        return await new Promise((resolve, reject) => {
+            canvas.toBlob((png) => (png ? resolve(png) : reject(new Error('书页图片转换失败。'))), 'image/png');
+        });
+    }
+    finally {
+        URL.revokeObjectURL(objectUrl);
     }
 }
 
@@ -2990,7 +3138,7 @@ exports.DEMO_BOOK_SLICES = [
     },
 ];
 /** 提问里不承载检索信息的功能字（语气词/疑问词/助词），去掉后再切二元组 */
-const STOP_CHARS = new Set('的了吗呢吧啊呀么什为是在有和与或这那它他她你我个一里都也就还会能可以请问谁哪几怎样从到把被让给对跟向地得着过？?，,。.！!、；;：:"“”‘’（）() '.split(''));
+const STOP_CHARS = new Set('的了吗呢吧啊呀么什为是在有和与或这那它他她你我个一里都也就还会能可以请问谁哪几怎样从把被让给对跟向地得着过？?，,。.！!、；;：:"“”‘’（）() '.split(''));
 /** 时序意图词（与具体故事无关）：结局 → 最后一页；开头 → 第一页 */
 const ENDING_WORDS = ['最后', '结局', '最终', '结尾', '后来怎么样'];
 const BEGINNING_WORDS = ['一开始', '开头', '最初', '起初', '故事开始'];
@@ -3039,6 +3187,15 @@ class TimeSliceIndexer {
     }
     size() {
         return this.slices.length;
+    }
+    /** 索引内容指纹：书页文字或时间轴一变就变，供答案缓存判断是否失效 */
+    fingerprint() {
+        let h = 2166136261;
+        for (const ch of JSON.stringify(this.slices)) {
+            h ^= ch.charCodeAt(0);
+            h = Math.imul(h, 16777619);
+        }
+        return `${this.slices.length}:${(h >>> 0).toString(16)}`;
     }
     findSliceByVideoMs(videoMs) {
         return this.slices.find((s) => s.video_start_ms >= 0 && videoMs >= s.video_start_ms && videoMs < s.video_end_ms);
@@ -3227,21 +3384,29 @@ exports.pictureBookRagEngine = exports.PictureBookRagEngine = void 0;
  * - 通用儿童安全提示基于提问本身的危险动作词，与具体故事无关；
  * - 耗时只记录真实测得值，未测量的阶段一律 null。
  */
-const SAFETY_PATTERNS = /(跳下|跳崖|从.*跳|玩火|点火|刀|剪刀.*(玩|戳)|触电|吃.*不明|一个人.*(出去|跑远)|喝.*药)/;
+const SAFETY_PATTERNS = /(跳下|跳崖|从.*跳|玩火|点火|(玩|拿).*刀|剪刀.*(玩|戳)|触电|吃.*不明|一个人.*(出去|跑远)|喝.*药)/;
 const SAFETY_NOTE = '这样做很危险，请不要模仿，遇到这类情况要先告诉大人。';
 function clip(text, max = 80) {
     const t = text.trim();
     return t.length > max ? t.slice(0, max) + '…' : t;
 }
+const MAX_CACHE = 200;
 class PictureBookRagEngine {
     cache = new Map();
     clearCache() {
         this.cache.clear();
     }
+    remember(key, item) {
+        if (this.cache.size >= MAX_CACHE)
+            this.cache.delete(this.cache.keys().next().value);
+        this.cache.set(key, item);
+    }
     async generateAnswer(req, indexer) {
         const t0 = performance.now();
         const query = (req.query_text || '').trim();
-        const cacheKey = `${req.run_id}:${query.toLowerCase()}`;
+        // 答案取决于：哪本书、哪次运行、索引内容、当前播放落在哪一页（时序加权）、问题本身
+        const inPage = indexer.findSliceByVideoMs(req.video_ms)?.page_no ?? 0;
+        const cacheKey = [req.book_id, req.run_id, indexer.fingerprint(), inPage, query.toLowerCase()].join('|');
         if (this.cache.has(cacheKey)) {
             const cached = this.cache.get(cacheKey);
             return {
@@ -3250,7 +3415,7 @@ class PictureBookRagEngine {
                 answer: cached.answer,
                 status: cached.status,
                 confidence: cached.confidence,
-                evidence: cached.evidence,
+                evidence: cached.evidence.map((e) => ({ ...e })),
                 audio_url: null,
                 cache_hit: true,
                 latency: {
@@ -3282,10 +3447,12 @@ class PictureBookRagEngine {
             total_roundtrip_ms: Math.round(performance.now() - t0),
         });
         if (evidence.length === 0) {
-            const noAnswer = indexer.size() === 0
+            const base_text = indexer.size() === 0
                 ? '当前这本书还没有经过校对的文字内容，无法回答。请先完成逐页文字校对。'
                 : '原书这段内容里没有找到相关依据，请结合书页观察，或换个问法。';
-            this.cache.set(cacheKey, { answer: noAnswer, status: 'no_evidence', confidence: 0, evidence: [] });
+            // 安全提示不依赖证据：危险提问找不到依据时更需要提醒
+            const noAnswer = SAFETY_PATTERNS.test(query) ? `${SAFETY_NOTE} ${base_text}` : base_text;
+            this.remember(cacheKey, { answer: noAnswer, status: 'no_evidence', confidence: 0, evidence: [] });
             return {
                 ...base,
                 answer: noAnswer,
@@ -3299,7 +3466,7 @@ class PictureBookRagEngine {
         const quote = top.source_quote || top.snippet;
         const safety = SAFETY_PATTERNS.test(query) ? SAFETY_NOTE : '';
         const answer = `${safety}${safety ? ' ' : ''}原书第 ${top.page_no} 页写道：“${clip(quote)}”`;
-        this.cache.set(cacheKey, { answer, status: 'success', confidence: top.confidence, evidence });
+        this.remember(cacheKey, { answer, status: 'success', confidence: top.confidence, evidence: evidence.map((e) => ({ ...e })) });
         return {
             ...base,
             answer,
@@ -3565,6 +3732,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.apiClient = exports.ApiClient = exports.PRODUCER = void 0;
 exports.buildInteractionPayload = buildInteractionPayload;
 exports.toBackendBookType = toBackendBookType;
+exports.fromBackendBookType = fromBackendBookType;
 const client_1 = require("../api/client");
 const TimeSliceIndexer_1 = require("../features/interaction/indexing/TimeSliceIndexer");
 const PictureBookRagEngine_1 = require("../features/interaction/qa/PictureBookRagEngine");
@@ -3613,6 +3781,16 @@ function toBackendBookType(type) {
         default: throw new Error('请选择一个有效的图书类型后再确认');
     }
 }
+/** A 的预测类型 → 前端 UI 类型（textbook/science 归 nonfiction；other 让主人自己选） */
+function fromBackendBookType(type) {
+    switch (type) {
+        case 'picture_book': return 'picture_book';
+        case 'novel': return 'fiction';
+        case 'textbook':
+        case 'science': return 'nonfiction';
+        default: return 'unknown';
+    }
+}
 function nowMs() {
     return performance.now();
 }
@@ -3623,9 +3801,9 @@ class ApiClient {
     fetchImpl;
     constructor(deps = {}) {
         this.token = this.loadToken();
-        this.modelServiceUrl = deps.modelServiceUrl ?? (import.meta.env.VITE_MODEL_SERVICE_URL || undefined);
+        this.modelServiceUrl = deps.modelServiceUrl ?? (({VITE_DEFAULT_MODE:'demo'}).VITE_MODEL_SERVICE_URL || undefined);
         this.fetchImpl = deps.fetchImpl ?? ((...a) => globalThis.fetch(...a));
-        const origin = import.meta.env.VITE_API_ORIGIN ||
+        const origin = ({VITE_DEFAULT_MODE:'demo'}).VITE_API_ORIGIN ||
             (typeof location !== 'undefined' && location.origin.startsWith('http') ? location.origin : 'http://127.0.0.1:8000');
         this.client = deps.client ?? (0, client_1.createApiClient)(origin, { getToken: () => this.token });
     }
@@ -3840,6 +4018,21 @@ class ApiClient {
     async createBook(input) {
         return this.client.createBook(input);
     }
+    async classifyBook(bookId) {
+        return this.client.classifyBook(bookId);
+    }
+    async uploadPage(bookId, file, pageNo) {
+        return this.client.uploadPage(bookId, file, pageNo);
+    }
+    async updatePageOcr(bookId, pageNo, text) {
+        return this.client.updatePage(bookId, pageNo, { ocr: { text } });
+    }
+    async analyzeBook(bookId) {
+        return this.client.analyzeBook(bookId);
+    }
+    async runJobs(runId) {
+        return this.client.runJobs(runId);
+    }
     // ==================== 4. 对接 A: 分类确认 ====================
     async confirmCategory(bookId, confirmedType) {
         return (await this.client.confirmClassification(bookId, toBackendBookType(confirmedType)));
@@ -3876,6 +4069,67 @@ exports.ApiClient = ApiClient;
 exports.apiClient = new ApiClient();
 
 },
+"lib/liveBookFlow": function(require,module,exports){
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.registerServerBook = registerServerBook;
+exports.startServerAnalysis = startServerAnalysis;
+exports.summarizeRunJobs = summarizeRunJobs;
+/** 建档并立即自动分类：A 要求先分类才能确认（否则确认分类返回 409） */
+async function registerServerBook(api, input) {
+    const book = await api.createBook(input);
+    try {
+        const classification = await api.classifyBook(book.id);
+        return { bookId: book.id, classification };
+    }
+    catch (e) {
+        throw new Error(`图书已建档（${book.id}），但自动分类失败：${e?.message ?? e}`);
+    }
+}
+/**
+ * 把最终页序的书页和校对文字同步到服务端并发起分析。
+ * 可重入：失败后重试只补未同步的部分；每同步一页就通过 onSynced 记录，半途失败也不丢进度。
+ */
+async function startServerAnalysis(api, bookId, pages, onSynced) {
+    if (pages.length === 0)
+        throw new Error('这本书还没有书页，无法发起分析。');
+    pages.forEach((page, index) => {
+        if (page.server_page_no && page.server_page_no !== index + 1) {
+            throw new Error('书页上传后不能再调整顺序（服务端页码不可变），请恢复原顺序或重新导入。');
+        }
+    });
+    for (let index = 0; index < pages.length; index += 1) {
+        const page = pages[index];
+        const pageNo = index + 1;
+        let synced = page.server_synced_text ?? null;
+        if (!page.server_page_no) {
+            await api.uploadPage(bookId, await page.getImage(), pageNo);
+            onSynced(index, { server_page_no: pageNo, server_synced_text: synced });
+        }
+        if (synced !== page.ocr_text) {
+            await api.updatePageOcr(bookId, pageNo, page.ocr_text);
+            synced = page.ocr_text;
+            onSynced(index, { server_page_no: pageNo, server_synced_text: synced });
+        }
+    }
+    const job = await api.analyzeBook(bookId);
+    if (!job?.run_id || !job?.job_id)
+        throw new Error('服务端没有返回运行标识，无法跟踪分析任务。');
+    return { job_id: job.job_id, run_id: job.run_id };
+}
+/** 把后端任务列表归纳为阶段：任一失败即失败；全部成功才算成功；空列表不算成功 */
+function summarizeRunJobs(jobs) {
+    const failed = jobs.find((j) => j.status === 'FAILED');
+    if (failed) {
+        const code = failed.error_code ?? 'UNKNOWN_ERROR';
+        return { phase: 'failed', error: `${code}：${failed.error_message ?? '任务失败，后端未给出原因'}` };
+    }
+    if (jobs.length > 0 && jobs.every((j) => j.status === 'SUCCEEDED'))
+        return { phase: 'succeeded' };
+    return { phase: 'running' };
+}
+
+},
 "lib/noteSync": function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
@@ -3883,6 +4137,7 @@ exports.serverStatusToLocal = serverStatusToLocal;
 exports.reviewOnServer = reviewOnServer;
 exports.createShareOnServer = createShareOnServer;
 exports.revokeShareOnServer = revokeShareOnServer;
+exports.noteToServerContent = noteToServerContent;
 function serverStatusToLocal(status) {
     switch (status) {
         case 'REVIEWING':
@@ -3924,6 +4179,18 @@ async function createShareOnServer(api, serverNoteId, input) {
 /** 撤销：服务端成功才返回；失败抛错，调用方保持"仍有效"并如实告知 */
 async function revokeShareOnServer(api, serverNoteId, shareId) {
     await api.revokeNoteShare(serverNoteId, shareId);
+}
+/**
+ * 本地笔记 → A 的 content。A 只有在 summary 非空且 sources 非空时才解除占位，
+ * 占位笔记不允许审核通过；is_placeholder 由服务端决定，这里不发送。
+ */
+function noteToServerContent(note) {
+    return {
+        title: note.title,
+        summary: note.summary,
+        concepts: note.concepts,
+        sources: note.sources.map((s) => ({ page_no: s.page_no, quote: s.quote, start_ms: s.start_ms, end_ms: s.end_ms })),
+    };
 }
 
 },
@@ -4221,7 +4488,7 @@ exports.default = ImportBookPage;
 const react_1 = require("react");
 const ui_1 = require("../components/ui");
 const import_1 = require("../features/books/import");
-function ImportBookPage({ state, setState, onHome, onComplete }) {
+function ImportBookPage({ state, setState, onHome, onComplete, serverSync = false }) {
     const [pages, setPages] = (0, react_1.useState)([]);
     const [title, setTitle] = (0, react_1.useState)('');
     const [authorizationRef, setAuthorizationRef] = (0, react_1.useState)('');
@@ -4347,7 +4614,7 @@ function ImportBookPage({ state, setState, onHome, onComplete }) {
                     React.createElement("div", { className: "card-title" },
                         React.createElement("span", { className: "section-number" }, "1"),
                         React.createElement("h2", null, "\u7ED9\u8FD9\u672C\u4E66\u4E00\u4E2A\u540D\u5B57"),
-                        React.createElement(ui_1.Badge, null, "\u4EC5\u672C\u5730\u9884\u89C8")),
+                        React.createElement(ui_1.Badge, null, serverSync ? '将同步到后端' : '仅本地预览')),
                     React.createElement("div", { className: "form-grid" },
                         React.createElement("label", { className: "field" },
                             "\u56FE\u4E66\u540D\u79F0 ",
@@ -4473,13 +4740,16 @@ function ImportBookPage({ state, setState, onHome, onComplete }) {
                             "\u7EE7\u7EED\u6821\u5BF9\u4E66\u9875",
                             React.createElement(ui_1.Icon, { name: "arrow", size: 17 })),
                         React.createElement(ui_1.Button, { type: "button", variant: "secondary", onClick: () => setDone(false) }, "\u8FD4\u56DE\u4FEE\u6539")),
-                    React.createElement("p", { className: "local-only" },
+                    React.createElement("p", { className: "local-only" }, serverSync ? React.createElement(React.Fragment, null,
+                        "\u70B9\u201C\u7EE7\u7EED\u6821\u5BF9\u4E66\u9875\u201D\u65F6\uFF0C\u4E66\u540D\u548C\u6388\u6743\u6807\u8BC6\u4F1A\u53D1\u9001\u5230\u540E\u7AEF\u5EFA\u6863\u3002",
+                        React.createElement("br", null),
+                        "\u4E66\u9875\u56FE\u7247\u548C\u6821\u5BF9\u6587\u5B57\u5728\u4F60\u70B9\u201C\u5F00\u59CB\u5206\u6790\u4E0E\u751F\u6210\u201D\u65F6\u4E0A\u4F20\u3002") : React.createElement(React.Fragment, null,
                         "\u6587\u4EF6\u4EC5\u5728\u672C\u673A\u5185\u5B58\u9884\u89C8\uFF0C\u5237\u65B0\u540E\u6E05\u7A7A\u3002",
                         React.createElement("br", null),
-                        "\u6B64\u7248\u672C\u4E0D\u4F1A\u4E0A\u4F20\u6216\u8C03\u7528\u8BC6\u522B\u670D\u52A1\u3002")))),
+                        "\u6B64\u7248\u672C\u4E0D\u4F1A\u4E0A\u4F20\u6216\u8C03\u7528\u8BC6\u522B\u670D\u52A1\u3002"))))),
         React.createElement("div", { className: "home-footnote" },
             React.createElement(ui_1.Icon, { name: "info", size: 15 }),
-            React.createElement("span", null, "\u672C\u5730\u6F14\u793A\uFF1A\u56FE\u7247\u53EA\u5728\u5185\u5B58\u9884\u89C8\uFF1B\u4E0B\u4E00\u6B65\u53EF\u6821\u5BF9\u6587\u5B57\u548C\u786E\u8BA4\u5206\u7C7B\uFF0C\u6A21\u578B\u670D\u52A1\u5C1A\u672A\u63A5\u5165\u3002")));
+            React.createElement("span", null, serverSync ? '真实模式：图书会在后端建档；模型服务尚未接入，分析会如实返回失败。' : '本地演示：图片只在内存预览；下一步可校对文字和确认分类，模型服务尚未接入。')));
 }
 
 },
@@ -4745,7 +5015,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                     "\u67E5\u770B\u751F\u6210\u8FDB\u5EA6",
                     React.createElement(ui_1.Icon, { name: "arrow", size: 17 }))) : null)));
     }
-    if (book.status !== 'READY' || !book.safety_reviewed) {
+    if ((book.status !== 'READY' || !book.safety_reviewed) && !book.pages_only) {
         return (React.createElement("div", { className: "page-content reader-page" },
             React.createElement("section", { className: "reader-state" },
                 React.createElement(ui_1.Icon, { name: "lock", size: 32 }),
@@ -4771,6 +5041,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                 React.createElement(ui_1.Button, { variant: "secondary", onClick: () => navigate('history') },
                     "\u4F1A\u8BDD\u5386\u53F2",
                     React.createElement(ui_1.Icon, { name: "clock", size: 17 })))),
+        book.pages_only && (React.createElement("div", { className: "wf-warning", role: "status", style: { margin: '0 0 12px' } }, "\u5206\u6790\u4E0E\u89C6\u9891\u5C1A\u672A\u5B8C\u6210\uFF0C\u5F53\u524D\u53EA\u57FA\u4E8E\u4F60\u6821\u5BF9\u8FC7\u7684\u4E66\u9875\u6587\u5B57\u56DE\u7B54\uFF0C\u5185\u5BB9\u672A\u7ECF\u590D\u6838\uFF0C\u4E5F\u6CA1\u6709\u89C6\u9891\u3002")),
         React.createElement("div", { className: "reader-layout" },
             React.createElement("section", { className: "reader-workspace" },
                 React.createElement("div", { className: "reader-stage-heading" },
@@ -5133,7 +5404,7 @@ const stages = [
     { title: '笔记草稿', subtitle: '整理摘要、人物与概念', icon: 'note' },
     { title: '主人复核', subtitle: '检查内容与适龄提示', icon: 'check' },
 ];
-function ProgressPage({ book, job, state, setState, setJob, updateBook, onGenerate, navigate, notify }) {
+function ProgressPage({ book, job, state, setState, setJob, updateBook, onGenerate, onOpenPagesOnly, navigate, notify }) {
     const running = job.status === 'running';
     const failed = job.status === 'failed';
     const ready = job.status === 'ready';
@@ -5190,7 +5461,10 @@ function ProgressPage({ book, job, state, setState, setJob, updateBook, onGenera
                     React.createElement("p", null, job.error ?? '未知错误，请保留本次运行记录后重试。'),
                     React.createElement(ui_1.Button, { variant: "secondary", onClick: onGenerate },
                         "\u91CD\u8BD5\u672C\u6B21\u751F\u6210",
-                        React.createElement(ui_1.Icon, { name: "arrow", size: 16 })))),
+                        React.createElement(ui_1.Icon, { name: "arrow", size: 16 })),
+                    job.server && onOpenPagesOnly && React.createElement(ui_1.Button, { variant: "ghost", onClick: onOpenPagesOnly },
+                        "\u5148\u7528\u6821\u5BF9\u6587\u5B57\u505A\u4E66\u9875\u95EE\u7B54",
+                        React.createElement(ui_1.Icon, { name: "book", size: 16 })))),
             React.createElement("div", { className: "progress-layout" },
                 React.createElement("section", { className: "wf-card progress-stages" },
                     React.createElement("div", { className: "wf-card-heading" },
@@ -5343,6 +5617,7 @@ function ReviewPage({ book, state, setState, updateBook, navigate, notify }) {
             ...current,
             status: 'REVIEW_REQUIRED',
             safety_reviewed: false,
+            pages_only: false,
             classification: current.pages.some(page => page.id === selected.id && page.ocr_text !== text) ? { ...current.classification, owner_confirmed: false } : current.classification,
             pages: current.pages.map(page => page.id === selected.id ? { ...page, ocr_text: text, revision: page.revision + (page.ocr_text === text ? 0 : 1), confirmed: confirm } : page),
         }));

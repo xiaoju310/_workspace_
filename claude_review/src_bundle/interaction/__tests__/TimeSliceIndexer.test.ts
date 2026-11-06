@@ -45,4 +45,21 @@ describe('TimeSliceIndexer（抽取式检索，无故事专用词表）', () => 
   it('切词会丢弃功能字', () => {
     expect(contentBigrams('为什么吗')).toEqual([]);
   });
+
+  it('"捡到"不能被切坏：原文明写的内容要能答出来', () => {
+    const book = new TimeSliceIndexer(buildSlicesFromBook([
+      { ocr_text: '清晨，小狐狸在树下捡到一封信。' },
+      { ocr_text: '小狐狸带着信走进森林。' },
+      { ocr_text: '邮局里，小狐狸写下回信。' },
+    ]));
+    expect(book.searchEvidence('小狐狸捡到了什么信', 0)[0]?.page_no).toBe(1);
+  });
+
+  it('指纹随内容变化，相同内容不变', () => {
+    const a = new TimeSliceIndexer(buildSlicesFromBook([{ ocr_text: '甲' }]));
+    const b = new TimeSliceIndexer(buildSlicesFromBook([{ ocr_text: '甲' }]));
+    const c = new TimeSliceIndexer(buildSlicesFromBook([{ ocr_text: '乙' }]));
+    expect(a.fingerprint()).toBe(b.fingerprint());
+    expect(a.fingerprint()).not.toBe(c.fingerprint());
+  });
 });

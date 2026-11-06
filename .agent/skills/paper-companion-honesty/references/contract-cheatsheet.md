@@ -14,13 +14,13 @@
 `GET /api/runs/{run_id}/interactions`：读取失败必须报错，空数组只代表确实没有。
 
 ## 分类
-`PATCH /api/books/{id}/classification` body `{confirmed_type}`；枚举 **picture_book|novel|textbook|science|other**。
+必须先 `POST /api/books/{id}/classify`，否则确认返回 409。`PATCH /api/books/{id}/classification` body `{confirmed_type}`；枚举 **picture_book|novel|textbook|science|other**。
 前端 UI 类型是 picture_book|fiction|nonfiction|unknown → 必须经 `toBackendBookType()` 映射（fiction→novel，nonfiction→other，unknown 拒绝）。
 
 ## 笔记与分享（服务端为准）
 状态机：`DRAFT → REVIEWING → PRIVATE(approve) → SHARED → REVOKED`
 - `POST /api/books/{id}/notes/generate` 需该书已完成真实分析（目前无真实 provider）；
-- `POST /api/notes/{id}/review` action=`approve|revise`；缺来源引用不允许 approve；
+- `POST /api/notes/{id}/review` action=`approve|revise`；缺来源引用不允许 approve；`revise` 后状态是 `REVIEWING`；已审核（PRIVATE/SHARED）的笔记 `PATCH` 返回 409；
 - `POST /api/notes/{id}/shares` share_mode=`link|invite_only`，`invite_only` 需 `shared_user_id`；未审核 → 409；link 的明文 token **只在创建响应返回一次**；
 - `DELETE /api/notes/{id}/shares/{share_id}` 撤销；撤销后访问 404/410。
 - 本地 `review_status`(draft/in_review/approved/rejected) 只是 UI 视图，映射见 `lib/noteSync.ts: serverStatusToLocal`。
@@ -30,5 +30,5 @@
 2. 没有视觉识别接口/模型 → 触控只能如实 `uncertain`。
 3. 触控 `output` 里 `evidence` 的必填性与结构，A 的 schema 未明确（当前按 `[]`/`[{...}]` 发送）。
 4. nonfiction 无法细分 textbook/science，目前归 other。
-5. 导入流程（D）尚未调用 `POST /api/books`，所以 `book.server_book_id` 为空 → Live 的真实审核/分享被阻断（这是有意的诚实行为）。
-6. interactions 路由已在 backend/app/main.py (L593, L608) 证实存在，且已通过 scripts/run_backend_integration.py 完成端到端真实联调并输出 docs/backend-integration-results.json（留痕、回读、笔记生成、审核、分享、撤销、404拦截均已闭环验证）。
+5. 导入已调用 `POST /api/books` + `classify`；书页和校对文字在"开始分析"时上传。分析服务未接入，后端必然返回 `PROVIDER_NOT_CONFIGURED`，因此笔记生成返回 409，界面走不到真实审核和分享。
+6. interactions 路由在 `backend/app/main.py`。联调证据以 `scripts/check-live-flow.sh` 为准。

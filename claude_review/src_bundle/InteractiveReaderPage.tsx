@@ -287,7 +287,7 @@ export default function InteractiveReaderPage({
     )
   }
 
-  if (book.status !== 'READY' || !book.safety_reviewed) {
+  if ((book.status !== 'READY' || !book.safety_reviewed) && !book.pages_only) {
     return (
       <div className="page-content reader-page">
         <section className="reader-state">
@@ -318,6 +318,12 @@ export default function InteractiveReaderPage({
           </Button>
         </div>
       </div>
+
+      {book.pages_only && (
+        <div className="wf-warning" role="status" style={{ margin: '0 0 12px' }}>
+          分析与视频尚未完成，当前只基于你校对过的书页文字回答，内容未经复核，也没有视频。
+        </div>
+      )}
 
       <div className="reader-layout">
         <section className="reader-workspace">

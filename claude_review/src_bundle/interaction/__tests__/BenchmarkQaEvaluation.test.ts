@@ -1,3 +1,4 @@
+// 注意：这里的期望值记录的是当前行为（回归用），不是标准答案，不能据此报告召回率或准确率。
 import { describe, it, expect } from 'vitest';
 import { TimeSliceIndexer, DEMO_BOOK_SLICES, contentBigrams } from '../indexing/TimeSliceIndexer';
 import { PictureBookRagEngine } from '../qa/PictureBookRagEngine';

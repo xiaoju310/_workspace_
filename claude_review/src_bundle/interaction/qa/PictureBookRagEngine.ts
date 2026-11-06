@@ -9,13 +9,15 @@ import { TimeSliceIndexer } from '../indexing/TimeSliceIndexer';
  * - 通用儿童安全提示基于提问本身的危险动作词，与具体故事无关；
  * - 耗时只记录真实测得值，未测量的阶段一律 null。
  */
-const SAFETY_PATTERNS = /(跳下|跳崖|从.*跳|玩火|点火|刀|剪刀.*(玩|戳)|触电|吃.*不明|一个人.*(出去|跑远)|喝.*药)/;
+const SAFETY_PATTERNS = /(跳下|跳崖|从.*跳|玩火|点火|(玩|拿).*刀|剪刀.*(玩|戳)|触电|吃.*不明|一个人.*(出去|跑远)|喝.*药)/;
 const SAFETY_NOTE = '这样做很危险，请不要模仿，遇到这类情况要先告诉大人。';
 
 function clip(text: string, max = 80): string {
   const t = text.trim();
   return t.length > max ? t.slice(0, max) + '…' : t;
 }
+
+const MAX_CACHE = 200;
 
 interface CachedItem {
   answer: string;
@@ -31,10 +33,17 @@ export class PictureBookRagEngine {
     this.cache.clear();
   }
 
+  private remember(key: string, item: CachedItem): void {
+    if (this.cache.size >= MAX_CACHE) this.cache.delete(this.cache.keys().next().value as string);
+    this.cache.set(key, item);
+  }
+
   async generateAnswer(req: AskQuestionRequest, indexer: TimeSliceIndexer): Promise<AskQuestionResponse> {
     const t0 = performance.now();
     const query = (req.query_text || '').trim();
-    const cacheKey = `${req.run_id}:${query.toLowerCase()}`;
+    // 答案取决于：哪本书、哪次运行、索引内容、当前播放落在哪一页（时序加权）、问题本身
+    const inPage = indexer.findSliceByVideoMs(req.video_ms)?.page_no ?? 0;
+    const cacheKey = [req.book_id, req.run_id, indexer.fingerprint(), inPage, query.toLowerCase()].join('|');
 
     if (this.cache.has(cacheKey)) {
       const cached = this.cache.get(cacheKey)!;
@@ -44,7 +53,7 @@ export class PictureBookRagEngine {
         answer: cached.answer,
         status: cached.status,
         confidence: cached.confidence,
-        evidence: cached.evidence,
+        evidence: cached.evidence.map((e) => ({ ...e })),
         audio_url: null,
         cache_hit: true,
         latency: {
@@ -79,10 +88,12 @@ export class PictureBookRagEngine {
     });
 
     if (evidence.length === 0) {
-      const noAnswer = indexer.size() === 0
+      const base_text = indexer.size() === 0
         ? '当前这本书还没有经过校对的文字内容，无法回答。请先完成逐页文字校对。'
         : '原书这段内容里没有找到相关依据，请结合书页观察，或换个问法。';
-      this.cache.set(cacheKey, { answer: noAnswer, status: 'no_evidence', confidence: 0, evidence: [] });
+      // 安全提示不依赖证据：危险提问找不到依据时更需要提醒
+      const noAnswer = SAFETY_PATTERNS.test(query) ? `${SAFETY_NOTE} ${base_text}` : base_text;
+      this.remember(cacheKey, { answer: noAnswer, status: 'no_evidence', confidence: 0, evidence: [] });
       return {
         ...base,
         answer: noAnswer,
@@ -98,7 +109,7 @@ export class PictureBookRagEngine {
     const safety = SAFETY_PATTERNS.test(query) ? SAFETY_NOTE : '';
     const answer = `${safety}${safety ? ' ' : ''}原书第 ${top.page_no} 页写道：“${clip(quote)}”`;
 
-    this.cache.set(cacheKey, { answer, status: 'success', confidence: top.confidence, evidence });
+    this.remember(cacheKey, { answer, status: 'success', confidence: top.confidence, evidence: evidence.map((e) => ({ ...e })) });
 
     return {
       ...base,

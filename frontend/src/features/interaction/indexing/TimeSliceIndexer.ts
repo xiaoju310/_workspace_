@@ -92,7 +92,7 @@ export interface SearchMatchResult {
 }
 
 /** 提问里不承载检索信息的功能字（语气词/疑问词/助词），去掉后再切二元组 */
-const STOP_CHARS = new Set('的了吗呢吧啊呀么什为是在有和与或这那它他她你我个一里都也就还会能可以请问谁哪几怎样从到把被让给对跟向地得着过？?，,。.！!、；;：:"“”‘’（）() '.split(''));
+const STOP_CHARS = new Set('的了吗呢吧啊呀么什为是在有和与或这那它他她你我个一里都也就还会能可以请问谁哪几怎样从把被让给对跟向地得着过？?，,。.！!、；;：:"“”‘’（）() '.split(''));
 
 /** 时序意图词（与具体故事无关）：结局 → 最后一页；开头 → 第一页 */
 const ENDING_WORDS = ['最后', '结局', '最终', '结尾', '后来怎么样'];
@@ -141,6 +141,16 @@ export class TimeSliceIndexer {
 
   size(): number {
     return this.slices.length;
+  }
+
+  /** 索引内容指纹：书页文字或时间轴一变就变，供答案缓存判断是否失效 */
+  fingerprint(): string {
+    let h = 2166136261;
+    for (const ch of JSON.stringify(this.slices)) {
+      h ^= ch.charCodeAt(0);
+      h = Math.imul(h, 16777619);
+    }
+    return `${this.slices.length}:${(h >>> 0).toString(16)}`;
   }
 
   findSliceByVideoMs(videoMs: number): PictureBookSliceData | undefined {

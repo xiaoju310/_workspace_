@@ -15,6 +15,12 @@ description: 纸书智伴角色 C（语音/触控/应用联调）的诚实性与
 2. **失败要被看见**：Live 路径上任何失败（网络/鉴权/校验/写库）都必须到达用户界面或返回值里的显式字段；禁止 `catch {}`、禁止 `catch → return []/false/mock`。
 3. **Live 里不存在假数据**：Live 代码路径不得 import 任何夹具（DEMO_*）、不得出现故事专用词/答案、不得硬编码耗时与置信度。拿不到就写 `null` / `uncertain` / `no_evidence`。
 
+## 证据的标准（E-013 之后新增）
+- **打开看过**才算证据：截图要真的看，产物要真的运行，发布前逐个检查。
+- **能失败**才算门禁：先让它变红一次，再相信它变绿。
+- **绕过要写明**：联调里任何跳过接口、直接写库、用假数据的地方，都要写进"已验证"这一栏。
+- 流程类功能要从用户入口走完一遍，不能只测函数。
+
 ## 标准流程（每次改动都走）
 1. `bash .agent/skills/paper-companion-honesty/scripts/audit.sh` → 记录基线（应全绿）。
 2. 读 `references/error-ledger.md` 中与本次改动相关的条目；读 `references/contract-cheatsheet.md` 核对字段/状态。
@@ -32,4 +38,4 @@ description: 纸书智伴角色 C（语音/触控/应用联调）的诚实性与
 ## 目录
 - `references/error-ledger.md`：历史错误台账 + 根因分类（先读这个）。
 - `references/contract-cheatsheet.md`：A 的接口、枚举、状态机速查，以及已知的契约空白。
-- `scripts/audit.sh`：静态审计 + tsc + vitest + build 一键门禁。
+- `scripts/audit.sh`：静态审计 + tsc + vitest + build + 离线原型渲染 + 真实后端联调，一键门禁。

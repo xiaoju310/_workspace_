@@ -1,323 +1,49 @@
 {
-  "timestamp": "2026-11-06T08:25:56.420854+00:00",
-  "runner": "scripts/run_backend_integration.py",
-  "actor": "agent_c_user",
-  "steps": [
+  "date": "2026-11-05",
+  "backend": "A FastAPI actual implementation, isolated temporary database",
+  "browser": "156.0.4314.58",
+  "checks": [
     {
-      "step": 1,
-      "name": "create_book",
-      "method": "POST",
-      "url": "/api/books",
-      "request": {
-        "title": "小狐狸的森林探险记（真实联调）",
-        "authorization_ref": "AUTH-2026-COMPETITION-C-001"
-      },
-      "status_code": 201,
-      "response": {
-        "id": "33370e4c-3472-4ec2-b97d-40794a32c585",
-        "title": "小狐狸的森林探险记（真实联调）",
-        "authorization_ref": "AUTH-2026-COMPETITION-C-001",
-        "owner_id": "agent_c_user",
-        "status": "IMPORTED",
-        "created_at": "2026-11-06T08:25:56.428849Z",
-        "updated_at": "2026-11-06T08:25:56.428849Z"
-      }
+      "name": "实际后端健康、401 与 422",
+      "result": "PASS"
     },
     {
-      "step": 2,
-      "name": "auto_classification",
-      "method": "POST",
-      "url": "/api/books/33370e4c-3472-4ec2-b97d-40794a32c585/classify",
-      "status_code": 200,
-      "response": {
-        "book_id": "33370e4c-3472-4ec2-b97d-40794a32c585",
-        "predicted_type": "other",
-        "confidence": 0.3,
-        "reasons": [
-          "标题规则无法稳定判断，请主人确认类型"
-        ],
-        "confirmed_type": null,
-        "confirmed_by": null,
-        "status": "CLASSIFIED"
-      }
+      "name": "实际建书 id、原图上传与 SHA-256 一致",
+      "result": "PASS"
     },
     {
-      "step": 3,
-      "name": "confirm_classification",
-      "method": "PATCH",
-      "url": "/api/books/33370e4c-3472-4ec2-b97d-40794a32c585/classification",
-      "request": {
-        "confirmed_type": "picture_book"
-      },
-      "status_code": 200,
-      "response": {
-        "book_id": "33370e4c-3472-4ec2-b97d-40794a32c585",
-        "predicted_type": "other",
-        "confidence": 0.3,
-        "reasons": [
-          "标题规则无法稳定判断，请主人确认类型"
-        ],
-        "confirmed_type": "picture_book",
-        "confirmed_by": "agent_c_user",
-        "status": "CONFIRMED"
-      }
+      "name": "实际重复页 409、坏图片 415 与跨用户 404",
+      "result": "PASS"
     },
     {
-      "step": 3,
-      "name": "record_voice_interaction",
-      "method": "POST",
-      "url": "/api/runs/7067be4e-7ae3-41bc-b165-d4409fb35435/interactions",
-      "request": {
-        "interaction_type": "voice",
-        "input": {
-          "query": "小狐狸戴着什么颜色的围巾？",
-          "input_method": "speech",
-          "video_ms": 3200
-        },
-        "output": {
-          "producer": "c_interaction_agent",
-          "answer": "原书第 1 页写道：“戴着红围巾在森林里唱歌。”",
-          "confidence": 0.88,
-          "uncertain": false
-        },
-        "latency_ms": 38
-      },
-      "status_code": 201,
-      "response": {
-        "id": "118ab349-f22d-40d5-8a60-6c192f7808bf",
-        "run_id": "7067be4e-7ae3-41bc-b165-d4409fb35435",
-        "status": "recorded_only"
-      }
+      "name": "实际分类确认与人工校对版本",
+      "result": "PASS"
     },
     {
-      "step": 4,
-      "name": "list_interactions_after_voice",
-      "method": "GET",
-      "url": "/api/runs/7067be4e-7ae3-41bc-b165-d4409fb35435/interactions",
-      "status_code": 200,
-      "response": [
-        {
-          "id": "118ab349-f22d-40d5-8a60-6c192f7808bf",
-          "run_id": "7067be4e-7ae3-41bc-b165-d4409fb35435",
-          "interaction_type": "voice",
-          "input": {
-            "query": "小狐狸戴着什么颜色的围巾？",
-            "input_method": "speech",
-            "video_ms": 3200
-          },
-          "output": {
-            "producer": "c_interaction_agent",
-            "answer": "原书第 1 页写道：“戴着红围巾在森林里唱歌。”",
-            "confidence": 0.88,
-            "uncertain": false
-          },
-          "latency_ms": 38,
-          "created_at": "2026-11-06T08:25:56.435185+00:00"
-        }
-      ]
+      "name": "实际分析缺模型失败、错误码与笔记拒绝",
+      "result": "PASS"
     },
     {
-      "step": 5,
-      "name": "record_touch_interaction",
-      "method": "POST",
-      "url": "/api/runs/7067be4e-7ae3-41bc-b165-d4409fb35435/interactions",
-      "request": {
-        "interaction_type": "touch",
-        "input": {
-          "video_ms": 4500,
-          "touch_point": {
-            "norm_x": 0.52,
-            "norm_y": 0.48,
-            "video_pixel_x": 998,
-            "video_pixel_y": 518,
-            "video_width": 1920,
-            "video_height": 1080
-          },
-          "viewport_info": {
-            "container_width": 800,
-            "container_height": 600,
-            "render_width": 800,
-            "render_height": 450,
-            "offset_x": 0,
-            "offset_y": 75,
-            "is_letterbox": true
-          }
-        },
-        "output": {
-          "producer": "c_interaction_agent",
-          "target_name": null,
-          "explanation": "已记录画面坐标 (0.52, 0.48)，当前未配置视觉模型服务，如实返回 uncertain",
-          "confidence": null,
-          "uncertain": true,
-          "evidence": []
-        },
-        "latency_ms": 15
-      },
-      "status_code": 201,
-      "response": {
-        "id": "19b9531c-a388-43b7-9604-2d8406f2d3a1",
-        "run_id": "7067be4e-7ae3-41bc-b165-d4409fb35435",
-        "status": "recorded_only"
-      }
+      "name": "实际最多三次尝试，重试超限 409",
+      "result": "PASS"
     },
     {
-      "step": 6,
-      "name": "generate_note_draft",
-      "method": "POST",
-      "url": "/api/books/33370e4c-3472-4ec2-b97d-40794a32c585/notes/generate",
-      "request": {
-        "note_template": "picture_book_discovery"
-      },
-      "status_code": 201,
-      "response": {
-        "id": "cc28b5b2-f806-4fed-af07-3ebd56bb2083",
-        "book_id": "33370e4c-3472-4ec2-b97d-40794a32c585",
-        "owner_id": "agent_c_user",
-        "content": {
-          "template": "picture_book_discovery",
-          "summary": "待根据分析结果补充",
-          "sources": [],
-          "is_placeholder": true
-        },
-        "status": "DRAFT",
-        "version": 1,
-        "created_at": "2026-11-06T08:25:56.441229Z",
-        "updated_at": "2026-11-06T08:25:56.441229Z"
-      }
+      "name": "页面真实联调：代理、Bearer、建书上传、分类和校对",
+      "result": "PASS"
     },
     {
-      "step": 7,
-      "name": "patch_note_content",
-      "method": "PATCH",
-      "url": "/api/notes/cc28b5b2-f806-4fed-af07-3ebd56bb2083",
-      "request": {
-        "content": {
-          "title": "小狐狸的探险启迪",
-          "summary": "小狐狸戴红围巾勇敢出门，迷路后在啄木鸟和大雁的指引下平安回到树洞，亲子阅读重点关注安全与关爱。",
-          "sources": [
-            {
-              "page_no": 1,
-              "quote": "从前有一只活泼的小狐狸皮皮..."
-            }
-          ]
-        }
-      },
-      "status_code": 200,
-      "response": {
-        "id": "cc28b5b2-f806-4fed-af07-3ebd56bb2083",
-        "book_id": "33370e4c-3472-4ec2-b97d-40794a32c585",
-        "owner_id": "agent_c_user",
-        "content": {
-          "title": "小狐狸的探险启迪",
-          "summary": "小狐狸戴红围巾勇敢出门，迷路后在啄木鸟和大雁的指引下平安回到树洞，亲子阅读重点关注安全与关爱。",
-          "sources": [
-            {
-              "page_no": 1,
-              "quote": "从前有一只活泼的小狐狸皮皮..."
-            }
-          ],
-          "is_placeholder": false
-        },
-        "status": "DRAFT",
-        "version": 2,
-        "created_at": "2026-11-06T08:25:56.441229Z",
-        "updated_at": "2026-11-06T08:25:56.442783Z"
-      }
+      "name": "页面保留真实失败，不混入模拟成功",
+      "result": "PASS"
     },
     {
-      "step": 8,
-      "name": "review_note_approve",
-      "method": "POST",
-      "url": "/api/notes/cc28b5b2-f806-4fed-af07-3ebd56bb2083/review",
-      "request": {
-        "action": "approve"
-      },
-      "status_code": 200,
-      "response": {
-        "id": "cc28b5b2-f806-4fed-af07-3ebd56bb2083",
-        "book_id": "33370e4c-3472-4ec2-b97d-40794a32c585",
-        "owner_id": "agent_c_user",
-        "content": {
-          "title": "小狐狸的探险启迪",
-          "summary": "小狐狸戴红围巾勇敢出门，迷路后在啄木鸟和大雁的指引下平安回到树洞，亲子阅读重点关注安全与关爱。",
-          "sources": [
-            {
-              "page_no": 1,
-              "quote": "从前有一只活泼的小狐狸皮皮..."
-            }
-          ],
-          "is_placeholder": false
-        },
-        "status": "PRIVATE",
-        "version": 2,
-        "created_at": "2026-11-06T08:25:56.441229Z",
-        "updated_at": "2026-11-06T08:25:56.444211Z"
-      }
+      "name": "令牌不进入存储，离页清空；手机标识无横向溢出",
+      "result": "PASS"
     },
     {
-      "step": 9,
-      "name": "create_note_share",
-      "method": "POST",
-      "url": "/api/notes/cc28b5b2-f806-4fed-af07-3ebd56bb2083/shares",
-      "request": {
-        "share_mode": "link",
-        "expires_at": "2026-11-06T10:25:56.444767+00:00"
-      },
-      "status_code": 201,
-      "response": {
-        "id": "7393cdd3-8e0b-4f6f-924a-d30f822bb453",
-        "share_mode": "link",
-        "shared_user_id": null,
-        "expires_at": "2026-11-06T10:25:56.444767Z",
-        "status": "ACTIVE",
-        "token": "qIpP359om8Hnu8uz7_pM1bpOiaQz-M7tfO9tXCLr-Fg"
-      }
-    },
-    {
-      "step": 10,
-      "name": "public_read_shared_note_success",
-      "method": "GET",
-      "url": "/api/shared-notes/qIpP359om8Hnu8uz7_pM1bpOiaQz-M7tfO9tXCLr-Fg",
-      "auth_header": null,
-      "status_code": 200,
-      "response": {
-        "id": "cc28b5b2-f806-4fed-af07-3ebd56bb2083",
-        "book_id": "33370e4c-3472-4ec2-b97d-40794a32c585",
-        "owner_id": "agent_c_user",
-        "content": {
-          "title": "小狐狸的探险启迪",
-          "summary": "小狐狸戴红围巾勇敢出门，迷路后在啄木鸟和大雁的指引下平安回到树洞，亲子阅读重点关注安全与关爱。",
-          "sources": [
-            {
-              "page_no": 1,
-              "quote": "从前有一只活泼的小狐狸皮皮..."
-            }
-          ],
-          "is_placeholder": false
-        },
-        "status": "SHARED",
-        "version": 2,
-        "created_at": "2026-11-06T08:25:56.441229Z",
-        "updated_at": "2026-11-06T08:25:56.445623Z"
-      }
-    },
-    {
-      "step": 11,
-      "name": "revoke_share",
-      "method": "DELETE",
-      "url": "/api/notes/cc28b5b2-f806-4fed-af07-3ebd56bb2083/shares/7393cdd3-8e0b-4f6f-924a-d30f822bb453",
-      "status_code": 204,
-      "response": null
-    },
-    {
-      "step": 12,
-      "name": "public_read_shared_note_after_revoke",
-      "method": "GET",
-      "url": "/api/shared-notes/qIpP359om8Hnu8uz7_pM1bpOiaQz-M7tfO9tXCLr-Fg",
-      "status_code": 404,
-      "response": {
-        "detail": "分享链接无效或已撤销"
-      }
+      "name": "无前端脚本异常",
+      "result": "PASS"
     }
-  ]
+  ],
+  "errors": [],
+  "scope": "真实 HTTP/认证/存储接口；没有真实模型或生产凭据"
 }

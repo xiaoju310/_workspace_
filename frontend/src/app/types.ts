@@ -4,7 +4,7 @@ import type { TouchPoint, ViewportInfo } from '../types/interaction'
 export type Page = 'home' | 'import' | 'review' | 'classification' | 'progress' | 'reader' | 'history' | 'notes' | 'sharing' | 'shared' | 'settings'
 export type Navigate = (page: Page, bookId?: string) => void
 export type Source = { page_no: number; start_ms: number | null; end_ms: number | null; source: 'original_page' | 'script' | 'video_frame'; quote: string }
-export interface PageDraft { id: string; name: string; image_url: string; ocr_text: string; confidence: number; revision: number; confirmed: boolean; demo: boolean }
+export interface PageDraft { id: string; name: string; image_url: string; ocr_text: string; confidence: number; revision: number; confirmed: boolean; demo: boolean; server_page_no?: number | null; server_synced_text?: string | null }
 export interface ReadingBook extends Book {
   authorization_ref: string
   pages: PageDraft[]
@@ -15,6 +15,8 @@ export interface ReadingBook extends Book {
   origin: 'mock' | 'real'
   /** 仅当该书已通过 A 的 POST /api/books 真实建档后才有值；没有它就不能做任何服务端笔记/分类操作 */
   server_book_id?: string | null
+  /** 分析未成功时，主人选择只用校对文字开启书页问答（无视频、未经内容复核） */
+  pages_only?: boolean
   safety_reviewed: boolean
 }
 export interface ReadingNote {
@@ -38,7 +40,7 @@ export interface Interaction {
   /** Live 下是否已写入后端 A；false 时界面必须提示 */
   persisted?: boolean; persist_error?: string
 }
-export interface JobState { status: 'idle' | 'running' | 'failed' | 'review' | 'ready'; stage: number; progress: number; error: string | null; run_id: string | null; events: { stage: string; message: string; time: string }[] }
+export interface JobState { status: 'idle' | 'running' | 'failed' | 'review' | 'ready'; stage: number; progress: number; error: string | null; run_id: string | null; events: { stage: string; message: string; time: string }[]; /** true: 进度来自后端真实任务，不走本地模拟计时器 */ server?: boolean }
 export interface PageContext {
   book: ReadingBook
   state: PreviewState
@@ -52,6 +54,7 @@ export interface WorkflowProps extends PageContext {
   job: JobState
   setJob: (updater: JobState | ((job: JobState) => JobState)) => void
   onGenerate: () => void
+  onOpenPagesOnly?: () => void
 }
 /** 坐标映射算法的完整输出，原样透传到 A，不得在下游重算 */
 export interface TouchDetail { touch_point: TouchPoint; viewport_info: ViewportInfo }

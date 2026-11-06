@@ -63,6 +63,16 @@ export function toBackendBookType(type: string): ClassificationOut['predicted_ty
   }
 }
 
+/** A 的预测类型 → 前端 UI 类型（textbook/science 归 nonfiction；other 让主人自己选） */
+export function fromBackendBookType(type: string): 'picture_book' | 'fiction' | 'nonfiction' | 'unknown' {
+  switch (type) {
+    case 'picture_book': return 'picture_book';
+    case 'novel': return 'fiction';
+    case 'textbook': case 'science': return 'nonfiction';
+    default: return 'unknown';
+  }
+}
+
 export interface ApiDeps {
   client?: TransportClient;
   /** 可选的外部模型服务地址（配置了就走它，未配置走本地抽取式检索） */
@@ -349,6 +359,21 @@ export class ApiClient {
 
   async createBook(input: { title: string; authorization_ref: string }) {
     return this.client.createBook(input);
+  }
+  async classifyBook(bookId: string) {
+    return this.client.classifyBook(bookId);
+  }
+  async uploadPage(bookId: string, file: Blob, pageNo: number) {
+    return this.client.uploadPage(bookId, file, pageNo);
+  }
+  async updatePageOcr(bookId: string, pageNo: number, text: string) {
+    return this.client.updatePage(bookId, pageNo, { ocr: { text } });
+  }
+  async analyzeBook(bookId: string) {
+    return this.client.analyzeBook(bookId);
+  }
+  async runJobs(runId: string) {
+    return this.client.runJobs(runId);
   }
 
   // ==================== 4. 对接 A: 分类确认 ====================
