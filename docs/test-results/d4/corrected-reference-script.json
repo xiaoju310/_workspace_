@@ -1,0 +1,28 @@
+﻿{
+  "book_id": "e-d2-synthetic",
+  "kind": "editorial_reference_draft",
+  "created_by": "Codex",
+  "task_date": "2026-11-07",
+  "source": "D2自制页和AI辅助标注；非真实绘本；待E本人复核",
+  "status": "draft_pending_owner_review",
+  "outline": "小禾身穿蓝色上衣；第一页桌上有两个红苹果，第二页小禾拿起一本绿色的书。两页之间的因果关系没有提供，不作补写。",
+  "character_style": [
+    "小禾：蓝色上衣；不推断年龄、性别、情绪；身份来自正文"
+  ],
+  "pages": [
+    {
+      "page_no": 1,
+      "narration": "小禾穿着蓝色上衣。桌上有2个红苹果。",
+      "visual_prompt": "蓝衣人物；棕色桌子；两个红色苹果示意。人物姓名和苹果类别由正文辅助确认；不添加进食、对话或场外角色。",
+      "source_ref": "docs/test-results/d2/images/page-01.png",
+      "status": "editorial_reference_only"
+    },
+    {
+      "page_no": 2,
+      "narration": "小禾拿起一本绿色的书。书名：《森林日记》。",
+      "visual_prompt": "蓝衣人物和绿色书形矩形。封面未画书名；书名只来自正文。拿起是正文事件，不据静态图推断连续动作或阅读情节。",
+      "source_ref": "docs/test-results/d2/images/page-02.png",
+      "status": "editorial_reference_only"
+    }
+  ]
+}

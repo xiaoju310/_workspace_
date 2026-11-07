@@ -1,0 +1,8 @@
+﻿"case_id","date","artifact_kind","check","expected","actual","status","evidence_ref","owner","next_action"
+"D4-S01","2026-11-07","B历史mock","旁白完整性","非空正文可逐句追溯","旁白为空；输入页也是空mock，不属于真实页","阻塞","evidence/b-script.mock.json#story.pages[0].narration","E","B提供真实页与脚本配对，不能将空mock当漏字失败样本"
+"D4-S02","2026-11-07","B历史mock","提示词与角色风格","角色和画面可与原页核对","visual_prompt为空；character_style为空","阻塞","evidence/b-script.mock.json#story","E","B提供大纲、角色风格表和逐页脚本"
+"D4-S03","2026-11-07","B历史mock","状态标记","低证据不写完成","story.status=low_confidence；page.status=mock","通过（状态检查）","evidence/b-script.mock.json","E","保留低置信状态；不代表脚本质量通过"
+"D4-S04","2026-11-07","E自制参考稿","第1页文字忠实","小禾蓝衣；桌上2个红苹果","参考旁白保留两句原文、数量2和颜色","通过（AI辅助核对）","corrected-reference-script.json#pages[0]","E","E本人复核；不作为B产出验收"
+"D4-S05","2026-11-07","E自制参考稿","第2页书名忠实","绿色的书；正文书名森林日记","参考旁白保留书名与绿色；说明封面无书名","通过（AI辅助核对）","corrected-reference-script.json#pages[1]","E","E复核，避免把正文书名当封面识别结果"
+"D4-S06","2026-11-07","E自制参考稿","场景添加限制","不添加未提供的人物动作和因果","限制进食、对话、场外人物及跨页因果补写","通过（草稿检查）","corrected-reference-script.json","E","真实B脚本仍需逐句核验"
+"D4-S07","2026-11-07","真实授权绘本","脚本与原书逐句比较","授权页与B脚本配对且含版本","本次无授权真实页与对应B脚本","未测","README.md","E","A/B提供受控输入引用和运行ID"
