@@ -35,3 +35,10 @@
 - 阻塞：真实解析provider及真实I2V/T2V成片未接入；D2本人复核、PaddleOCR和授权真实页仍待办。
 - 证据：docs/test-results/d3/README.md及CSV/JSON/JUnit，docs/sources/model-and-material-sources.md。
 - 执行在同步main及E分支的独立副本；原仓库只同步交付文件，未推送或创建PR。
+
+## 2026-11-07 D3审核修订
+
+- 依据审核截图明确可评审范围：测试资料、接口错误处理测试及测试框架。
+- 明确最新main同步前置条件，保留20条P0、本人复核、PaddleOCR、真实授权绘本/视频和语音/触控/完整前端验收待办。
+- 独立副本从ee8e94e合并本地已知main 6ec10c9无冲突；最新远端未确认，不标记同步门槛已通过。
+- 不更改历史原始测试结果，不宣称项目已完成；跟踪见docs/test-results/d3/review-follow-up.md。
