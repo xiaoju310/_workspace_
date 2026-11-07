@@ -93,35 +93,23 @@ describe('BrowserSpeechSynthesisTts（离线原生童声朗读）', () => {
     });
 
     expect(errCaught).toBeDefined();
-    expect(res.firstAudioMs).toBeGreaterThanOrEqual(0);
+    // 出错且未发出声音时首音延迟应为 null，不虚构数字
+    expect(res.firstAudioMs).toBeNull();
+  });
+
+  it('环境不支持 SpeechSynthesis 时，不返回 0ms 伪造首音延迟，而是返回 null', async () => {
+    vi.stubGlobal('speechSynthesis', null);
+    vi.stubGlobal('SpeechSynthesisUtterance', null);
+    const tts = new BrowserSpeechSynthesisTts();
+    const res = await tts.speak('不支持测试');
+    expect(res.firstAudioMs).toBeNull();
   });
 });
 
-describe('BackendTtsProvider（远端服务适配与降级）', () => {
-  beforeEach(() => {
-    vi.stubGlobal('speechSynthesis', {
-      speak: vi.fn((u) => setTimeout(() => u.onstart?.(), 10)),
-      cancel: vi.fn(),
-    });
-    vi.stubGlobal('SpeechSynthesisUtterance', class {
-      text: string;
-      lang = '';
-      rate = 1;
-      pitch = 1;
-      onstart: any;
-      constructor(text: string) { this.text = text; }
-    });
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('后端 TTS 500 或网络失败时，降级到本地 SpeechSynthesis 保证可用性', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('TTS backend unreachable')));
-    const backendTts = new BackendTtsProvider('/api/v1/interaction/tts');
-
-    const res = await backendTts.speak('降级测试');
-    expect(res.firstAudioMs).toBeGreaterThanOrEqual(0);
+describe('BackendTtsProvider（已知契约空白守护）', () => {
+  it('后端 A 尚未提供 TTS 服务，isAvailable 返回 false，speak 明确抛错不假造降级', async () => {
+    const backendTts = new BackendTtsProvider();
+    expect(await backendTts.isAvailable()).toBe(false);
+    await expect(backendTts.speak('测试')).rejects.toThrow('后端 A 尚未提供 TTS 接口');
   });
 });

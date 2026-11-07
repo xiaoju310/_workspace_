@@ -41,6 +41,10 @@ export function mapSpeechError(name: string | undefined): AsrErrorCode {
 
 const STOP_TIMEOUT_MS = 2500;
 
+export type SpeechEventListener = (
+  event: { type: 'start' } | { type: 'end' } | { type: 'error'; errorCode: AsrErrorCode }
+) => void;
+
 /**
  * 浏览器原生 Web Speech API 普通话识别（zh-CN）。
  *
@@ -56,6 +60,7 @@ export class RealBrowserSpeechRecognition {
   private confidence: number | null = null;
   private lastError: AsrErrorCode | undefined;
   private endWaiters: Array<() => void> = [];
+  private listeners: Set<SpeechEventListener> = new Set();
 
   constructor(ctor?: RecognitionCtor | null) {
     const Ctor: RecognitionCtor | null | undefined =
@@ -97,18 +102,38 @@ export class RealBrowserSpeechRecognition {
     };
 
     rec.onerror = (e: any) => {
-      this.lastError = mapSpeechError(e?.error);
+      const mapped = mapSpeechError(e?.error);
+      this.lastError = mapped;
+      this.notifyListeners({ type: 'error', errorCode: mapped });
     };
 
-    // 浏览器可能因静音/网络自行结束：必须同步复位，否则 stop() 会永远等不到 onend
+    // 浏览器可能因静音/网络/拒权自行结束：必须同步复位并通知监听器
     rec.onend = () => {
       this.listening = false;
       const waiters = this.endWaiters;
       this.endWaiters = [];
       waiters.forEach((w) => w());
+      this.notifyListeners({ type: 'end' });
     };
 
     this.recognition = rec;
+  }
+
+  subscribe(listener: SpeechEventListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notifyListeners(event: { type: 'start' } | { type: 'end' } | { type: 'error'; errorCode: AsrErrorCode }) {
+    for (const listener of this.listeners) {
+      try {
+        listener(event);
+      } catch {
+        /* 忽略订阅者内部异常 */
+      }
+    }
   }
 
   isSupported(): boolean {
@@ -130,6 +155,7 @@ export class RealBrowserSpeechRecognition {
     try {
       this.recognition.start();
       this.listening = true;
+      this.notifyListeners({ type: 'start' });
       return true;
     } catch {
       this.listening = false;

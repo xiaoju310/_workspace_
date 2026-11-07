@@ -1,118 +1,146 @@
 {
   "protocol_version": "1.0.0",
   "project_name": "Antigravity Multi-Agent Venture",
-  "last_synced_at": "2026-11-06T16:26:14.339575+08:00",
+  "last_synced_at": "2026-11-07T12:52:54.534291+08:00",
   "sync_agent_id": "gemini-antigravity-honesty",
   "ledger_source_path": "/Users/synn/Documents/GitHub/_workspace_/.agent/skills/paper-companion-honesty/references/error-ledger.md",
-  "error_items_count": 12,
-  "last_error_id": "E-012",
-  "active_rules_count": 12,
+  "error_items_count": 20,
+  "last_error_id": "E-020",
+  "active_rules_count": 14,
   "active_rules": [
     {
       "id": "E01",
       "name": "默认/硬编码令牌",
       "cat": "R6",
       "pattern": "demo-token|token-123",
-      "exclude": "__tests__"
+      "exclude": "__tests__",
+      "sample": "const t='demo-token-123'"
     },
     {
       "id": "E02",
       "name": "run_id 回退成固定值",
       "cat": "R6",
       "pattern": "run-default",
-      "exclude": "__tests__"
+      "exclude": "__tests__",
+      "sample": "run_id||'run-default'"
     },
     {
       "id": "E03",
       "name": "硬编码耗时/延迟常数(应为实测或 null)",
       "cat": "R8",
       "pattern": "(asr|llm_first_token|llm_total|tts_first_audio|tts_total)_ms: *[1-9]",
-      "exclude": "__tests__"
+      "exclude": "__tests__",
+      "sample": "llm_total_ms: 180"
     },
     {
       "id": "E04",
       "name": "硬编码置信度(应透传引擎值或 null)",
       "cat": "R8",
       "pattern": "confidence: *0\\.[1-9][0-9]*[,} ]",
-      "exclude": "__tests__|mock/|demo"
+      "exclude": "__tests__|mock/|demo",
+      "sample": "confidence: 0.88,"
     },
     {
       "id": "E05",
       "name": "基准用例硬编码 passed: true",
       "cat": "R2",
       "pattern": "passed: *true,",
-      "exclude": "__tests__"
+      "exclude": "__tests__",
+      "sample": "passed: true,"
     },
     {
       "id": "E06",
       "name": "空 catch 吞错",
       "cat": "R5",
       "pattern": "catch *(\\([a-z]*\\))? *\\{ *\\}",
-      "exclude": "__tests__|mock/|check-backend"
+      "exclude": "__tests__|mock/|check-backend",
+      "sample": "catch {}"
     },
     {
       "id": "E07",
       "name": "catch 后直接 return 空数组/false(吞错)",
       "cat": "R5",
       "pattern": "catch *\\{ *return (\\[\\]|false)",
-      "exclude": "__tests__"
+      "exclude": "__tests__",
+      "sample": "catch { return [] }"
     },
     {
       "id": "E08",
       "name": "Live 代码引用 Demo 夹具",
       "cat": "R3",
       "pattern": "DEMO_BOOK_SLICES",
-      "exclude": "__tests__|indexing/TimeSliceIndexer.ts"
+      "exclude": "__tests__|indexing/TimeSliceIndexer.ts",
+      "sample": "new X(DEMO_BOOK_SLICES)"
     },
     {
       "id": "E09",
       "name": "出现故事专用硬编码答案",
       "cat": "R3",
       "pattern": "小狐狸皮皮",
-      "exclude": "__tests__|indexing/TimeSliceIndexer.ts|mock/"
+      "exclude": "__tests__|indexing/TimeSliceIndexer.ts|mock/",
+      "sample": "这是小狐狸皮皮"
     },
     {
       "id": "E10",
       "name": "origin 按模式冒充真实",
       "cat": "R1",
       "pattern": "origin: *appMode *=== *'live' *\\? *'real'",
-      "exclude": "__tests__"
+      "exclude": "__tests__",
+      "sample": "origin:appMode==='live'?'real':'mock'"
     },
     {
       "id": "E11",
       "name": "测试里自己重写被测逻辑(自证测试)",
       "cat": "R2",
       "pattern": "function (validateInteractionPayload|checkBoundingBox|processAsrTranscription|canTransition|buildBackendInteractionPayload)",
-      "exclude": "node_modules"
+      "exclude": "node_modules",
+      "sample": "function canTransition(a,b)"
     },
     {
       "id": "E12",
       "name": "UI 书籍类型未映射就发给后端",
       "cat": "R6",
       "pattern": "confirmClassification\\(.*selectedType",
-      "exclude": "__tests__"
+      "exclude": "__tests__",
+      "sample": "confirmClassification(id,selectedType)"
+    },
+    {
+      "id": "E13",
+      "name": "验证脚本往页面写内容(会把结论伪造进截图)",
+      "cat": "R2",
+      "pattern": "(innerText|textContent|innerHTML) *= *[^=]",
+      "exclude": "frontend/src",
+      "sample": "errEl.innerText = '已拦截'"
+    },
+    {
+      "id": "E14",
+      "name": "前端自造 run_id 发给后端(只允许 Demo 分支)",
+      "cat": "R6",
+      "pattern": "run_id: *uid\\(|run_id: *crypto\\.randomUUID",
+      "exclude": "__tests__",
+      "sample": "run_id:uid('run')"
     }
   ],
   "recent_entries": [
     {
-      "id": "E-008",
-      "title": "笔记/分享：乐观更新；撤销失败仍显示\"已成功撤销\"；review 忽略服务端返回；generate 不调服务端（R5）"
+      "id": "E-016",
+      "title": "只接了流程的第一步，主流程反而走不通（R7、R5）"
     },
     {
-      "id": "E-009",
-      "title": "测试与脚本自证（R2）"
+      "id": "E-017",
+      "title": "联调脚本绕过接口写库、手写载荷（R2）"
     },
     {
-      "id": "E-010",
-      "title": "契约漂移：UI 的 fiction/nonfiction 直接发给 A（R6）；笔记状态三套词汇（R6）"
+      "id": "E-018",
+      "title": "缓存键遗漏影响答案的输入（R4）"
     },
     {
-      "id": "E-011",
-      "title": "A 的 Bearer 令牌被发往第三方模型服务；默认令牌 demo-token-123（R6）"
+      "id": "E-019",
+      "title": "危险提问没有依据时不给安全提示（R4，Claude 的设计缺陷）"
     },
     {
-      "id": "E-012",
-      "title": "文档把 `origin` 随模式写成 real，导致对从未建档的书调用服务端（R1/R6）"
+      "id": "E-020",
+      "title": "评测期望值贴着实现填写（R2）"
     }
   ]
 }

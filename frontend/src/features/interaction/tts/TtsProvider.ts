@@ -11,7 +11,7 @@ export interface TtsPlaybackOptions {
 export interface ITtsProvider {
   name: string;
   isAvailable(): Promise<boolean>;
-  speak(text: string, options?: TtsPlaybackOptions): Promise<{ audioUrl?: string; firstAudioMs: number }>;
+  speak(text: string, options?: TtsPlaybackOptions): Promise<{ audioUrl?: string; firstAudioMs: number | null }>;
   stop(): void;
 }
 
@@ -37,13 +37,13 @@ export class BrowserSpeechSynthesisTts implements ITtsProvider {
     return getSpeechSynthesis() !== null && getUtteranceClass() !== null;
   }
 
-  speak(text: string, options?: TtsPlaybackOptions): Promise<{ audioUrl?: string; firstAudioMs: number }> {
+  speak(text: string, options?: TtsPlaybackOptions): Promise<{ audioUrl?: string; firstAudioMs: number | null }> {
     return new Promise((resolve) => {
       const synth = getSpeechSynthesis();
       const Utterance = getUtteranceClass();
       if (!synth || !Utterance) {
         options?.onError?.(new Error('SpeechSynthesis not supported in current environment'));
-        resolve({ firstAudioMs: 0 });
+        resolve({ firstAudioMs: null });
         return;
       }
 
@@ -74,7 +74,8 @@ export class BrowserSpeechSynthesisTts implements ITtsProvider {
 
       utterance.onerror = (e: any) => {
         options?.onError?.(e);
-        resolve({ firstAudioMs: Math.round(performance.now() - start) });
+        // 出错未发音时首音延迟为 null，不假造数字
+        resolve({ firstAudioMs: firstByteRecorded ? Math.round(performance.now() - start) : null });
       };
 
       synth.speak(utterance);
@@ -90,56 +91,25 @@ export class BrowserSpeechSynthesisTts implements ITtsProvider {
 }
 
 /**
- * 2. 后端真实 TTS 接口适配器 (CosyVoice / Edge-TTS)
+ * 2. 后端 TTS 适配器占位
+ * 注意：后端 A 契约速查明确指出无服务端 TTS 接口（已知契约空白），
+ * 不得向不存在的 /api/v1/interaction/tts 发请求或做假兜底。
  */
 export class BackendTtsProvider implements ITtsProvider {
-  name = 'Backend CosyVoice TTS';
-  private endpoint: string;
-
-  constructor(endpoint: string = '/api/v1/interaction/tts') {
-    this.endpoint = endpoint;
-  }
+  name = 'Backend TTS (契约空白，尚未提供)';
 
   async isAvailable(): Promise<boolean> {
-    try {
-      const res = await fetch(`${this.endpoint}/health`, { method: 'GET', signal: AbortSignal.timeout(800) });
-      return res.ok;
-    } catch {
-      return false;
-    }
+    return false;
   }
 
-  async speak(text: string, options?: TtsPlaybackOptions): Promise<{ audioUrl?: string; firstAudioMs: number }> {
-    const start = performance.now();
-    try {
-      const res = await fetch(this.endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice: 'child_friendly' }),
-        signal: AbortSignal.timeout(5000),
-      });
-
-      if (!res.ok) throw new Error('Backend TTS HTTP Error');
-      const blob = await res.blob();
-      const firstAudioMs = Math.round(performance.now() - start);
-      options?.onFirstAudioByte?.(firstAudioMs);
-
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      options?.onStart?.();
-      audio.onended = () => options?.onEnd?.();
-      audio.onerror = (e) => options?.onError?.(e);
-      await audio.play();
-
-      return { audioUrl: url, firstAudioMs };
-    } catch (err) {
-      console.warn('Backend TTS failed, falling back to Browser SpeechSynthesis:', err);
-      return new BrowserSpeechSynthesisTts().speak(text, options);
-    }
+  async speak(_text: string, options?: TtsPlaybackOptions): Promise<{ audioUrl?: string; firstAudioMs: number | null }> {
+    const err = new Error('后端 A 尚未提供 TTS 接口（见 contract-cheatsheet 已知契约空白 #1），请使用浏览器本地语音合成。');
+    options?.onError?.(err);
+    throw err;
   }
 
   stop(): void {
-    new BrowserSpeechSynthesisTts().stop();
+    // 无远程播放需要停止
   }
 }
 

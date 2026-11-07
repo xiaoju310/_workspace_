@@ -82,8 +82,15 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   },[books,notes,grants,interactions,notify])
 
   const updateBook=(updater:(current:ReadingBook)=>ReadingBook)=>{
-    const next=updater(book)
+    let next=updater(book)
     const contentChanged=book.pages.map(p=>`${p.id}:${p.ocr_text}`).join('\n')!==next.pages.map(p=>`${p.id}:${p.ocr_text}`).join('\n')
+    if(contentChanged){
+      next = {
+        ...next,
+        pages_only: false,
+        pages: next.pages.map(p => ({ ...p, server_synced_text: null })),
+      }
+    }
     setBooks(current=>current.map(item=>item.id===book.id?next:item))
     if(next.status==='REVIEW_REQUIRED')setJob(emptyJob())
     if(contentChanged){
@@ -113,7 +120,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     setBooks(current=>current.map(item=>item.id===id?updater(item):item))
   },[])
 
-  // 轮询后端真实任务；进度只反映服务端状态，不模拟百分比
+  // 轮询后端真实任务；进度只反映服务端状态，不模拟百分比，防范跨书覆盖与竞态
   useEffect(()=>{
     if(job.status!=='running'||!job.server||!job.run_id)return
     const runId=job.run_id
@@ -121,17 +128,19 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     let timer:ReturnType<typeof setTimeout>|undefined
     const tick=async()=>{
       try{
-        const result=summarizeRunJobs(await apiClient.runJobs(runId))
+        const jobs = await apiClient.runJobs(runId)
+        if(stopped)return
+        const result=summarizeRunJobs(jobs)
         if(stopped)return
         if(result.phase==='running'){timer=setTimeout(tick,1500);return}
         if(result.phase==='failed'){
           setBooks(current=>current.map(item=>item.run_id===runId?{...item,status:'FAILED'}:item))
-          setJob(current=>({...current,status:'failed',error:result.error,events:[...current.events,{stage:'后端任务',message:result.error,time:timestamp()}]}))
+          setJob(current=>current.run_id===runId?({...current,status:'failed',error:result.error,events:[...current.events,{stage:'后端任务',message:result.error,time:timestamp()}]}):current)
           return
         }
-        setJob(current=>({...current,status:'review',stage:5,progress:100,events:[...current.events,{stage:'后端任务',message:'后端分析任务已成功，等待主人复核。',time:timestamp()}]}))
+        setJob(current=>current.run_id===runId?({...current,status:'review',stage:5,progress:100,events:[...current.events,{stage:'后端任务',message:'后端分析任务已成功，等待主人复核。',time:timestamp()}]}):current)
       }catch(e:any){
-        if(!stopped)setJob(current=>({...current,status:'failed',error:`读取后端任务状态失败：${e.message}`}))
+        if(!stopped)setJob(current=>current.run_id===runId?({...current,status:'failed',error:`读取后端任务状态失败：${e.message}`}):current)
       }
     }
     void tick()
@@ -144,15 +153,21 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     if(appMode==='live'){
       if(!book.server_book_id){notify('这本书没有在后端建档，真实模式不会模拟生成。请填好令牌后重新导入，或切换到演示模式。');return}
       const target=book
+      // 重试/发起分析前：置为 running 状态，清空残留错误，提供即时状态反馈
+      setJob(current=>({...emptyJob(),status:'running',run_id:target.run_id,server:true,events:[...current.events,{stage:'后端任务',message:'正在同步书页并重试分析任务…',time:timestamp()}]}))
+      patchBook(target.id,current=>({...current,status:'GENERATING'}))
+      navigate('progress',target.id)
+
       try{
         const started=await startServerAnalysis(apiClient,target.server_book_id!,target.pages.map(p=>({ocr_text:p.ocr_text,server_page_no:p.server_page_no,server_synced_text:p.server_synced_text,getImage:()=>pageImageBlob(p.image_url)})),(index,patch)=>{
           const pageId=target.pages[index].id
           patchBook(target.id,current=>({...current,pages:current.pages.map(p=>p.id===pageId?{...p,...patch}:p)}))
         })
         patchBook(target.id,current=>({...current,status:'GENERATING',safety_reviewed:false,pages_only:false,run_id:started.run_id,job_id:started.job_id}))
-        setJob({...emptyJob(),status:'running',run_id:started.run_id,server:true,events:[{stage:'后端任务',message:'已上传书页和校对文字，后端分析任务已创建。',time:timestamp()}]})
-        navigate('progress',target.id)
+        setJob(current=>({...current,status:'running',run_id:started.run_id,server:true,events:[...current.events,{stage:'后端任务',message:'已上传书页和校对文字，后端分析任务已创建。',time:timestamp()}]}))
       }catch(e:any){
+        patchBook(target.id,current=>({...current,status:'FAILED'}))
+        setJob(current=>({...current,status:'failed',error:`发起分析失败：${e.message}`,events:[...current.events,{stage:'后端任务',message:`发起分析失败：${e.message}`,time:timestamp()}]}))
         notify(`发起分析失败：${e.message}`)
       }
       return
@@ -406,7 +421,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   const missingPages=book.pages.length===0&&page!=='home'&&page!=='import'&&page!=='settings'&&page!=='shared'
 
   return (
-    <WorkspaceShell page={page} state={state} setState={setState} navigate={navigate}>
+    <WorkspaceShell page={page} state={state} setState={setState} navigate={navigate} appMode={appMode}>
       {page!=='home'&&page!=='import'&&page!=='settings'&&page!=='shared'&& (
         <div className="book-context-bar">
           <span><Icon name="book" size={16}/>当前图书</span>

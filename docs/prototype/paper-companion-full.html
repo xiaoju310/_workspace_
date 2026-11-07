@@ -715,8 +715,15 @@ function WorkspaceApp({ appMode = 'live' }) {
         }
     }, [books, notes, grants, interactions, notify]);
     const updateBook = (updater) => {
-        const next = updater(book);
+        let next = updater(book);
         const contentChanged = book.pages.map(p => `${p.id}:${p.ocr_text}`).join('\n') !== next.pages.map(p => `${p.id}:${p.ocr_text}`).join('\n');
+        if (contentChanged) {
+            next = {
+                ...next,
+                pages_only: false,
+                pages: next.pages.map(p => ({ ...p, server_synced_text: null })),
+            };
+        }
         setBooks(current => current.map(item => item.id === book.id ? next : item));
         if (next.status === 'REVIEW_REQUIRED')
             setJob((0, workspace_1.emptyJob)());
@@ -749,7 +756,7 @@ function WorkspaceApp({ appMode = 'live' }) {
     const patchBook = (0, react_1.useCallback)((id, updater) => {
         setBooks(current => current.map(item => item.id === id ? updater(item) : item));
     }, []);
-    // 轮询后端真实任务；进度只反映服务端状态，不模拟百分比
+    // 轮询后端真实任务；进度只反映服务端状态，不模拟百分比，防范跨书覆盖与竞态
     (0, react_1.useEffect)(() => {
         if (job.status !== 'running' || !job.server || !job.run_id)
             return;
@@ -758,7 +765,10 @@ function WorkspaceApp({ appMode = 'live' }) {
         let timer;
         const tick = async () => {
             try {
-                const result = (0, liveBookFlow_1.summarizeRunJobs)(await api_1.apiClient.runJobs(runId));
+                const jobs = await api_1.apiClient.runJobs(runId);
+                if (stopped)
+                    return;
+                const result = (0, liveBookFlow_1.summarizeRunJobs)(jobs);
                 if (stopped)
                     return;
                 if (result.phase === 'running') {
@@ -767,14 +777,14 @@ function WorkspaceApp({ appMode = 'live' }) {
                 }
                 if (result.phase === 'failed') {
                     setBooks(current => current.map(item => item.run_id === runId ? { ...item, status: 'FAILED' } : item));
-                    setJob(current => ({ ...current, status: 'failed', error: result.error, events: [...current.events, { stage: '后端任务', message: result.error, time: timestamp() }] }));
+                    setJob(current => current.run_id === runId ? ({ ...current, status: 'failed', error: result.error, events: [...current.events, { stage: '后端任务', message: result.error, time: timestamp() }] }) : current);
                     return;
                 }
-                setJob(current => ({ ...current, status: 'review', stage: 5, progress: 100, events: [...current.events, { stage: '后端任务', message: '后端分析任务已成功，等待主人复核。', time: timestamp() }] }));
+                setJob(current => current.run_id === runId ? ({ ...current, status: 'review', stage: 5, progress: 100, events: [...current.events, { stage: '后端任务', message: '后端分析任务已成功，等待主人复核。', time: timestamp() }] }) : current);
             }
             catch (e) {
                 if (!stopped)
-                    setJob(current => ({ ...current, status: 'failed', error: `读取后端任务状态失败：${e.message}` }));
+                    setJob(current => current.run_id === runId ? ({ ...current, status: 'failed', error: `读取后端任务状态失败：${e.message}` }) : current);
             }
         };
         void tick();
@@ -792,16 +802,21 @@ function WorkspaceApp({ appMode = 'live' }) {
                 return;
             }
             const target = book;
+            // 重试/发起分析前：置为 running 状态，清空残留错误，提供即时状态反馈
+            setJob(current => ({ ...(0, workspace_1.emptyJob)(), status: 'running', run_id: target.run_id, server: true, events: [...current.events, { stage: '后端任务', message: '正在同步书页并重试分析任务…', time: timestamp() }] }));
+            patchBook(target.id, current => ({ ...current, status: 'GENERATING' }));
+            navigate('progress', target.id);
             try {
                 const started = await (0, liveBookFlow_1.startServerAnalysis)(api_1.apiClient, target.server_book_id, target.pages.map(p => ({ ocr_text: p.ocr_text, server_page_no: p.server_page_no, server_synced_text: p.server_synced_text, getImage: () => (0, pageImage_1.pageImageBlob)(p.image_url) })), (index, patch) => {
                     const pageId = target.pages[index].id;
                     patchBook(target.id, current => ({ ...current, pages: current.pages.map(p => p.id === pageId ? { ...p, ...patch } : p) }));
                 });
                 patchBook(target.id, current => ({ ...current, status: 'GENERATING', safety_reviewed: false, pages_only: false, run_id: started.run_id, job_id: started.job_id }));
-                setJob({ ...(0, workspace_1.emptyJob)(), status: 'running', run_id: started.run_id, server: true, events: [{ stage: '后端任务', message: '已上传书页和校对文字，后端分析任务已创建。', time: timestamp() }] });
-                navigate('progress', target.id);
+                setJob(current => ({ ...current, status: 'running', run_id: started.run_id, server: true, events: [...current.events, { stage: '后端任务', message: '已上传书页和校对文字，后端分析任务已创建。', time: timestamp() }] }));
             }
             catch (e) {
+                patchBook(target.id, current => ({ ...current, status: 'FAILED' }));
+                setJob(current => ({ ...current, status: 'failed', error: `发起分析失败：${e.message}`, events: [...current.events, { stage: '后端任务', message: `发起分析失败：${e.message}`, time: timestamp() }] }));
                 notify(`发起分析失败：${e.message}`);
             }
             return;
@@ -1102,7 +1117,7 @@ function WorkspaceApp({ appMode = 'live' }) {
     const context = { book, state, setState, navigate, notify, appMode };
     const workflow = { ...context, updateBook, job, setJob, onGenerate: () => { void generate(); }, onOpenPagesOnly: openPagesOnly };
     const missingPages = book.pages.length === 0 && page !== 'home' && page !== 'import' && page !== 'settings' && page !== 'shared';
-    return (React.createElement(WorkspaceShell_1.default, { page: page, state: state, setState: setState, navigate: navigate },
+    return (React.createElement(WorkspaceShell_1.default, { page: page, state: state, setState: setState, navigate: navigate, appMode: appMode },
         page !== 'home' && page !== 'import' && page !== 'settings' && page !== 'shared' && (React.createElement("div", { className: "book-context-bar" },
             React.createElement("span", null,
                 React.createElement(ui_1.Icon, { name: "book", size: 16 }),
@@ -1651,9 +1666,10 @@ exports.pageNames = void 0;
 exports.default = WorkspaceShell;
 const ui_1 = require("./ui");
 exports.pageNames = { home: '首页与书架', import: '导入图书', review: '页序与文字校对', classification: '图书类型确认', progress: '分析与生成进度', reader: '互动阅读', history: '阅读历史', notes: '笔记与主人审核', sharing: '分享设置', shared: '只读分享预览', settings: '接口与演示设置' };
-function WorkspaceShell({ page, state, setState, navigate, children }) {
+function WorkspaceShell({ page, state, setState, navigate, appMode = 'live', children }) {
     const links = [{ page: 'home', icon: 'home', label: '首页与书架' }, { page: 'import', icon: 'upload', label: '导入图书' }, { page: 'review', icon: 'check', label: '书页校对' }, { page: 'progress', icon: 'spark', label: '生成工作台' }, { page: 'reader', icon: 'book', label: '互动阅读' }, { page: 'notes', icon: 'note', label: '阅读笔记' }, { page: 'history', icon: 'clock', label: '阅读历史' }, { page: 'sharing', icon: 'lock', label: '分享管理' }];
     const current = (value) => value === page || (value === 'review' && page === 'classification') || (value === 'sharing' && page === 'shared');
+    const isLive = appMode === 'live';
     return React.createElement("div", { className: "app-layout full-workspace" },
         React.createElement("a", { className: "skip-link", href: "#main" }, "\u8DF3\u5230\u4E3B\u8981\u5185\u5BB9"),
         React.createElement("aside", { className: "sidebar" },
@@ -1684,18 +1700,21 @@ function WorkspaceShell({ page, state, setState, navigate, children }) {
                     React.createElement("strong", null, exports.pageNames[page])),
                 React.createElement("div", { className: "topbar-right" },
                     React.createElement("span", { className: "prototype-label" },
-                        React.createElement("span", null),
-                        "\u672C\u5730\u6F14\u793A \u00B7 \u6A21\u62DF\u7ED3\u679C"),
+                        React.createElement("span", { style: { backgroundColor: isLive ? '#10b981' : '#f59e0b' } }),
+                        isLive ? '后端直连 · Live 模式' : '本地演示 · 模拟结果'),
                     React.createElement("span", { className: "avatar" }, "\u9605"))),
-            React.createElement("div", { className: "demo-mode-banner", role: "note" },
+            !isLive ? React.createElement("div", { className: "demo-mode-banner", role: "note" },
                 React.createElement("strong", null, "\u6F14\u793A\u6A21\u5F0F"),
                 React.createElement("span", null, "\u5BFC\u5165\u3001\u751F\u6210\u3001\u9605\u8BFB\u3001\u7B14\u8BB0\u548C\u5206\u4EAB\u4E3A\u672C\u5730\u6A21\u62DF\uFF0C\u672A\u63A5\u901A\u771F\u5B9E\u6A21\u578B\u670D\u52A1\u3002"),
-                React.createElement("button", { onClick: () => navigate('settings') }, "\u6253\u5F00\u72EC\u7ACB\u540E\u7AEF\u8054\u8C03")),
+                React.createElement("button", { onClick: () => navigate('settings') }, "\u6253\u5F00\u72EC\u7ACB\u540E\u7AEF\u8054\u8C03")) : React.createElement("div", { className: "demo-mode-banner live-banner", role: "note", style: { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', color: '#166534' } },
+                React.createElement("strong", null, "Live \u6A21\u5F0F"),
+                React.createElement("span", null, "\u5DF2\u76F4\u8FDE\u540E\u7AEF FastAPI\uFF0C\u5EFA\u6863\u3001\u5206\u7C7B\u3001\u4E66\u9875\u540C\u6B65\u4E0E\u4EA4\u4E92\u7559\u75D5\u7ECF\u771F\u5B9E HTTP \u4EA4\u4E92\u3002"),
+                React.createElement("button", { onClick: () => navigate('settings') }, "\u67E5\u770B\u8FDE\u63A5\u8BBE\u7F6E")),
             React.createElement("main", { id: "main", tabIndex: -1 }, children),
             React.createElement("footer", { className: "footer" },
                 React.createElement("span", null,
                     "\u6BCF\u4E00\u4E2A\u53D1\u73B0\uFF0C\u90FD\u6709\u6765\u6E90\u3002 ",
-                    React.createElement("span", { className: "session-label" }, "\u4E3B\u6D41\u7A0B\u672C\u5730\u6A21\u62DF \u00B7 \u771F\u5B9E\u8BF7\u6C42\u4EC5\u5728\u72EC\u7ACB\u8054\u8C03\u5165\u53E3")),
+                    React.createElement("span", { className: "session-label" }, isLive ? '已连接后端 FastAPI 服务' : '主流程本地模拟 · 真实请求仅在独立联调入口')),
                 React.createElement("label", { className: "state-control" },
                     "\u6F14\u793A\u72B6\u6001",
                     React.createElement("select", { "aria-label": "\u539F\u578B\u72B6\u6001", value: state, onChange: e => setState(e.target.value) },
@@ -1829,12 +1848,17 @@ async function validatePage(file) {
 "features/books/pageImage": function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.MAX_PAGE_IMAGE_BYTES = void 0;
 exports.pageImageBlob = pageImageBlob;
 /**
- * 取书页图片字节用于上传。A 只接受 PNG/JPEG，原创示例页是 SVG，需要先在浏览器里栅格化成 PNG。
+ * 取书页图片字节用于上传。A 只接受 PNG/JPEG，大小上限 10MB；原创示例页是 SVG，需要先在浏览器里栅格化成 PNG。
  */
+exports.MAX_PAGE_IMAGE_BYTES = 10 * 1024 * 1024;
 async function pageImageBlob(url) {
     const blob = await (await fetch(url)).blob();
+    if (blob.size > exports.MAX_PAGE_IMAGE_BYTES) {
+        throw new Error(`书页图片大小超过限制（${(blob.size / 1024 / 1024).toFixed(1)}MB > 10MB），请压缩后重新上传。`);
+    }
     if (blob.type === 'image/png' || blob.type === 'image/jpeg')
         return blob;
     const objectUrl = URL.createObjectURL(blob);
@@ -1852,9 +1876,13 @@ async function pageImageBlob(url) {
         if (!context)
             throw new Error('浏览器无法转换书页图片。');
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        return await new Promise((resolve, reject) => {
-            canvas.toBlob((png) => (png ? resolve(png) : reject(new Error('书页图片转换失败。'))), 'image/png');
+        const png = await new Promise((resolve, reject) => {
+            canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('书页图片转换失败。'))), 'image/png');
         });
+        if (png.size > exports.MAX_PAGE_IMAGE_BYTES) {
+            throw new Error(`转换后的书页图片大小超过限制（${(png.size / 1024 / 1024).toFixed(1)}MB > 10MB），请压缩后重新上传。`);
+        }
+        return png;
     }
     finally {
         URL.revokeObjectURL(objectUrl);
@@ -2806,6 +2834,7 @@ class RealBrowserSpeechRecognition {
     confidence = null;
     lastError;
     endWaiters = [];
+    listeners = new Set();
     constructor(ctor) {
         const Ctor = ctor !== undefined
             ? ctor
@@ -2845,16 +2874,35 @@ class RealBrowserSpeechRecognition {
             this.confidence = confN ? confSum / confN : null;
         };
         rec.onerror = (e) => {
-            this.lastError = mapSpeechError(e?.error);
+            const mapped = mapSpeechError(e?.error);
+            this.lastError = mapped;
+            this.notifyListeners({ type: 'error', errorCode: mapped });
         };
-        // 浏览器可能因静音/网络自行结束：必须同步复位，否则 stop() 会永远等不到 onend
+        // 浏览器可能因静音/网络/拒权自行结束：必须同步复位并通知监听器
         rec.onend = () => {
             this.listening = false;
             const waiters = this.endWaiters;
             this.endWaiters = [];
             waiters.forEach((w) => w());
+            this.notifyListeners({ type: 'end' });
         };
         this.recognition = rec;
+    }
+    subscribe(listener) {
+        this.listeners.add(listener);
+        return () => {
+            this.listeners.delete(listener);
+        };
+    }
+    notifyListeners(event) {
+        for (const listener of this.listeners) {
+            try {
+                listener(event);
+            }
+            catch {
+                /* 忽略订阅者内部异常 */
+            }
+        }
     }
     isSupported() {
         return Boolean(this.recognition);
@@ -2875,6 +2923,7 @@ class RealBrowserSpeechRecognition {
         try {
             this.recognition.start();
             this.listening = true;
+            this.notifyListeners({ type: 'start' });
             return true;
         }
         catch {
@@ -3625,7 +3674,7 @@ class BrowserSpeechSynthesisTts {
             const Utterance = getUtteranceClass();
             if (!synth || !Utterance) {
                 options?.onError?.(new Error('SpeechSynthesis not supported in current environment'));
-                resolve({ firstAudioMs: 0 });
+                resolve({ firstAudioMs: null });
                 return;
             }
             const start = performance.now();
@@ -3650,7 +3699,8 @@ class BrowserSpeechSynthesisTts {
             };
             utterance.onerror = (e) => {
                 options?.onError?.(e);
-                resolve({ firstAudioMs: Math.round(performance.now() - start) });
+                // 出错未发音时首音延迟为 null，不假造数字
+                resolve({ firstAudioMs: firstByteRecorded ? Math.round(performance.now() - start) : null });
             };
             synth.speak(utterance);
         });
@@ -3664,52 +3714,22 @@ class BrowserSpeechSynthesisTts {
 }
 exports.BrowserSpeechSynthesisTts = BrowserSpeechSynthesisTts;
 /**
- * 2. 后端真实 TTS 接口适配器 (CosyVoice / Edge-TTS)
+ * 2. 后端 TTS 适配器占位
+ * 注意：后端 A 契约速查明确指出无服务端 TTS 接口（已知契约空白），
+ * 不得向不存在的 /api/v1/interaction/tts 发请求或做假兜底。
  */
 class BackendTtsProvider {
-    name = 'Backend CosyVoice TTS';
-    endpoint;
-    constructor(endpoint = '/api/v1/interaction/tts') {
-        this.endpoint = endpoint;
-    }
+    name = 'Backend TTS (契约空白，尚未提供)';
     async isAvailable() {
-        try {
-            const res = await fetch(`${this.endpoint}/health`, { method: 'GET', signal: AbortSignal.timeout(800) });
-            return res.ok;
-        }
-        catch {
-            return false;
-        }
+        return false;
     }
-    async speak(text, options) {
-        const start = performance.now();
-        try {
-            const res = await fetch(this.endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text, voice: 'child_friendly' }),
-                signal: AbortSignal.timeout(5000),
-            });
-            if (!res.ok)
-                throw new Error('Backend TTS HTTP Error');
-            const blob = await res.blob();
-            const firstAudioMs = Math.round(performance.now() - start);
-            options?.onFirstAudioByte?.(firstAudioMs);
-            const url = URL.createObjectURL(blob);
-            const audio = new Audio(url);
-            options?.onStart?.();
-            audio.onended = () => options?.onEnd?.();
-            audio.onerror = (e) => options?.onError?.(e);
-            await audio.play();
-            return { audioUrl: url, firstAudioMs };
-        }
-        catch (err) {
-            console.warn('Backend TTS failed, falling back to Browser SpeechSynthesis:', err);
-            return new BrowserSpeechSynthesisTts().speak(text, options);
-        }
+    async speak(_text, options) {
+        const err = new Error('后端 A 尚未提供 TTS 接口（见 contract-cheatsheet 已知契约空白 #1），请使用浏览器本地语音合成。');
+        options?.onError?.(err);
+        throw err;
     }
     stop() {
-        new BrowserSpeechSynthesisTts().stop();
+        // 无远程播放需要停止
     }
 }
 exports.BackendTtsProvider = BackendTtsProvider;
@@ -4798,9 +4818,32 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
     const latest = result ?? currentInteractions[0];
     (0, react_1.useEffect)(() => {
         mounted.current = true;
-        speechRecognizerRef.current = (0, AsrProvider_1.getSpeechRecognizer)();
+        const rec = (0, AsrProvider_1.getSpeechRecognizer)();
+        speechRecognizerRef.current = rec;
+        const unsubscribe = rec.subscribe((event) => {
+            if (!mounted.current)
+                return;
+            if (event.type === 'error') {
+                setIsRecording(false);
+                setRecordingTip(null);
+                if (event.errorCode === 'MICROPHONE_DENIED') {
+                    setError('麦克风或语音识别权限被拒绝，已停止聆听。请在浏览器中允许权限后重试，或直接使用键盘输入。');
+                }
+                else if (event.errorCode === 'TRANSCRIPTION_NETWORK_ERROR') {
+                    setError('语音识别服务网络连接失败（Chrome Web Speech 依赖在线服务），已停止聆听。请改用键盘输入。');
+                }
+                else {
+                    setError('麦克风录音或识别异常，已停止聆听。请重试或使用键盘输入。');
+                }
+            }
+            else if (event.type === 'end') {
+                setIsRecording(false);
+                setRecordingTip(null);
+            }
+        });
         return () => {
             mounted.current = false;
+            unsubscribe();
             if (speechRecognizerRef.current) {
                 speechRecognizerRef.current.stop().catch(() => { });
             }
@@ -4812,6 +4855,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
         setPlaying(false);
         setTimeMs(0);
         setResult(null);
+        setTtsFirstAudioMs(null);
         setError('');
         setQuestion('');
         setVoiceInput(false);
@@ -4882,12 +4926,14 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
         }
         setBusy('question');
         setError('');
+        setTtsFirstAudioMs(null);
         setLastAction({ kind: 'question', text: trimmed });
         const version = requestVersion.current;
         try {
             const item = await askQuestion(trimmed, currentTime.current, inputMethod);
             if (mounted.current && requestVersion.current === version) {
                 setResult(item);
+                setTtsFirstAudioMs(null);
                 onInteraction(item);
             }
         }
@@ -4907,12 +4953,14 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
             return;
         setBusy('touch');
         setError('');
+        setTtsFirstAudioMs(null);
         setLastAction({ kind: 'touch', x, y, box });
         const version = requestVersion.current;
         try {
             const item = await identifyTouch(x, y, currentTime.current, box, detail);
             if (mounted.current && requestVersion.current === version) {
                 setResult(item);
+                setTtsFirstAudioMs(null);
                 onInteraction(item);
             }
         }
@@ -5045,7 +5093,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
         React.createElement("div", { className: "reader-layout" },
             React.createElement("section", { className: "reader-workspace" },
                 React.createElement("div", { className: "reader-stage-heading" },
-                    React.createElement(ui_1.Badge, { tone: appMode === 'live' ? 'green' : 'amber' }, appMode === 'live' ? '真实后端服务 (严格鉴权与防伪造)' : '演示模式 (本地模拟)'),
+                    React.createElement(ui_1.Badge, { tone: appMode === 'live' ? 'green' : 'amber' }, appMode === 'live' ? '后端交互模式 (Live)' : '演示模式 (本地模拟)'),
                     React.createElement("span", null,
                         "\u7B2C ",
                         currentPage + 1,
@@ -5118,7 +5166,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                 React.createElement("div", { className: "assistant-note" },
                     React.createElement(ui_1.Icon, { name: "info", size: 16 }),
                     React.createElement("p", null, appMode === 'live'
-                        ? '已接入真实普通话 ASR 语音识别与后端交互上报。'
+                        ? '提问交互留痕直连后端；语音使用浏览器 Web Speech 普通话识别。'
                         : '当前为演示模式，回答使用示例逻辑。')),
                 React.createElement("form", { onSubmit: (event) => {
                         event.preventDefault();
@@ -5126,7 +5174,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                         setVoiceInput(false);
                     } },
                     React.createElement("label", { htmlFor: "reader-question" }, "\u60F3\u95EE\u6545\u4E8B\u4EC0\u4E48\u5462\uFF1F"),
-                    React.createElement("textarea", { id: "reader-question", maxLength: 500, value: question, onChange: (event) => { setQuestion(event.target.value); setVoiceInput(false); }, placeholder: "\u4F8B\u5982\uFF1A\u5C0F\u72D0\u72F8\u6234\u7740\u4EC0\u4E48\u989C\u8272\u7684\u56F4\u5DFE\uFF1F", disabled: Boolean(busy) || isRecording }),
+                    React.createElement("textarea", { id: "reader-question", maxLength: 500, value: question, onChange: (event) => { setQuestion(event.target.value); setVoiceInput(false); }, placeholder: `针对《${book.title}》提出一个问题，例如关于画面、情节或角色…`, disabled: Boolean(busy) || isRecording }),
                     React.createElement("div", { style: { display: 'flex', gap: '8px', marginBottom: '10px' } },
                         React.createElement("button", { type: "button", onClick: handleToggleVoiceRecord, disabled: Boolean(busy), style: {
                                 display: 'flex',
@@ -5167,7 +5215,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                 latest ? (React.createElement("section", { className: "answer-card", "aria-live": "polite" },
                     React.createElement("div", { className: "answer-heading" },
                         React.createElement(ui_1.Badge, { tone: latest.uncertain ? 'amber' : 'green' }, latest.uncertain ? '证据不足或暂不确定' : latest.kind === 'touch' ? '画面里的发现' : '故事里的回答'),
-                        React.createElement("small", null, latest.origin === 'mock' ? '演示模式' : '真实服务结果')),
+                        React.createElement("small", null, latest.origin === 'mock' ? '演示模式' : '本地切片检索（无外部模型服务）')),
                     React.createElement("p", { style: { fontWeight: 500, fontSize: '15px', color: '#1e293b', margin: '8px 0' } }, latest.answer),
                     React.createElement("div", { style: { margin: '8px 0' } },
                         React.createElement(TtsPlayerWidget_1.TtsPlayerWidget, { textToSpeak: latest.answer, onAudioFirstByte: setTtsFirstAudioMs })),

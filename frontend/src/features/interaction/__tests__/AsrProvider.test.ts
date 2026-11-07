@@ -84,6 +84,23 @@ describe('RealBrowserSpeechRecognition（走真实事件处理）', () => {
     FakeRec.last.onerror({ error: 'network' });
     expect((await r.stopDetailed()).errorCode).toBe('TRANSCRIPTION_NETWORK_ERROR');
   });
+
+  it('拒权或出错时立即触发订阅回调，让界面退出聆听状态', () => {
+    const r = new RealBrowserSpeechRecognition(FakeRec as any);
+    const events: any[] = [];
+    r.subscribe((ev) => events.push(ev));
+    r.start();
+    expect(events).toEqual([{ type: 'start' }]);
+
+    // 触发麦克风拒权
+    FakeRec.last.onerror({ error: 'not-allowed' });
+    expect(events).toContainEqual({ type: 'error', errorCode: 'MICROPHONE_DENIED' });
+
+    // 浏览器自行 end
+    FakeRec.last.onend();
+    expect(r.isListening()).toBe(false);
+    expect(events).toContainEqual({ type: 'end' });
+  });
 });
 
 describe('asrManager', () => {

@@ -62,9 +62,28 @@ export default function InteractiveReaderPage({
 
   useEffect(() => {
     mounted.current = true
-    speechRecognizerRef.current = getSpeechRecognizer()
+    const rec = getSpeechRecognizer()
+    speechRecognizerRef.current = rec
+    const unsubscribe = rec.subscribe((event) => {
+      if (!mounted.current) return
+      if (event.type === 'error') {
+        setIsRecording(false)
+        setRecordingTip(null)
+        if (event.errorCode === 'MICROPHONE_DENIED') {
+          setError('麦克风或语音识别权限被拒绝，已停止聆听。请在浏览器中允许权限后重试，或直接使用键盘输入。')
+        } else if (event.errorCode === 'TRANSCRIPTION_NETWORK_ERROR') {
+          setError('语音识别服务网络连接失败（Chrome Web Speech 依赖在线服务），已停止聆听。请改用键盘输入。')
+        } else {
+          setError('麦克风录音或识别异常，已停止聆听。请重试或使用键盘输入。')
+        }
+      } else if (event.type === 'end') {
+        setIsRecording(false)
+        setRecordingTip(null)
+      }
+    })
     return () => {
       mounted.current = false
+      unsubscribe()
       if (speechRecognizerRef.current) {
         speechRecognizerRef.current.stop().catch(() => {})
       }
@@ -77,6 +96,7 @@ export default function InteractiveReaderPage({
     setPlaying(false)
     setTimeMs(0)
     setResult(null)
+    setTtsFirstAudioMs(null)
     setError('')
     setQuestion('')
     setVoiceInput(false)
@@ -143,12 +163,14 @@ export default function InteractiveReaderPage({
     }
     setBusy('question')
     setError('')
+    setTtsFirstAudioMs(null)
     setLastAction({ kind: 'question', text: trimmed })
     const version = requestVersion.current
     try {
       const item = await askQuestion(trimmed, currentTime.current, inputMethod)
       if (mounted.current && requestVersion.current === version) {
         setResult(item)
+        setTtsFirstAudioMs(null)
         onInteraction(item)
       }
     } catch (cause: any) {
@@ -166,12 +188,14 @@ export default function InteractiveReaderPage({
     if (busy) return
     setBusy('touch')
     setError('')
+    setTtsFirstAudioMs(null)
     setLastAction({ kind: 'touch', x, y, box })
     const version = requestVersion.current
     try {
       const item = await identifyTouch(x, y, currentTime.current, box, detail)
       if (mounted.current && requestVersion.current === version) {
         setResult(item)
+        setTtsFirstAudioMs(null)
         onInteraction(item)
       }
     } catch (cause: any) {
@@ -329,7 +353,7 @@ export default function InteractiveReaderPage({
         <section className="reader-workspace">
           <div className="reader-stage-heading">
             <Badge tone={appMode === 'live' ? 'green' : 'amber'}>
-              {appMode === 'live' ? '真实后端服务 (严格鉴权与防伪造)' : '演示模式 (本地模拟)'}
+              {appMode === 'live' ? '后端交互模式 (Live)' : '演示模式 (本地模拟)'}
             </Badge>
             <span>
               第 {currentPage + 1} / {pageCount} 页
@@ -480,7 +504,7 @@ export default function InteractiveReaderPage({
             <Icon name="info" size={16} />
             <p>
               {appMode === 'live'
-                ? '已接入真实普通话 ASR 语音识别与后端交互上报。'
+                ? '提问交互留痕直连后端；语音使用浏览器 Web Speech 普通话识别。'
                 : '当前为演示模式，回答使用示例逻辑。'}
             </p>
           </div>
@@ -498,7 +522,7 @@ export default function InteractiveReaderPage({
               maxLength={500}
               value={question}
               onChange={(event) => { setQuestion(event.target.value); setVoiceInput(false) }}
-              placeholder="例如：小狐狸戴着什么颜色的围巾？"
+              placeholder={`针对《${book.title}》提出一个问题，例如关于画面、情节或角色…`}
               disabled={Boolean(busy) || isRecording}
             />
 
@@ -578,7 +602,7 @@ export default function InteractiveReaderPage({
                 <Badge tone={latest.uncertain ? 'amber' : 'green'}>
                   {latest.uncertain ? '证据不足或暂不确定' : latest.kind === 'touch' ? '画面里的发现' : '故事里的回答'}
                 </Badge>
-                <small>{latest.origin === 'mock' ? '演示模式' : '真实服务结果'}</small>
+                <small>{latest.origin === 'mock' ? '演示模式' : '本地切片检索（无外部模型服务）'}</small>
               </div>
 
               <p style={{ fontWeight: 500, fontSize: '15px', color: '#1e293b', margin: '8px 0' }}>
