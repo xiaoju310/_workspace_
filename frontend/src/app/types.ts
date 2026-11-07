@@ -58,6 +58,19 @@ export interface WorkflowProps extends PageContext {
   onGenerate: () => void
   onOpenPagesOnly?: () => void
 }
+/**
+ * 一次真实录音的结果（D1）。音频只保存在浏览器里（A 没有音频上传接口），
+ * 留痕只写音频指纹与元数据，原始文件由用户下载后交给 E。
+ */
+export interface VoiceCapture {
+  blob: Blob
+  mimeType: string
+  durationMs: number
+  /** 浏览器识别出的原始转写；识别失败时为空串，绝不替用户造句 */
+  transcript: string
+  transcriptIsFinal: boolean
+  asrErrorCode?: string
+}
 /** 坐标映射算法的完整输出，原样透传到 A，不得在下游重算 */
 export interface TouchDetail { touch_point: TouchPoint; viewport_info: ViewportInfo }
 export interface ReaderProps extends PageContext {
@@ -65,7 +78,7 @@ export interface ReaderProps extends PageContext {
   onInteraction: (item: Interaction) => void
   seekTo: number | null
   onSeekHandled: () => void
-  askQuestion: (text: string, videoMs: number, inputMethod?: 'speech' | 'keyboard') => Promise<Interaction>
+  askQuestion: (text: string, videoMs: number, inputMethod?: 'speech' | 'keyboard', voice?: VoiceCapture) => Promise<Interaction>
   identifyTouch: (x: number, y: number, videoMs: number, box: { width: number; height: number }, detail?: TouchDetail) => Promise<Interaction>
 }
 export interface HistoryProps extends PageContext { interactions: Interaction[]; onSeek: (ms: number) => void }

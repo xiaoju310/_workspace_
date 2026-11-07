@@ -56,7 +56,7 @@ bash scripts/check-live-flow.sh 2>&1 | grep -E "Tests |未验证|后端未能启
 [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "✗ 真实后端联调未通过"; fail=1; }
 
 echo "--- 真实浏览器 CDP 门禁：真实 Chrome 鼠标事件走完主流程与黑边拦截 ---"
-node scripts/verify-real-browser-cdp.cjs >/dev/null 2>&1 && echo "真实浏览器 CDP 门禁通过（Google Chrome，全流程+黑边拦截+留痕写入）" || { echo "✗ 真实浏览器 CDP 门禁未通过"; fail=1; }
+node scripts/verify-real-browser-cdp.cjs >/dev/null 2>&1 && echo "真实浏览器 CDP 门禁通过（Google Chrome：全流程+黑边拦截+虚拟麦克风录音+后端留痕直查）" || { echo "✗ 真实浏览器 CDP 门禁未通过"; fail=1; }
 
 [ "$fail" -eq 0 ] && echo "审计通过" || echo "审计未通过"
 exit $fail

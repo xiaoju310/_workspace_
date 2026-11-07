@@ -185,9 +185,37 @@ class CdpClient {
     });
   }
 
+  /** 用真实鼠标事件点击包含指定文字的按钮（先滚动到可见区域） */
+  async clickButtonByText(text) {
+    const rect = await this.evaluate(`(() => {
+      const b = Array.from(document.querySelectorAll('button')).find(x => x.textContent && x.textContent.includes(${JSON.stringify(text)}));
+      if (!b) return null;
+      b.scrollIntoView({ block: 'center' });
+      const r = b.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    })()`);
+    if (!rect) throw new Error(`[门禁失败] 找不到按钮：${text}`);
+    await new Promise((r) => setTimeout(r, 200));
+    await this.click(rect.x, rect.y);
+  }
+
+  /** 真实键盘输入（Input.insertText 走浏览器输入管线，React 能收到 input 事件） */
+  async insertText(text) {
+    await this.send('Input.insertText', { text });
+  }
+
   close() {
     if (this.ws) this.ws.close();
   }
+}
+
+/** 直接查后端（不经过前端），核验留痕是否真的写入 */
+async function fetchInteractions(runId) {
+  const res = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/runs/${encodeURIComponent(runId)}/interactions`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  });
+  if (!res.ok) throw new Error(`[门禁失败] 读取后端交互记录 HTTP ${res.status}`);
+  return res.json();
 }
 
 async function run() {
@@ -237,6 +265,10 @@ async function run() {
         '--disable-gpu',
         '--no-sandbox',
         '--window-size=1440,1200',
+        // Chrome 虚拟麦克风：真实走 getUserMedia + MediaRecorder + WAV 编码（输入是测试音，不是人声）
+        '--use-fake-ui-for-media-stream',
+        '--use-fake-device-for-media-stream',
+        '--autoplay-policy=no-user-gesture-required',
         `--remote-debugging-port=${CDP_PORT}`,
         `--user-data-dir=${userProfile}`,
         `http://127.0.0.1:${FRONTEND_PORT}/#/import`,
@@ -507,7 +539,96 @@ async function run() {
     if (!interactionCard.card.includes('画面里的发现') && !interactionCard.card.includes('点击位置')) {
       throw new Error(`[门禁失败] 画面有效内容点击未生成识别卡片: ${JSON.stringify(interactionCard)}`);
     }
-    log('✓ [PASS] 画面有效内容点击成功生成交互卡片并如实上报后端');
+    log('✓ [PASS] 画面有效内容点击成功生成交互卡片');
+
+    // 4. 不再只看卡片文字：直接查后端，确认触控留痕真的写进去了
+    const runId = await cdp.evaluate(`(() => {
+      const m = (document.querySelector('.run-metadata')?.textContent || '').match(/run_id:\\s*([^\\s·]+)/);
+      return m ? m[1] : null;
+    })()`);
+    if (!runId || runId === '未关联') throw new Error(`[门禁失败] 页面上读不到 run_id: ${runId}`);
+    let records = await fetchInteractions(runId);
+    const touchRec = records.find((r) => r.interaction_type === 'touch');
+    if (!touchRec) throw new Error(`[门禁失败] 后端没有触控留痕: ${JSON.stringify(records)}`);
+    if (!(touchRec.input.norm_x >= 0 && touchRec.input.norm_x <= 1) || touchRec.output.target !== '' || touchRec.output.recognition !== 'not_connected') {
+      throw new Error(`[门禁失败] 触控留痕内容不符合预期: ${JSON.stringify(touchRec)}`);
+    }
+    log(`✓ [PASS] 后端确有触控留痕 (run_id=${runId}, norm=(${touchRec.input.norm_x}, ${touchRec.input.norm_y}), recognition=not_connected)`);
+
+    // ----------------------------------------------------
+    // 步骤 G: 真实录音（虚拟麦克风）→ WAV → 识别 → 提问 → 后端留痕带音频指纹
+    // ----------------------------------------------------
+    log('步骤 G: 真实录音提问链路...');
+    await cdp.clickButtonByText('退出认物');
+    await new Promise((r) => setTimeout(r, 300));
+    // G-1 麦克风权限被拒绝：显式拒绝后点击录音，必须给出权限提示且不进入录音
+    const origin = `http://127.0.0.1:${FRONTEND_PORT}`;
+    await cdp.send('Browser.setPermission', { permission: { name: 'microphone' }, setting: 'denied', origin });
+    await cdp.clickButtonByText('点击录音提问');
+    await new Promise((r) => setTimeout(r, 1200));
+    const deniedState = await cdp.evaluate(`(() => ({
+      recording: Array.from(document.querySelectorAll('button')).some(b => b.textContent && b.textContent.includes('结束录音')),
+      warn: Array.from(document.querySelectorAll('div')).map(d => d.textContent).filter(t => t && t.startsWith('⚠️')).join(' | '),
+    }))()`);
+    if (deniedState.recording || !deniedState.warn.includes('麦克风权限被拒绝')) {
+      throw new Error(`[门禁失败] 麦克风被拒绝时没有如实提示: ${JSON.stringify(deniedState)}`);
+    }
+    log('✓ [PASS] 麦克风权限被拒绝：不进入录音，提示"麦克风权限被拒绝"');
+
+    // G-2 麦克风权限允许：虚拟麦克风真实录音
+    await cdp.send('Browser.setPermission', { permission: { name: 'microphone' }, setting: 'granted', origin });
+    await cdp.clickButtonByText('点击录音提问');
+    await new Promise((r) => setTimeout(r, 2500));
+    await cdp.clickButtonByText('结束录音');
+    // 识别器 stop 最多等 2.5s，WAV 解码再要一点时间
+    let rec = null;
+    for (let i = 0; i < 30; i += 1) {
+      await new Promise((r) => setTimeout(r, 250));
+      rec = await cdp.evaluate(`(() => ({
+        info: Array.from(document.querySelectorAll('span')).map(s => s.textContent).find(t => t && (t.includes('标准 WAV') || t.includes('原始录音'))) || '',
+        hasAudio: Boolean(document.querySelector('audio[src^="blob:"]')),
+        hasDownload: Boolean(Array.from(document.querySelectorAll('a[download]')).find(a => a.textContent.includes('保存录音文件'))),
+        question: document.querySelector('#reader-question')?.value ?? null,
+        err: document.querySelector('.assistant-error')?.textContent || '',
+      }))()`);
+      if (rec.info) break;
+    }
+    log(`录音结果: ${JSON.stringify(rec)}`);
+    if (!rec.info.includes('标准 WAV (16kHz') || !rec.hasAudio || !rec.hasDownload) {
+      throw new Error(`[门禁失败] 录音未生成可回放/可保存的 16kHz WAV: ${JSON.stringify(rec)}`);
+    }
+    log('✓ [PASS] 虚拟麦克风真实录音并编码为 16kHz WAV，可回放、可保存');
+    // 虚拟麦克风是测试音：识别不出文字时，问题框必须保持为空并提示，不能替用户造句
+    const recognized = (rec.question || '').trim();
+    if (!recognized) {
+      if (!rec.err.includes('录音已保存')) throw new Error(`[门禁失败] 识别失败但没有如实提示: ${JSON.stringify(rec)}`);
+      log('✓ [PASS] 测试音未被识别出文字，问题框保持为空并如实提示（未编造问题）');
+    } else {
+      log(`识别器返回了文字（将作为识别原文留痕）: ${recognized}`);
+    }
+
+    // 用户改为打字提问；这段录音应作为样本随提问一起留痕
+    const typedQuestion = '小狐狸收到了什么';
+    await cdp.evaluate(`(() => { const t = document.querySelector('#reader-question'); t.focus(); t.select(); })()`);
+    await cdp.insertText(typedQuestion);
+    await new Promise((r) => setTimeout(r, 200));
+    await cdp.clickButtonByText('问问伴读助手');
+    for (let i = 0; i < 20; i += 1) {
+      await new Promise((r) => setTimeout(r, 300));
+      records = await fetchInteractions(runId);
+      if (records.some((r) => r.interaction_type === 'voice')) break;
+    }
+    const voiceRec = records.find((r) => r.interaction_type === 'voice');
+    if (!voiceRec) throw new Error(`[门禁失败] 提问后后端没有问答留痕: ${JSON.stringify(records)}`);
+    const vi = voiceRec.input;
+    log(`后端问答留痕 input: ${JSON.stringify(vi)}`);
+    if (vi.query !== typedQuestion || vi.audio_present !== true || !/^[0-9a-f]{64}$/.test(vi.audio?.sha256 || '') ||
+        vi.audio.mime_type !== 'audio/wav' || !(vi.audio.size_bytes > 44) || vi.audio.storage !== 'browser_only' ||
+        vi.asr_transcript !== recognized || vi.transcript_edited !== (recognized !== typedQuestion)) {
+      throw new Error(`[门禁失败] 问答留痕的音频/转写字段不符合预期: ${JSON.stringify(vi)}`);
+    }
+    if (typeof voiceRec.output.cache_hit !== 'boolean') throw new Error('[门禁失败] 问答留痕缺少 cache_hit');
+    log(`✓ [PASS] 后端问答留痕带音频指纹 sha256=${vi.audio.sha256.slice(0, 12)}… (${vi.audio.size_bytes} B, ${vi.audio.duration_ms} ms)、识别原文与 cache_hit`);
 
     cdp.close();
     log('=== [SUCCESS] 真实浏览器 CDP 端到端门禁全部通过！===');

@@ -227,3 +227,42 @@ describe('交互留痕必须带 cache_hit（回归项：缓存命中是否真的
     expect(JSON.parse(calls[1].init.body).output.cache_hit).toBe(true);
   });
 });
+
+// ---------------- D1 录音接入提问链路 ----------------
+import { buildVoiceInput } from '../../../lib/api';
+describe('D1 录音随提问留痕：写音频指纹与识别原文，不上传、不冒充', () => {
+  const wav = new Blob([new Uint8Array([82, 73, 70, 70, 1, 2, 3, 4])], { type: 'audio/wav' });
+  it('没有录音：只写 audio_present=false', async () => {
+    expect(await buildVoiceInput(undefined, undefined, '问题')).toEqual({ audio_present: false });
+  });
+  it('有录音：sha256/大小/时长/格式 + 识别原文，标明仅存浏览器', async () => {
+    const v = await buildVoiceInput(wav, { mimeType: 'audio/wav', durationMs: 1830.4, transcript: '小熊钓到了什么', transcriptIsFinal: true }, '小熊钓到了什么');
+    expect(v).toMatchObject({
+      audio_present: true,
+      audio: { mime_type: 'audio/wav', size_bytes: 8, duration_ms: 1830, storage: 'browser_only' },
+      asr_transcript: '小熊钓到了什么',
+      transcript_edited: false,
+    });
+    expect((v as any).audio.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+  it('识别失败后改为打字：识别原文为空、带错误码、标记 edited', async () => {
+    const v: any = await buildVoiceInput(wav, { mimeType: 'audio/wav', durationMs: 900, transcript: '', transcriptIsFinal: true, asrErrorCode: 'TRANSCRIPTION_NETWORK_ERROR' }, '小熊钓到了什么');
+    expect(v).toMatchObject({ asr_transcript: '', asr_error: 'TRANSCRIPTION_NETWORK_ERROR', transcript_edited: true });
+  });
+  it('Live 提问把音频元数据写进后端载荷', async () => {
+    const calls: any[] = [];
+    const fetchImpl = (async (url: string, init: any) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ id: 'i' }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+    const api = new ApiClient({ client: createApiClient('http://localhost:8000', { getToken: () => 'tok', fetch: fetchImpl }) });
+    const idx = new TimeSliceIndexer(buildSlicesFromBook([{ ocr_text: '小熊在河边钓到一条金色的大鱼。' }, { ocr_text: '大鱼说谢谢。' }]));
+    await api.askQuestion({ book_id: 'voice-b', run_id: 'r1', video_ms: 0, query_text: '小熊钓到了什么', input_method: 'speech' }, 'live', wav, {
+      indexer: idx,
+      voice: { mimeType: 'audio/wav', durationMs: 1200, transcript: '小熊钓到了什么', transcriptIsFinal: true },
+    });
+    const body = JSON.parse(calls[0].init.body);
+    expect(body.input).toMatchObject({ input_method: 'speech', audio_present: true, asr_transcript: '小熊钓到了什么' });
+    expect(body.input.audio.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+});

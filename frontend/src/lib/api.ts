@@ -83,6 +83,38 @@ export interface ApiDeps {
 export interface AskContext {
   /** 当前图书的证据索引（由 buildSlicesFromBook 构建）。Live 必须提供，否则只能拒答 */
   indexer?: TimeSliceIndexer;
+  /** 录音提问的元数据（与 audioBlob 一起传入） */
+  voice?: { mimeType: string; durationMs: number; transcript: string; transcriptIsFinal: boolean; asrErrorCode?: string };
+}
+
+/** 音频内容指纹：A 没有音频上传接口，留痕只写指纹，E 用它核对用户导出的原始录音文件 */
+export async function sha256Hex(blob: Blob): Promise<string | null> {
+  const subtle = (globalThis as any).crypto?.subtle;
+  if (!subtle) return null;
+  const digest = await subtle.digest('SHA-256', await blob.arrayBuffer());
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** 构造写入留痕的音频/转写字段（纯函数外壳，供单测直接调用） */
+export async function buildVoiceInput(audioBlob: Blob | undefined, voice: AskContext['voice'], query: string) {
+  if (!audioBlob) return { audio_present: false };
+  return {
+    audio_present: true,
+    audio: {
+      mime_type: voice?.mimeType ?? audioBlob.type ?? '',
+      size_bytes: audioBlob.size,
+      duration_ms: voice ? Math.round(voice.durationMs) : null,
+      sha256: await sha256Hex(audioBlob),
+      // 如实说明：原始音频没有上传到后端
+      storage: 'browser_only',
+    },
+    asr_provider: 'browser_web_speech',
+    asr_transcript: voice?.transcript ?? '',
+    asr_transcript_final: voice?.transcriptIsFinal ?? null,
+    asr_error: voice?.asrErrorCode ?? null,
+    // 用户提交的问题与识别原文不同（手动改过，或识别失败后改为打字）
+    transcript_edited: (voice?.transcript ?? '') !== query,
+  };
 }
 export interface TouchContext {
   /** 当前 run 的时间轴(来自 A)，用于给触控点附上真实字幕依据 */
@@ -178,7 +210,7 @@ export class ApiClient {
         query,
         video_ms: params.video_ms,
         input_method: params.input_method ?? 'keyboard',
-        audio_present: Boolean(audioBlob),
+        ...(await buildVoiceInput(audioBlob, ctx.voice, query)),
       },
       {
         answer: data.answer,

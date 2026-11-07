@@ -17,14 +17,25 @@ const ASR_ERROR_TEXT: Partial<Record<AsrErrorCode, string>> = {
   TRANSCRIPTION_TIMEOUT: '语音识别没有按时结束，已强制停止。请重试或直接打字提问。',
 };
 
+export interface RecordingMeta {
+  durationMs: number;
+  /** 识别结果是否全部定稿；false 时调用方必须让用户确认 */
+  transcriptIsFinal: boolean;
+  /** 识别失败的错误码（例如 TRANSCRIPTION_NETWORK_ERROR）；成功为 undefined */
+  asrErrorCode?: AsrErrorCode;
+}
+
 interface AudioRecorderProps {
-  onRecordingComplete: (audioBlob: Blob, mimeType: string, realTranscript: string) => void;
+  onRecordingComplete: (audioBlob: Blob, mimeType: string, realTranscript: string, meta: RecordingMeta) => void;
+  /** 录音开始/结束时通知父组件（用于禁用提交按钮） */
+  onRecordingChange?: (recording: boolean) => void;
   disabled?: boolean;
   maxDurationSec?: number;
 }
 
 export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   onRecordingComplete,
+  onRecordingChange,
   disabled = false,
   maxDurationSec = 15,
 }) => {
@@ -46,6 +57,13 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const mountedRef = useRef(true);
   const startingRef = useRef(false);
   const audioUrlRef = useRef<string | null>(null);
+  const startedAtRef = useRef(0);
+  const [lastAudioName, setLastAudioName] = useState('recording.wav');
+  const onChangeRef = useRef(onRecordingChange);
+  onChangeRef.current = onRecordingChange;
+  useEffect(() => {
+    onChangeRef.current?.(isRecording);
+  }, [isRecording]);
 
   /** 替换回放地址时释放旧的 Blob URL；旧实现每录一次泄漏一段音频内存 */
   const replaceAudioUrl = useCallback((blob: Blob) => {
@@ -167,15 +185,22 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         if (!mountedRef.current) return;
         setIsRecording(false);
 
+        const durationMs = Math.max(0, performance.now() - startedAtRef.current);
         // 获取最终识别的文本
         let finalTranscript = '';
+        let transcriptIsFinal = true;
+        let asrErrorCode: AsrErrorCode | undefined = realSpeechRecognizer.isSupported() ? undefined : 'FORMAT_UNSUPPORTED';
         if (realSpeechRecognizer.isSupported()) {
           const stopped = await realSpeechRecognizer.stopDetailed();
           finalTranscript = stopped.text;
+          transcriptIsFinal = stopped.isFinal;
+          asrErrorCode = stopped.errorCode;
           if (!stopped.text && stopped.errorCode && stopped.errorCode !== 'NO_SPEECH_DETECTED') {
             setErrorMsg(ASR_ERROR_TEXT[stopped.errorCode] ?? null);
           }
         }
+        if (!mountedRef.current) return;
+        const meta: RecordingMeta = { durationMs, transcriptIsFinal, asrErrorCode };
 
         if (audioChunksRef.current.length === 0) {
           setErrorMsg('未采集到有效音频数据，请对准麦克风重试');
@@ -204,16 +229,19 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         if (!mountedRef.current) return;
         if (wavBlob) {
           replaceAudioUrl(wavBlob);
+          setLastAudioName(`recording-${Date.now()}.wav`);
           setLastAudioInfo(`标准 WAV (16kHz, ${(wavBlob.size / 1024).toFixed(1)} KB)`);
-          onRecordingComplete(wavBlob, 'audio/wav', finalTranscript);
+          onRecordingComplete(wavBlob, 'audio/wav', finalTranscript, meta);
         } else {
           replaceAudioUrl(rawBlob);
+          setLastAudioName(`recording-${Date.now()}.${(recorder.mimeType || 'audio/webm').includes('mp4') ? 'm4a' : 'webm'}`);
           setLastAudioInfo(`原始录音 (${(rawBlob.size / 1024).toFixed(1)} KB，WAV 转码失败：${decodeError})`);
-          onRecordingComplete(rawBlob, recorder.mimeType || 'audio/webm', finalTranscript);
+          onRecordingComplete(rawBlob, recorder.mimeType || 'audio/webm', finalTranscript, meta);
         }
       };
 
       recorder.start(250);
+      startedAtRef.current = performance.now();
       setIsRecording(true);
       setDuration(0);
 
@@ -282,7 +310,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               backgroundColor: '#fff',
             }}
           />
-          {isRecording ? `结束录音 (${duration}s / ${maxDurationSec}s)` : '🎤 按住说话 / 点击提问'}
+          {isRecording ? `结束录音 (${duration}s / ${maxDurationSec}s)` : '🎤 点击录音提问'}
         </button>
 
         {isRecording && (
@@ -314,6 +342,10 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           <span>🎧 刚才录音回放:</span>
           <audio src={lastAudioUrl} controls style={{ height: '26px', maxWidth: '200px' }} />
           <span>{lastAudioInfo}</span>
+          {/* 后端没有音频上传接口：原始录音只在本机，需要交给 E 验收时从这里保存 */}
+          <a href={lastAudioUrl} download={lastAudioName} style={{ color: '#2563eb' }}>
+            保存录音文件
+          </a>
         </div>
       )}
 

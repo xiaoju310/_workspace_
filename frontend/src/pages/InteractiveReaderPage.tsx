@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
-import type { Interaction, ReaderProps, Source, TouchDetail } from '../app/types'
+import type { Interaction, ReaderProps, Source, TouchDetail, VoiceCapture } from '../app/types'
 import { Badge, Button, Icon } from '../components/ui'
 import { calculateImageTouchCoordinates, calculateVideoTouchCoordinates } from '../features/interaction/VideoCoordinateMapper'
-import { asrManager, getSpeechRecognizer } from '../features/interaction/asr/AsrProvider'
-import type { RealBrowserSpeechRecognition } from '../features/interaction/asr/AsrProvider'
+import { AudioRecorder } from '../features/interaction/AudioRecorder'
+import type { RecordingMeta } from '../features/interaction/AudioRecorder'
 import { TtsPlayerWidget } from '../features/interaction/tts/TtsPlayerWidget'
 
 export function formatTime(ms: number) {
@@ -38,7 +38,7 @@ export default function InteractiveReaderPage({
   // 重试必须重放"完全相同"的请求：旧实现重试触控时丢掉了 touch_point/viewport_info（Live 直接报错），
   // 重试提问时 inputMethod 已被提交时重置，语音提问会被记成键盘输入
   const [lastAction, setLastAction] = useState<
-    | { kind: 'question'; text: string; inputMethod: 'speech' | 'keyboard' }
+    | { kind: 'question'; text: string; inputMethod: 'speech' | 'keyboard'; voice?: VoiceCapture }
     | { kind: 'touch'; x: number; y: number; box: { width: number; height: number }; detail?: TouchDetail }
     | null
   >(null)
@@ -46,12 +46,13 @@ export default function InteractiveReaderPage({
   // 视频元数据未就绪前到达的跳转（例如从历史记录回到 50 秒）：先挂起，拿到真实时长后再执行
   const pendingSeek = useRef<number | null>(null)
 
-  // 真实语音录音与普通话识别 (C 负责人交付)
+  // 真实录音提问（D1）：AudioRecorder 同时录制 16kHz WAV 并调用浏览器普通话识别。
+  // 旧实现阅读页只调用识别器、从不录音，AudioRecorder 组件写好了却没有任何页面引用。
   const [isRecording, setIsRecording] = useState(false)
   const [voiceInput, setVoiceInput] = useState(false)
-  const [recordingTip, setRecordingTip] = useState<string | null>(null)
   const [ttsFirstAudioMs, setTtsFirstAudioMs] = useState<number | null>(null)
-  const speechRecognizerRef = useRef<RealBrowserSpeechRecognition | null>(null)
+  /** 最近一次录音；随下一次提问一起提交（即使识别失败、用户改为打字，原始音频也作为失败样本留痕） */
+  const pendingVoice = useRef<VoiceCapture | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
@@ -67,38 +68,17 @@ export default function InteractiveReaderPage({
   const currentInteractions = interactions.filter((item) => item.book_id === book.id && (!book.run_id || item.run_id === book.run_id))
   const latest = result ?? currentInteractions[0]
 
+
   useEffect(() => {
     mounted.current = true
-    const rec = getSpeechRecognizer()
-    speechRecognizerRef.current = rec
-    const unsubscribe = rec.subscribe((event) => {
-      if (!mounted.current) return
-      if (event.type === 'error') {
-        setIsRecording(false)
-        setRecordingTip(null)
-        if (event.errorCode === 'MICROPHONE_DENIED') {
-          setError('麦克风或语音识别权限被拒绝，已停止聆听。请在浏览器中允许权限后重试，或直接使用键盘输入。')
-        } else if (event.errorCode === 'TRANSCRIPTION_NETWORK_ERROR') {
-          setError('语音识别服务网络连接失败（Chrome Web Speech 依赖在线服务），已停止聆听。请改用键盘输入。')
-        } else {
-          setError('麦克风录音或识别异常，已停止聆听。请重试或使用键盘输入。')
-        }
-      } else if (event.type === 'end') {
-        setIsRecording(false)
-        setRecordingTip(null)
-      }
-    })
     return () => {
       mounted.current = false
-      unsubscribe()
-      if (speechRecognizerRef.current) {
-        speechRecognizerRef.current.stop().catch(() => {})
-      }
     }
   }, [])
 
   useEffect(() => {
     requestVersion.current += 1
+    pendingVoice.current = null
     setBusy(null)
     setPlaying(false)
     setTimeMs(0)
@@ -143,6 +123,12 @@ export default function InteractiveReaderPage({
   }, [seekTo, durationMs, onSeekHandled, isVideo, metadataReady])
 
   function seek(value: number) {
+    if (isVideo && !metadataReady) {
+      // 时长未知时不能按 36 秒占位值截断；等元数据到达后再执行
+      pendingSeek.current = Math.max(0, value)
+      setTimeMs(Math.max(0, value))
+      return
+    }
     const next = Math.max(0, Math.min(durationMs, value))
     setTimeMs(next)
     if (videoRef.current) videoRef.current.currentTime = next / 1000
@@ -170,7 +156,7 @@ export default function InteractiveReaderPage({
     }
   }
 
-  async function ask(text: string, inputMethod: 'speech' | 'keyboard' = 'keyboard') {
+  async function ask(text: string, inputMethod: 'speech' | 'keyboard' = 'keyboard', voice?: VoiceCapture) {
     if (busy) return
     const trimmed = text.trim()
     if (!trimmed) {
@@ -180,10 +166,10 @@ export default function InteractiveReaderPage({
     setBusy('question')
     setError('')
     setTtsFirstAudioMs(null)
-    setLastAction({ kind: 'question', text: trimmed, inputMethod })
+    setLastAction({ kind: 'question', text: trimmed, inputMethod, voice })
     const version = requestVersion.current
     try {
-      const item = await askQuestion(trimmed, currentTime.current, inputMethod)
+      const item = await askQuestion(trimmed, currentTime.current, inputMethod, voice)
       if (mounted.current && requestVersion.current === version) {
         setResult(item)
         setTtsFirstAudioMs(null)
@@ -253,43 +239,24 @@ export default function InteractiveReaderPage({
     )
   }
 
-  // 真实普通话语音识别开始 / 停止控制
-  const handleToggleVoiceRecord = async () => {
-    const rec = speechRecognizerRef.current
-    if (isRecording) {
-      if (!rec) return
-      const stopped = await rec.stopDetailed()
-      setIsRecording(false)
-      setRecordingTip(null)
-      const asr = await asrManager.processSpeechRecognition(stopped.text, appMode, {
-        confidence: stopped.confidence,
-        errorCode: stopped.errorCode,
-      })
-      if (asr.errorCode === 'MICROPHONE_DENIED') {
-        setError('麦克风或语音识别权限被拒绝，请在浏览器中允许后重试，或直接键盘输入。')
-      } else if (asr.errorCode === 'TRANSCRIPTION_NETWORK_ERROR') {
-        setError('语音识别服务无法连接（Chrome 的识别依赖在线服务），请改用 Edge/Safari 或键盘输入。')
-      } else if (!asr.text) {
-        setError('未能识别到有效语音。请说话清晰些后重试，系统不会自动编造问题。')
-      } else {
-        setQuestion(asr.text)
-        setVoiceInput(true)
-        notify(stopped.isFinal ? `已识别到语音：“${asr.text}”，请确认后提交。` : `识别结果可能不完整：“${asr.text}”，请核对后再提交。`)
-      }
+
+  function handleRecording(blob: Blob, mimeType: string, transcript: string, meta: RecordingMeta) {
+    const text = transcript.trim()
+    pendingVoice.current = { blob, mimeType, durationMs: meta.durationMs, transcript: text, transcriptIsFinal: meta.transcriptIsFinal, asrErrorCode: meta.asrErrorCode }
+    if (!text) {
+      // 不替用户造句：识别失败只提示，录音仍会作为失败样本随下一次打字提问留痕
+      setVoiceInput(false)
+      setError(
+        meta.asrErrorCode && meta.asrErrorCode !== 'NO_SPEECH_DETECTED'
+          ? '录音已保存，但语音识别失败。请直接打字提问，这段录音会作为识别失败样本一起记录。'
+          : '录音已保存，但没有识别到有效语音。请说清楚些重试，或直接打字提问。'
+      )
       return
     }
     setError('')
-    if (!rec || !rec.isSupported()) {
-      setError('当前浏览器不支持普通话语音识别，请使用 Chrome / Edge / Safari，或使用键盘输入。')
-      return
-    }
-    const started = rec.start()
-    if (started !== true) {
-      setError('语音识别未能启动，请检查麦克风权限后重试，或使用键盘输入。')
-      return
-    }
-    setIsRecording(true)
-    setRecordingTip('正在聆听中… 请对着麦克风说出你的提问')
+    setQuestion(text)
+    setVoiceInput(true)
+    notify(meta.transcriptIsFinal ? `已识别到语音：“${text}”，请确认后提交。` : `识别结果可能不完整：“${text}”，请核对后再提交。`)
   }
 
   function goSource(source: Source) {
@@ -412,6 +379,11 @@ export default function InteractiveReaderPage({
                 onPause={() => setPlaying(false)}
                 onPlay={() => setPlaying(true)}
                 onError={() => {
+                  // 视频加载失败：挂起的跳转永远不会执行，必须丢弃并让用户知道
+                  if (pendingSeek.current !== null) {
+                    pendingSeek.current = null
+                    setError('视频加载失败，未能跳转到历史记录对应的时间点。')
+                  }
                   setVideoError(true)
                   setPlaying(false)
                 }}
@@ -542,7 +514,9 @@ export default function InteractiveReaderPage({
           <form
             onSubmit={(event) => {
               event.preventDefault()
-              void ask(question, voiceInput ? 'speech' : 'keyboard')
+              const voice = pendingVoice.current ?? undefined
+              pendingVoice.current = null
+              void ask(question, voiceInput ? 'speech' : 'keyboard', voice)
               setVoiceInput(false)
             }}
           >
@@ -556,34 +530,9 @@ export default function InteractiveReaderPage({
               disabled={Boolean(busy) || isRecording}
             />
 
-            {/* 真实语音识别控制栏 (C 真实交付) */}
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-              <button
-                type="button"
-                onClick={handleToggleVoiceRecord}
-                disabled={Boolean(busy)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  backgroundColor: isRecording ? '#ef4444' : '#2563eb',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  animation: isRecording ? 'pulse 1.5s infinite' : 'none',
-                }}
-              >
-                {isRecording ? '⏹ 停止录音并识别' : '🎙️ 麦克风录音提问'}
-              </button>
-              {recordingTip && (
-                <span style={{ fontSize: '12px', color: '#0284c7', alignSelf: 'center' }}>
-                  {recordingTip}
-                </span>
-              )}
+            {/* 真实录音提问 (D1)：录音 + 浏览器普通话识别，录音可回放/保存 */}
+            <div style={{ marginBottom: '10px' }}>
+              <AudioRecorder onRecordingComplete={handleRecording} onRecordingChange={setIsRecording} disabled={Boolean(busy)} />
             </div>
 
             <div className="question-options">
@@ -615,7 +564,7 @@ export default function InteractiveReaderPage({
               {lastAction && (
                 <button
                   onClick={() => {
-                    if (lastAction.kind === 'question') void ask(lastAction.text, lastAction.inputMethod)
+                    if (lastAction.kind === 'question') void ask(lastAction.text, lastAction.inputMethod, lastAction.voice)
                     else void touch(lastAction.x, lastAction.y, lastAction.box, lastAction.detail)
                   }}
                   disabled={Boolean(busy)}

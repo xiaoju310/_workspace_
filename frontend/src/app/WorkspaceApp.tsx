@@ -11,7 +11,7 @@ import ShareNotePage from '../pages/ShareNotePage'
 import SharedNotePage from '../pages/SharedNotePage'
 import SettingsPage from '../pages/SettingsPage'
 import { initialBooks, initialNotes, emptyJob, jobStages, originalPages } from '../mock/workspace'
-import type { ImportedBookInput, Interaction, JobState, Page, ReadingBook, ReadingNote, ShareGrant, Source, TouchDetail } from './types'
+import type { ImportedBookInput, Interaction, JobState, Page, ReadingBook, ReadingNote, ShareGrant, Source, TouchDetail, VoiceCapture } from './types'
 import type { PreviewState } from '../features/books/types'
 import type { AppMode } from '../types/interaction'
 import { Icon } from '../components/ui'
@@ -339,7 +339,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   }
 
   // 智能伴读提问：Live 严格按"当前这本书"的校对文字检索；无依据如实拒答；不使用任何内置故事。
-  async function question(text:string,videoMs:number,inputMethod:'speech'|'keyboard'='keyboard'):Promise<Interaction>{
+  async function question(text:string,videoMs:number,inputMethod:'speech'|'keyboard'='keyboard',voice?:VoiceCapture):Promise<Interaction>{
     if(appMode === 'live') {
       if(!book.server_book_id)throw new Error('这本书是本地数据，没有在后端建档，真实模式下不能提问或留痕。请切换到演示模式，或填好令牌后重新导入。')
       if(!book.run_id)throw new Error('这本书还没有生成运行任务(run_id)，暂时无法提问留痕。请先完成校对与生成。')
@@ -348,8 +348,8 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
       const resp = await apiClient.askQuestion(
         {book_id: book.id, run_id: book.run_id, query_text: text, video_ms: videoMs, input_method: inputMethod},
         'live',
-        undefined,
-        {indexer}
+        voice?.blob,
+        {indexer,voice:voice?{mimeType:voice.mimeType,durationMs:voice.durationMs,transcript:voice.transcript,transcriptIsFinal:voice.transcriptIsFinal,asrErrorCode:voice.asrErrorCode}:undefined}
       )
       if(resp.persisted===false)notify(`回答已生成，但未能写入后端：${resp.persist_error ?? '未知原因'}`)
       return {
@@ -358,7 +358,8 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
         run_id: book.run_id,
         kind: 'question',
         question: text,
-        transcript: inputMethod==='speech'?text:'',
+        // 显示识别原文（可能与提交的问题不同），而不是把问题本身冒充成转写
+        transcript: voice?.transcript ?? '',
         answer: resp.answer,
         video_ms: videoMs,
         sources: (resp.evidence || []).map((ev) => ({
@@ -383,7 +384,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     const target=/朋友|小熊|回信/.test(text)?book.pages.findIndex(p=>p.ocr_text.includes('小熊')):/哪里|森林|去/.test(text)?book.pages.findIndex(p=>p.ocr_text.includes('走进森林')):Math.min(book.pages.length-1,Math.floor(videoMs/12000))
     const excerpt=book.pages[target]?.ocr_text??''
     const uncertain=!/信|狐狸|朋友|小熊|森林|哪里|这页|勇气/.test(text)||!excerpt
-    return{id:uid('interaction'),book_id:book.id,run_id:book.run_id??'unstarted',kind:'question',question:text,transcript:text,answer:uncertain?'这段演示内容里还没有足够依据，我不确定。请结合书页确认。':`演示引用：第 ${target+1} 页写道：“${excerpt.slice(0,180)}” 这是按关键词展示的原文，未调用问答模型。`,video_ms:videoMs,sources:uncertain?[]:[{source:'original_page',page_no:target+1,start_ms:null,end_ms:null,quote:excerpt}],latency_ms:null,created_at:timestamp(),uncertain,origin:'mock',cached:false}
+    return{id:uid('interaction'),book_id:book.id,run_id:book.run_id??'unstarted',kind:'question',question:text,transcript:voice?.transcript??'',answer:uncertain?'这段演示内容里还没有足够依据，我不确定。请结合书页确认。':`演示引用：第 ${target+1} 页写道：“${excerpt.slice(0,180)}” 这是按关键词展示的原文，未调用问答模型。`,video_ms:videoMs,sources:uncertain?[]:[{source:'original_page',page_no:target+1,start_ms:null,end_ms:null,quote:excerpt}],latency_ms:null,created_at:timestamp(),uncertain,origin:'mock',cached:false}
   }
 
   // 触控识别：坐标映射算法的完整输出(touch_point/viewport_info)原样透传；无视觉模型时如实 uncertain。

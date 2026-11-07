@@ -166,3 +166,33 @@ build ok
 尚未完成：真实 ASR/TTS；真实视觉识别；真实视频端到端验证；授权素材批量评测；正式准确率与延迟统计。
 Demo 夹具（单本示例书）上的检索召回为 8/15，不代表任意图书。
 ```
+
+---
+
+## 五、补充整改（复核后追加，提交于本节之后）
+
+**更正：** 上文 P1-4/P1-5 修的 `AudioRecorder.tsx` 当时是没有任何页面引用的死代码；阅读页语音提问从不录音。队长清单"浏览器录音和 WAV 音频导出已完成"应理解为"组件已写，未接入主流程"。`InteractionHistoryPanel.tsx` 同样无人引用（历史页使用 `HistoryPage.tsx`），本次未改动它。
+
+| # | 问题 | 修复 |
+|---|---|---|
+| E-026 | 录音组件未接入；`askQuestion` 音频参数固定 `undefined`；`audio_present` 永远 false；Live/Demo 都把提交的问题冒充为"语音转写" | 阅读页改用 `AudioRecorder`；录音随下一次提问提交；留痕写音频 sha256/大小/时长/格式、`storage: browser_only`、识别原文、识别错误码、`transcript_edited`；录音可保存给 E；识别失败不替用户造句 |
+| E-027 | CDP 门禁宣称"留痕写入"但只看页面文字 | 门禁直接查后端 `/api/runs/{run_id}/interactions` 核验两条留痕 |
+| — | 视频加载失败时挂起的跳转永不执行；进度条在元数据到达前仍截到 36 秒 | 失败时丢弃并提示；拖动同样挂起 |
+
+**CDP 门禁新增步骤的真实输出：**
+
+```text
+✓ [PASS] 后端确有触控留痕 (run_id=4eaf5480-…, norm=(0.4977, 0.4992), recognition=not_connected)
+✓ [PASS] 麦克风权限被拒绝：不进入录音，提示"麦克风权限被拒绝"
+录音结果: {"info":"标准 WAV (16kHz, 78.8 KB)","hasAudio":true,"hasDownload":true,"question":"", ...}
+✓ [PASS] 虚拟麦克风真实录音并编码为 16kHz WAV，可回放、可保存
+✓ [PASS] 测试音未被识别出文字，问题框保持为空并如实提示（未编造问题）
+后端问答留痕 input: {"query":"小狐狸收到了什么","input_method":"keyboard","audio_present":true,
+  "audio":{"mime_type":"audio/wav","size_bytes":80684,"duration_ms":2530,"sha256":"3289810d…","storage":"browser_only"},
+  "asr_provider":"browser_web_speech","asr_transcript":"","asr_error":"NO_SPEECH_DETECTED","transcript_edited":true}
+✓ [PASS] 后端问答留痕带音频指纹、识别原文与 cache_hit
+```
+
+变异自检：把 `voice?.blob` 改回 `undefined` → CDP 失败（"问答留痕的音频/转写字段不符合预期"）。最终 `audit.sh`：155 单测通过 + 2 跳过、真实后端 2/2、CDP 通过、审计通过。
+
+**仍未完成：** 虚拟麦克风输入是测试音，识别器没有可识别的人声——真人普通话、儿童口音/停顿的识别效果没有测过；音频没有上传到后端（A 无接口），也没有接入服务端 ASR；真实 TTS/视觉模型与授权素材仍依赖 A/B/E。

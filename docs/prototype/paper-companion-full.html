@@ -1053,7 +1053,7 @@ function WorkspaceApp({ appMode = 'live' }) {
         }
     }
     // 智能伴读提问：Live 严格按"当前这本书"的校对文字检索；无依据如实拒答；不使用任何内置故事。
-    async function question(text, videoMs, inputMethod = 'keyboard') {
+    async function question(text, videoMs, inputMethod = 'keyboard', voice) {
         if (appMode === 'live') {
             if (!book.server_book_id)
                 throw new Error('这本书是本地数据，没有在后端建档，真实模式下不能提问或留痕。请切换到演示模式，或填好令牌后重新导入。');
@@ -1061,7 +1061,7 @@ function WorkspaceApp({ appMode = 'live' }) {
                 throw new Error('这本书还没有生成运行任务(run_id)，暂时无法提问留痕。请先完成校对与生成。');
             const segments = await loadSegments(book.run_id);
             const indexer = new TimeSliceIndexer_1.TimeSliceIndexer((0, buildSlices_1.buildSlicesFromBook)(book.pages, segments));
-            const resp = await api_1.apiClient.askQuestion({ book_id: book.id, run_id: book.run_id, query_text: text, video_ms: videoMs, input_method: inputMethod }, 'live', undefined, { indexer });
+            const resp = await api_1.apiClient.askQuestion({ book_id: book.id, run_id: book.run_id, query_text: text, video_ms: videoMs, input_method: inputMethod }, 'live', voice?.blob, { indexer, voice: voice ? { mimeType: voice.mimeType, durationMs: voice.durationMs, transcript: voice.transcript, transcriptIsFinal: voice.transcriptIsFinal, asrErrorCode: voice.asrErrorCode } : undefined });
             if (resp.persisted === false)
                 notify(`回答已生成，但未能写入后端：${resp.persist_error ?? '未知原因'}`);
             return {
@@ -1070,7 +1070,8 @@ function WorkspaceApp({ appMode = 'live' }) {
                 run_id: book.run_id,
                 kind: 'question',
                 question: text,
-                transcript: inputMethod === 'speech' ? text : '',
+                // 显示识别原文（可能与提交的问题不同），而不是把问题本身冒充成转写
+                transcript: voice?.transcript ?? '',
                 answer: resp.answer,
                 video_ms: videoMs,
                 sources: (resp.evidence || []).map((ev) => ({
@@ -1094,7 +1095,7 @@ function WorkspaceApp({ appMode = 'live' }) {
         const target = /朋友|小熊|回信/.test(text) ? book.pages.findIndex(p => p.ocr_text.includes('小熊')) : /哪里|森林|去/.test(text) ? book.pages.findIndex(p => p.ocr_text.includes('走进森林')) : Math.min(book.pages.length - 1, Math.floor(videoMs / 12000));
         const excerpt = book.pages[target]?.ocr_text ?? '';
         const uncertain = !/信|狐狸|朋友|小熊|森林|哪里|这页|勇气/.test(text) || !excerpt;
-        return { id: uid('interaction'), book_id: book.id, run_id: book.run_id ?? 'unstarted', kind: 'question', question: text, transcript: text, answer: uncertain ? '这段演示内容里还没有足够依据，我不确定。请结合书页确认。' : `演示引用：第 ${target + 1} 页写道：“${excerpt.slice(0, 180)}” 这是按关键词展示的原文，未调用问答模型。`, video_ms: videoMs, sources: uncertain ? [] : [{ source: 'original_page', page_no: target + 1, start_ms: null, end_ms: null, quote: excerpt }], latency_ms: null, created_at: timestamp(), uncertain, origin: 'mock', cached: false };
+        return { id: uid('interaction'), book_id: book.id, run_id: book.run_id ?? 'unstarted', kind: 'question', question: text, transcript: voice?.transcript ?? '', answer: uncertain ? '这段演示内容里还没有足够依据，我不确定。请结合书页确认。' : `演示引用：第 ${target + 1} 页写道：“${excerpt.slice(0, 180)}” 这是按关键词展示的原文，未调用问答模型。`, video_ms: videoMs, sources: uncertain ? [] : [{ source: 'original_page', page_no: target + 1, start_ms: null, end_ms: null, quote: excerpt }], latency_ms: null, created_at: timestamp(), uncertain, origin: 'mock', cached: false };
     }
     // 触控识别：坐标映射算法的完整输出(touch_point/viewport_info)原样透传；无视觉模型时如实 uncertain。
     async function touch(x, y, videoMs, box, detail) {
@@ -1972,7 +1973,7 @@ const ASR_ERROR_TEXT = {
     FORMAT_UNSUPPORTED: '当前浏览器不支持普通话语音识别，请使用 Chrome/Edge/Safari 或直接打字提问。',
     TRANSCRIPTION_TIMEOUT: '语音识别没有按时结束，已强制停止。请重试或直接打字提问。',
 };
-const AudioRecorder = ({ onRecordingComplete, disabled = false, maxDurationSec = 15, }) => {
+const AudioRecorder = ({ onRecordingComplete, onRecordingChange, disabled = false, maxDurationSec = 15, }) => {
     const [isRecording, setIsRecording] = (0, react_1.useState)(false);
     const [duration, setDuration] = (0, react_1.useState)(0);
     const [volume, setVolume] = (0, react_1.useState)(0);
@@ -1990,6 +1991,13 @@ const AudioRecorder = ({ onRecordingComplete, disabled = false, maxDurationSec =
     const mountedRef = (0, react_1.useRef)(true);
     const startingRef = (0, react_1.useRef)(false);
     const audioUrlRef = (0, react_1.useRef)(null);
+    const startedAtRef = (0, react_1.useRef)(0);
+    const [lastAudioName, setLastAudioName] = (0, react_1.useState)('recording.wav');
+    const onChangeRef = (0, react_1.useRef)(onRecordingChange);
+    onChangeRef.current = onRecordingChange;
+    (0, react_1.useEffect)(() => {
+        onChangeRef.current?.(isRecording);
+    }, [isRecording]);
     /** 替换回放地址时释放旧的 Blob URL；旧实现每录一次泄漏一段音频内存 */
     const replaceAudioUrl = (0, react_1.useCallback)((blob) => {
         if (audioUrlRef.current)
@@ -2109,15 +2117,23 @@ const AudioRecorder = ({ onRecordingComplete, disabled = false, maxDurationSec =
                 if (!mountedRef.current)
                     return;
                 setIsRecording(false);
+                const durationMs = Math.max(0, performance.now() - startedAtRef.current);
                 // 获取最终识别的文本
                 let finalTranscript = '';
+                let transcriptIsFinal = true;
+                let asrErrorCode = realSpeechRecognizer.isSupported() ? undefined : 'FORMAT_UNSUPPORTED';
                 if (realSpeechRecognizer.isSupported()) {
                     const stopped = await realSpeechRecognizer.stopDetailed();
                     finalTranscript = stopped.text;
+                    transcriptIsFinal = stopped.isFinal;
+                    asrErrorCode = stopped.errorCode;
                     if (!stopped.text && stopped.errorCode && stopped.errorCode !== 'NO_SPEECH_DETECTED') {
                         setErrorMsg(ASR_ERROR_TEXT[stopped.errorCode] ?? null);
                     }
                 }
+                if (!mountedRef.current)
+                    return;
+                const meta = { durationMs, transcriptIsFinal, asrErrorCode };
                 if (audioChunksRef.current.length === 0) {
                     setErrorMsg('未采集到有效音频数据，请对准麦克风重试');
                     return;
@@ -2147,16 +2163,19 @@ const AudioRecorder = ({ onRecordingComplete, disabled = false, maxDurationSec =
                     return;
                 if (wavBlob) {
                     replaceAudioUrl(wavBlob);
+                    setLastAudioName(`recording-${Date.now()}.wav`);
                     setLastAudioInfo(`标准 WAV (16kHz, ${(wavBlob.size / 1024).toFixed(1)} KB)`);
-                    onRecordingComplete(wavBlob, 'audio/wav', finalTranscript);
+                    onRecordingComplete(wavBlob, 'audio/wav', finalTranscript, meta);
                 }
                 else {
                     replaceAudioUrl(rawBlob);
+                    setLastAudioName(`recording-${Date.now()}.${(recorder.mimeType || 'audio/webm').includes('mp4') ? 'm4a' : 'webm'}`);
                     setLastAudioInfo(`原始录音 (${(rawBlob.size / 1024).toFixed(1)} KB，WAV 转码失败：${decodeError})`);
-                    onRecordingComplete(rawBlob, recorder.mimeType || 'audio/webm', finalTranscript);
+                    onRecordingComplete(rawBlob, recorder.mimeType || 'audio/webm', finalTranscript, meta);
                 }
             };
             recorder.start(250);
+            startedAtRef.current = performance.now();
             setIsRecording(true);
             setDuration(0);
             let sec = 0;
@@ -2218,7 +2237,7 @@ const AudioRecorder = ({ onRecordingComplete, disabled = false, maxDurationSec =
                         borderRadius: isRecording ? '2px' : '50%',
                         backgroundColor: '#fff',
                     } }),
-                isRecording ? `结束录音 (${duration}s / ${maxDurationSec}s)` : '🎤 按住说话 / 点击提问'),
+                isRecording ? `结束录音 (${duration}s / ${maxDurationSec}s)` : '🎤 点击录音提问'),
             isRecording && (react_1.default.createElement("div", { style: { display: 'flex', alignItems: 'center', gap: '3px', height: '24px' } }, [0.2, 0.5, 0.9, 0.6, 0.3].map((scale, i) => (react_1.default.createElement("span", { key: i, style: {
                     width: '4px',
                     backgroundColor: '#ef4444',
@@ -2233,7 +2252,8 @@ const AudioRecorder = ({ onRecordingComplete, disabled = false, maxDurationSec =
         lastAudioUrl && (react_1.default.createElement("div", { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#64748b' } },
             react_1.default.createElement("span", null, "\uD83C\uDFA7 \u521A\u624D\u5F55\u97F3\u56DE\u653E:"),
             react_1.default.createElement("audio", { src: lastAudioUrl, controls: true, style: { height: '26px', maxWidth: '200px' } }),
-            react_1.default.createElement("span", null, lastAudioInfo))),
+            react_1.default.createElement("span", null, lastAudioInfo),
+            react_1.default.createElement("a", { href: lastAudioUrl, download: lastAudioName, style: { color: '#2563eb' } }, "\u4FDD\u5B58\u5F55\u97F3\u6587\u4EF6"))),
         errorMsg && (react_1.default.createElement("div", { style: {
                 color: '#dc2626',
                 fontSize: '13px',
@@ -4039,6 +4059,8 @@ exports.apiClient = exports.ApiClient = exports.PRODUCER = void 0;
 exports.buildInteractionPayload = buildInteractionPayload;
 exports.toBackendBookType = toBackendBookType;
 exports.fromBackendBookType = fromBackendBookType;
+exports.sha256Hex = sha256Hex;
+exports.buildVoiceInput = buildVoiceInput;
 const client_1 = require("../api/client");
 const TimeSliceIndexer_1 = require("../features/interaction/indexing/TimeSliceIndexer");
 const PictureBookRagEngine_1 = require("../features/interaction/qa/PictureBookRagEngine");
@@ -4096,6 +4118,36 @@ function fromBackendBookType(type) {
         case 'science': return 'nonfiction';
         default: return 'unknown';
     }
+}
+/** 音频内容指纹：A 没有音频上传接口，留痕只写指纹，E 用它核对用户导出的原始录音文件 */
+async function sha256Hex(blob) {
+    const subtle = globalThis.crypto?.subtle;
+    if (!subtle)
+        return null;
+    const digest = await subtle.digest('SHA-256', await blob.arrayBuffer());
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+/** 构造写入留痕的音频/转写字段（纯函数外壳，供单测直接调用） */
+async function buildVoiceInput(audioBlob, voice, query) {
+    if (!audioBlob)
+        return { audio_present: false };
+    return {
+        audio_present: true,
+        audio: {
+            mime_type: voice?.mimeType ?? audioBlob.type ?? '',
+            size_bytes: audioBlob.size,
+            duration_ms: voice ? Math.round(voice.durationMs) : null,
+            sha256: await sha256Hex(audioBlob),
+            // 如实说明：原始音频没有上传到后端
+            storage: 'browser_only',
+        },
+        asr_provider: 'browser_web_speech',
+        asr_transcript: voice?.transcript ?? '',
+        asr_transcript_final: voice?.transcriptIsFinal ?? null,
+        asr_error: voice?.asrErrorCode ?? null,
+        // 用户提交的问题与识别原文不同（手动改过，或识别失败后改为打字）
+        transcript_edited: (voice?.transcript ?? '') !== query,
+    };
 }
 function nowMs() {
     return performance.now();
@@ -4170,7 +4222,7 @@ class ApiClient {
             query,
             video_ms: params.video_ms,
             input_method: params.input_method ?? 'keyboard',
-            audio_present: Boolean(audioBlob),
+            ...(await buildVoiceInput(audioBlob, ctx.voice, query)),
         }, {
             answer: data.answer,
             evidence: data.evidence,
@@ -5071,7 +5123,7 @@ exports.default = InteractiveReaderPage;
 const react_1 = require("react");
 const ui_1 = require("../components/ui");
 const VideoCoordinateMapper_1 = require("../features/interaction/VideoCoordinateMapper");
-const AsrProvider_1 = require("../features/interaction/asr/AsrProvider");
+const AudioRecorder_1 = require("../features/interaction/AudioRecorder");
 const TtsPlayerWidget_1 = require("../features/interaction/tts/TtsPlayerWidget");
 function formatTime(ms) {
     const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -5093,12 +5145,13 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
     const [metadataReady, setMetadataReady] = (0, react_1.useState)(false);
     // 视频元数据未就绪前到达的跳转（例如从历史记录回到 50 秒）：先挂起，拿到真实时长后再执行
     const pendingSeek = (0, react_1.useRef)(null);
-    // 真实语音录音与普通话识别 (C 负责人交付)
+    // 真实录音提问（D1）：AudioRecorder 同时录制 16kHz WAV 并调用浏览器普通话识别。
+    // 旧实现阅读页只调用识别器、从不录音，AudioRecorder 组件写好了却没有任何页面引用。
     const [isRecording, setIsRecording] = (0, react_1.useState)(false);
     const [voiceInput, setVoiceInput] = (0, react_1.useState)(false);
-    const [recordingTip, setRecordingTip] = (0, react_1.useState)(null);
     const [ttsFirstAudioMs, setTtsFirstAudioMs] = (0, react_1.useState)(null);
-    const speechRecognizerRef = (0, react_1.useRef)(null);
+    /** 最近一次录音；随下一次提问一起提交（即使识别失败、用户改为打字，原始音频也作为失败样本留痕） */
+    const pendingVoice = (0, react_1.useRef)(null);
     const videoRef = (0, react_1.useRef)(null);
     const imageRef = (0, react_1.useRef)(null);
     const mounted = (0, react_1.useRef)(true);
@@ -5113,39 +5166,13 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
     const latest = result ?? currentInteractions[0];
     (0, react_1.useEffect)(() => {
         mounted.current = true;
-        const rec = (0, AsrProvider_1.getSpeechRecognizer)();
-        speechRecognizerRef.current = rec;
-        const unsubscribe = rec.subscribe((event) => {
-            if (!mounted.current)
-                return;
-            if (event.type === 'error') {
-                setIsRecording(false);
-                setRecordingTip(null);
-                if (event.errorCode === 'MICROPHONE_DENIED') {
-                    setError('麦克风或语音识别权限被拒绝，已停止聆听。请在浏览器中允许权限后重试，或直接使用键盘输入。');
-                }
-                else if (event.errorCode === 'TRANSCRIPTION_NETWORK_ERROR') {
-                    setError('语音识别服务网络连接失败（Chrome Web Speech 依赖在线服务），已停止聆听。请改用键盘输入。');
-                }
-                else {
-                    setError('麦克风录音或识别异常，已停止聆听。请重试或使用键盘输入。');
-                }
-            }
-            else if (event.type === 'end') {
-                setIsRecording(false);
-                setRecordingTip(null);
-            }
-        });
         return () => {
             mounted.current = false;
-            unsubscribe();
-            if (speechRecognizerRef.current) {
-                speechRecognizerRef.current.stop().catch(() => { });
-            }
         };
     }, []);
     (0, react_1.useEffect)(() => {
         requestVersion.current += 1;
+        pendingVoice.current = null;
         setBusy(null);
         setPlaying(false);
         setTimeMs(0);
@@ -5190,6 +5217,12 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
         onSeekHandled();
     }, [seekTo, durationMs, onSeekHandled, isVideo, metadataReady]);
     function seek(value) {
+        if (isVideo && !metadataReady) {
+            // 时长未知时不能按 36 秒占位值截断；等元数据到达后再执行
+            pendingSeek.current = Math.max(0, value);
+            setTimeMs(Math.max(0, value));
+            return;
+        }
         const next = Math.max(0, Math.min(durationMs, value));
         setTimeMs(next);
         if (videoRef.current)
@@ -5220,7 +5253,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
             setPlaying(false);
         }
     }
-    async function ask(text, inputMethod = 'keyboard') {
+    async function ask(text, inputMethod = 'keyboard', voice) {
         if (busy)
             return;
         const trimmed = text.trim();
@@ -5231,10 +5264,10 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
         setBusy('question');
         setError('');
         setTtsFirstAudioMs(null);
-        setLastAction({ kind: 'question', text: trimmed, inputMethod });
+        setLastAction({ kind: 'question', text: trimmed, inputMethod, voice });
         const version = requestVersion.current;
         try {
-            const item = await askQuestion(trimmed, currentTime.current, inputMethod);
+            const item = await askQuestion(trimmed, currentTime.current, inputMethod, voice);
             if (mounted.current && requestVersion.current === version) {
                 setResult(item);
                 setTtsFirstAudioMs(null);
@@ -5301,48 +5334,22 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
         // 把映射算法的完整输出(原始像素 + 视口信息)原样透传，下游不得重算
         void touch(calculation.touchPoint.norm_x, calculation.touchPoint.norm_y, { width: calculation.debugInfo.renderWidth, height: calculation.debugInfo.renderHeight }, { touch_point: calculation.touchPoint, viewport_info: calculation.viewport });
     }
-    // 真实普通话语音识别开始 / 停止控制
-    const handleToggleVoiceRecord = async () => {
-        const rec = speechRecognizerRef.current;
-        if (isRecording) {
-            if (!rec)
-                return;
-            const stopped = await rec.stopDetailed();
-            setIsRecording(false);
-            setRecordingTip(null);
-            const asr = await AsrProvider_1.asrManager.processSpeechRecognition(stopped.text, appMode, {
-                confidence: stopped.confidence,
-                errorCode: stopped.errorCode,
-            });
-            if (asr.errorCode === 'MICROPHONE_DENIED') {
-                setError('麦克风或语音识别权限被拒绝，请在浏览器中允许后重试，或直接键盘输入。');
-            }
-            else if (asr.errorCode === 'TRANSCRIPTION_NETWORK_ERROR') {
-                setError('语音识别服务无法连接（Chrome 的识别依赖在线服务），请改用 Edge/Safari 或键盘输入。');
-            }
-            else if (!asr.text) {
-                setError('未能识别到有效语音。请说话清晰些后重试，系统不会自动编造问题。');
-            }
-            else {
-                setQuestion(asr.text);
-                setVoiceInput(true);
-                notify(stopped.isFinal ? `已识别到语音：“${asr.text}”，请确认后提交。` : `识别结果可能不完整：“${asr.text}”，请核对后再提交。`);
-            }
+    function handleRecording(blob, mimeType, transcript, meta) {
+        const text = transcript.trim();
+        pendingVoice.current = { blob, mimeType, durationMs: meta.durationMs, transcript: text, transcriptIsFinal: meta.transcriptIsFinal, asrErrorCode: meta.asrErrorCode };
+        if (!text) {
+            // 不替用户造句：识别失败只提示，录音仍会作为失败样本随下一次打字提问留痕
+            setVoiceInput(false);
+            setError(meta.asrErrorCode && meta.asrErrorCode !== 'NO_SPEECH_DETECTED'
+                ? '录音已保存，但语音识别失败。请直接打字提问，这段录音会作为识别失败样本一起记录。'
+                : '录音已保存，但没有识别到有效语音。请说清楚些重试，或直接打字提问。');
             return;
         }
         setError('');
-        if (!rec || !rec.isSupported()) {
-            setError('当前浏览器不支持普通话语音识别，请使用 Chrome / Edge / Safari，或使用键盘输入。');
-            return;
-        }
-        const started = rec.start();
-        if (started !== true) {
-            setError('语音识别未能启动，请检查麦克风权限后重试，或使用键盘输入。');
-            return;
-        }
-        setIsRecording(true);
-        setRecordingTip('正在聆听中… 请对着麦克风说出你的提问');
-    };
+        setQuestion(text);
+        setVoiceInput(true);
+        notify(meta.transcriptIsFinal ? `已识别到语音：“${text}”，请确认后提交。` : `识别结果可能不完整：“${text}”，请核对后再提交。`);
+    }
     function goSource(source) {
         if (source.source === 'original_page') {
             try {
@@ -5425,6 +5432,11 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                                 setTimeMs(next);
                             }
                         }, onTimeUpdate: (event) => setTimeMs(event.currentTarget.currentTime * 1000), onEnded: () => setPlaying(false), onPause: () => setPlaying(false), onPlay: () => setPlaying(true), onError: () => {
+                            // 视频加载失败：挂起的跳转永远不会执行，必须丢弃并让用户知道
+                            if (pendingSeek.current !== null) {
+                                pendingSeek.current = null;
+                                setError('视频加载失败，未能跳转到历史记录对应的时间点。');
+                            }
                             setVideoError(true);
                             setPlaying(false);
                         }, "aria-label": "\u4E92\u52A8\u9605\u8BFB\u89C6\u9891", style: { width: '100%', height: '100%', objectFit: 'contain' } })) : (React.createElement("img", { ref: imageRef, src: page?.image_url || 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2MDAiIGhlaWdodD0iODAwIiB2aWV3Qm94PSIwIDAgNjAwIDgwMCIgZmlsbD0ibm9uZSI+CiAgPHJlY3Qgd2lkdGg9IjYwMCIgaGVpZ2h0PSI4MDAiIGZpbGw9IiNmYmY3ZTkiLz48cmVjdCB4PSIyOCIgeT0iMjgiIHdpZHRoPSI1NDQiIGhlaWdodD0iNzQ0IiBzdHJva2U9IiNlNmRmYzkiLz4KICA8cGF0aCBkPSJNNTggMzQ4Yy01LTExOSA0NC0yMzAgMTUwLTI0NSAxNDAtMjAgMjYwIDMyIDMyMyAxMzIgMjkgNDYgMjEgMTAwLTggMTUwLTU1IDk1LTE3NSAxMjMtMjgwIDkxQzEyMiA0MzkgNjUgNDMxIDU4IDM0OFoiIGZpbGw9IiNlNGU5Y2EiLz4KICA8Y2lyY2xlIGN4PSI0MjEiIGN5PSIxNzYiIHI9IjQyIiBmaWxsPSIjZTNjNDdjIi8+CiAgPHBhdGggZD0iTTYyIDM1OGM3NC01MyAxNDgtNDUgMjEyLTE4czE2NSAxNyAyNjUtMjJ2OTljLTU5IDU2LTE0NyA4Ni0yMzkgNTctMTIxLTM4LTE4Mi00Ni0yMzgtODBaIiBmaWxsPSIjYjBjMThjIi8+CiAgPHBhdGggZD0iTTg4IDM5OWM3NC0zMyAxMzItOSAxOTAgMTUgODYgMzQgMTU0IDEgMjI5LTI2LTQzIDc1LTEyMiAxMTItMjA3IDg2LTk2LTMwLTE1Mi00MS0yMTItNzVaIiBmaWxsPSIjOGNhNDc3Ii8+CiAgPHBhdGggZD0iTTE1NyAzODlWMTg3bTI5NCAyMDFWMjIzIiBzdHJva2U9IiM4ZjgwNWMiIHN0cm9rZS13aWR0aD0iNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPHBhdGggZD0ibTE1NSAxNDQtNTYgMTIyaDExNFptMCA3NC02NyAxMjJoMTM3WiIgZmlsbD0iIzMxNWE0OCIvPjxwYXRoIGQ9Im00NTIgMTg0LTQ1IDExMmg5MVptMCA2OS01NiAxMDloMTE1WiIgZmlsbD0iIzRjNzQ1NiIvPgogIDxwYXRoIGQ9Ik0zNjcgMzU3di05OGg0NnY5OFoiIGZpbGw9IiNlNGNjYjAiLz48cGF0aCBkPSJtMzU4IDI2MSAzMi0yNiAzMiAyNloiIGZpbGw9IiM5YjcxNTgiLz48cmVjdCB4PSIzNzUiIHk9IjI3MyIgd2lkdGg9IjMwIiBoZWlnaHQ9IjciIHJ4PSIzIiBmaWxsPSIjMjQ0ZDNmIi8+PHBhdGggZD0ibTM4NiAyOTcgMjcgOXYyMmwtMjktN1oiIGZpbGw9IiNmNmVkZGIiLz48cGF0aCBkPSJtMzg2IDI5NyAxMSAxNSAxNi02IiBzdHJva2U9IiNiYWE0N2QiLz4KICA8cGF0aCBkPSJNMjM5IDQwMmMtMTAtMjUtMTQtNDQtNy02NmwxNyAxOCAyMC0yMCAxMSAyNGMxNSAxNiAxNSAzNy0yIDQ4WiIgZmlsbD0iI2NmOTU2NyIvPjxwYXRoIGQ9Ik0yMzIgMzY1YzE1IDEgMjIgMTEgMjcgMjIgNS0xMyAxMy0yMSAyNi0yMy0xIDI2LTEzIDQwLTI2IDQwLTE0LTItMjUtMTctMjctMzlaIiBmaWxsPSIjZjVlN2NjIi8+PGNpcmNsZSBjeD0iMjQ2IiBjeT0iMzY1IiByPSIyLjciIGZpbGw9IiMyNDRkM2YiLz48Y2lyY2xlIGN4PSIyNzQiIGN5PSIzNjQiIHI9IjIuNyIgZmlsbD0iIzI0NGQzZiIvPjxwYXRoIGQ9Im0yNTUgMzc2IDcgMS00IDRaIiBmaWxsPSIjMjQ0ZDNmIi8+CiAgPHBhdGggZD0iTTI3OSAzOTljMzUgMTAgNTEtMiA0MC0xNS0xMC0xMS0yMi01LTIzIDQiIHN0cm9rZT0iI2NmOTU2NyIgc3Ryb2tlLXdpZHRoPSIxNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PHBhdGggZD0iTTMxNiAzODBjMTQgNSAxNyAyMC0xIDI0bC0xMC0xM1oiIGZpbGw9IiNmNWU3Y2MiLz4KICA8cGF0aCBkPSJtMjI5IDM5NSAzMiAxMSAzNC0xMy0yIDI1LTMzIDExLTI5LTEyWiIgZmlsbD0iI2Y0ZWFkMyIgc3Ryb2tlPSIjNDc2ODRjIiBzdHJva2Utd2lkdGg9IjEuNSIvPjxwYXRoIGQ9Im0yNjAgNDA2djIzIiBzdHJva2U9IiM0NzY4NGMiIHN0cm9rZS13aWR0aD0iMS41Ii8+CiAgPHBhdGggZD0iTTM0NSA0MTJ2LTI0bTAgMTNjLTEzLTEtMTgtMTEtMTgtMTEgMTItMyAxOCAxMSAxOCAxMVptMSA1YzE0LTEgMTktMTMgMTktMTMtMTQtMi0xOSAxMy0xOSAxM1oiIGZpbGw9IiNkMmQ5YTkiIHN0cm9rZT0iIzVhN2M1NSIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPHBhdGggZD0iTTI2MSAxOThjMTAtNiAxOC02IDI2IDBtNyAxMmMxMS02IDE5LTUgMjYgMSIgc3Ryb2tlPSIjOGJhMTdhIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGcgZmlsbD0iIzMxNWE0OCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ik1pY3Jvc29mdCBZYUhlaSwgUGluZ0ZhbmcgU0MsIHNhbnMtc2VyaWYiPgogICAgPHRleHQgeD0iMzAwIiB5PSI1NTciIGZvbnQtc2l6ZT0iMjkiIGZvbnQtd2VpZ2h0PSI2MDAiIGxldHRlci1zcGFjaW5nPSI1Ij7mo67mnpfph4znmoTmnaXkv6E8L3RleHQ+CiAgICA8dGV4dCB4PSIzMDAiIHk9IjYxMCIgZm9udC1zaXplPSIxOCIgbGV0dGVyLXNwYWNpbmc9IjIiPua4heaZqO+8jOWwj+eLkOeLuOWcqOagkeS4i+WPkeeOsOS6huS4gOWwgeS/oeOAgjwvdGV4dD4KICAgIDx0ZXh0IHg9IjMwMCIgeT0iNjQ2IiBmb250LXNpemU9IjE4IiBsZXR0ZXItc3BhY2luZz0iMiI+5a6D6L276L275omT5byA77yM6K+75Yiw5LqG5pil5aSp55qE5raI5oGv44CCPC90ZXh0PgogICAgPHRleHQgeD0iMzAwIiB5PSI2ODIiIGZvbnQtc2l6ZT0iMTgiIGxldHRlci1zcGFjaW5nPSIyIj7igJzorqnmiJHku6zkuIDotbfvvIzljrvnnIvnnIvmlrDnlJ/nmoTlj7blrZDlkKfjgILigJ08L3RleHQ+CiAgICA8dGV4dCB4PSIzMDAiIHk9Ijc0MCIgZm9udC1zaXplPSIxMiIgZmlsbD0iIzhjOTM3YyI+MDEgwrcg5Y6f5Yib5ryU56S66aG1PC90ZXh0PgogIDwvZz4KPC9zdmc+Cg==', alt: `《${book.title}》第 ${currentPage + 1} 页画面`, style: { width: '100%', height: '100%', objectFit: 'contain' } })),
@@ -5488,27 +5500,15 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                         : '当前为演示模式，回答使用示例逻辑。')),
                 React.createElement("form", { onSubmit: (event) => {
                         event.preventDefault();
-                        void ask(question, voiceInput ? 'speech' : 'keyboard');
+                        const voice = pendingVoice.current ?? undefined;
+                        pendingVoice.current = null;
+                        void ask(question, voiceInput ? 'speech' : 'keyboard', voice);
                         setVoiceInput(false);
                     } },
                     React.createElement("label", { htmlFor: "reader-question" }, "\u60F3\u95EE\u6545\u4E8B\u4EC0\u4E48\u5462\uFF1F"),
                     React.createElement("textarea", { id: "reader-question", maxLength: 500, value: question, onChange: (event) => { setQuestion(event.target.value); setVoiceInput(false); }, placeholder: `针对《${book.title}》提出一个问题，例如关于画面、情节或角色…`, disabled: Boolean(busy) || isRecording }),
-                    React.createElement("div", { style: { display: 'flex', gap: '8px', marginBottom: '10px' } },
-                        React.createElement("button", { type: "button", onClick: handleToggleVoiceRecord, disabled: Boolean(busy), style: {
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                backgroundColor: isRecording ? '#ef4444' : '#2563eb',
-                                color: '#ffffff',
-                                border: 'none',
-                                borderRadius: '6px',
-                                padding: '6px 12px',
-                                fontSize: '12px',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                animation: isRecording ? 'pulse 1.5s infinite' : 'none',
-                            } }, isRecording ? '⏹ 停止录音并识别' : '🎙️ 麦克风录音提问'),
-                        recordingTip && (React.createElement("span", { style: { fontSize: '12px', color: '#0284c7', alignSelf: 'center' } }, recordingTip))),
+                    React.createElement("div", { style: { marginBottom: '10px' } },
+                        React.createElement(AudioRecorder_1.AudioRecorder, { onRecordingComplete: handleRecording, onRecordingChange: setIsRecording, disabled: Boolean(busy) })),
                     React.createElement("div", { className: "question-options" },
                         React.createElement("span", { style: { fontSize: '11px', color: '#64748b' } },
                             question.length,
@@ -5526,7 +5526,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                     React.createElement("p", null, error),
                     lastAction && (React.createElement("button", { onClick: () => {
                             if (lastAction.kind === 'question')
-                                void ask(lastAction.text, lastAction.inputMethod);
+                                void ask(lastAction.text, lastAction.inputMethod, lastAction.voice);
                             else
                                 void touch(lastAction.x, lastAction.y, lastAction.box, lastAction.detail);
                         }, disabled: Boolean(busy) }, "\u91CD\u8BD5\u8FD9\u6B21\u64CD\u4F5C")))),
