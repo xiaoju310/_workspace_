@@ -9,7 +9,7 @@ function walk(folder) {
   for (const item of fs.readdirSync(folder, { withFileTypes: true })) {
     const file = path.join(folder, item.name);
     if (item.isDirectory()) walk(file);
-    else if (/\.tsx?$/.test(file)) {
+    else if (/\.tsx?$/.test(file) && !file.endsWith('.d.ts') && !file.includes('__tests__')) {
       const id = path.relative(src, file).replaceAll('\\', '/').replace(/\.tsx?$/, '');
       const result = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
         fileName: file,

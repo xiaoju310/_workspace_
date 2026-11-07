@@ -1,0 +1,33 @@
+const path=require('node:path');
+const fs=require('node:fs');
+const vm=require('node:vm');
+const assert=require('node:assert/strict');
+const {createRequire}=require('node:module');
+const root=path.resolve(__dirname,'../..');
+const ts=createRequire(path.join(root,'frontend/package.json'))('typescript');
+const source=fs.readFileSync(path.join(root,'frontend/src/api/client.ts'),'utf8');
+const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+const exportsObj={};
+vm.runInNewContext(js,{exports:exportsObj,URL,Headers,Blob,AbortController,setTimeout,clearTimeout,fetch});
+const checks=[];
+async function check(name,fn){await fn();checks.push({name,result:'PASS'});console.log('PASS '+name)}
+(async()=>{
+ let last,calls=0,payload={id:'book-1'},status=200;
+ const fetchStub=async(url,init)=>{calls++;last={url,init};return new Response(status===204?null:JSON.stringify(payload),{status,headers:{'Content-Type':'application/json'}})};
+ const client=exportsObj.createApiClient('http://localhost:8000/',{getToken:()=> 'unit-test-token',fetch:fetchStub});
+ await check('健康检查不附带认证，私有接口使用 Bearer',async()=>{await client.health();assert.equal(last.init.headers.has('Authorization'),false);await client.getBook('b');assert.equal(last.init.headers.get('Authorization'),'Bearer unit-test-token')});
+ await check('缺令牌时拒绝私有请求，未发起网络',async()=>{const before=calls;await assert.rejects(()=>exportsObj.createApiClient('http://localhost',{fetch:fetchStub}).getBook('b'),e=>e.code==='AUTH_REQUIRED');assert.equal(calls,before)});
+ await check('建书使用实际响应 id 与 JSON 请求',async()=>{assert.equal((await client.createBook({title:'x',authorization_ref:'original'})).id,'book-1');assert.equal(JSON.parse(last.init.body).title,'x');assert.equal(last.init.headers.get('Content-Type'),'application/json')});
+ await check('原图字节、Content-Type、query 页码与路径编码',async()=>{const bytes=new Blob([new Uint8Array([137,80,78,71])],{type:'image/png'});await client.uploadPage('book/a',bytes,2);assert.equal(last.url,'http://localhost:8000/api/books/book%2Fa/pages?page_no=2');assert.equal(last.init.body,bytes);assert.equal(last.init.headers.get('Content-Type'),'image/png')});
+ await check('校对、分类、分析使用 A 现有路径与字段',async()=>{await client.updatePage('b',2,{ocr:{text:'人工文字'}});assert.match(last.url,/\/pages\/2\/revision$/);assert.deepEqual(JSON.parse(last.init.body),{ocr:{text:'人工文字'}});await client.confirmClassification('b','novel');assert.deepEqual(JSON.parse(last.init.body),{confirmed_type:'novel'});await client.analyzeBook('b');assert.match(last.url,/\/analyze$/);assert.deepEqual(JSON.parse(last.init.body),{analysis_profile:'default'})});
+ await check('FastAPI detail 字符串与 401/409/410/413/415/503',async()=>{for(const code of [401,409,410,413,415,503]){status=code;payload={detail:'实际服务错误'};await assert.rejects(()=>client.getBook('b'),e=>e.status===code&&e.message==='实际服务错误')}});
+ await check('FastAPI 422 结构化错误可读，不回显 input',async()=>{status=422;payload={detail:[{loc:['body','title'],msg:'Field required',input:'private-payload'}]};await assert.rejects(()=>client.getBook('b'),e=>e.status===422&&e.message.includes('body.title')&&!e.message.includes('private-payload'))});
+ await check('非 JSON 错误与无效成功 JSON 分开处理',async()=>{const broken=exportsObj.createApiClient('http://localhost',{getToken:()=> 'unit',fetch:async()=>new Response('bad',{status:502})});await assert.rejects(()=>broken.getBook('b'),e=>e.status===502);const invalid=exportsObj.createApiClient('http://localhost',{getToken:()=> 'unit',fetch:async()=>new Response('bad')});await assert.rejects(()=>invalid.getBook('b'),e=>e.code==='INVALID_RESPONSE')});
+ await check('网络失败与超时显式报错',async()=>{const network=exportsObj.createApiClient('http://localhost',{getToken:()=> 'unit',fetch:async()=>{throw new TypeError('offline')}});await assert.rejects(()=>network.getBook('b'),e=>e.code==='NETWORK_ERROR');const timeout=exportsObj.createApiClient('http://localhost',{getToken:()=> 'unit',timeoutMs:5,fetch:async(_url,init)=>new Promise((_resolve,reject)=>init.signal.addEventListener('abort',()=>reject(new Error('abort'))))});await assert.rejects(()=>timeout.getBook('b'),e=>e.code==='TIMEOUT')});
+ await check('204、鉴权媒体下载与重定向限制',async()=>{status=204;assert.equal(await client.revokeShare('n','s'),undefined);assert.equal(last.init.redirect,'error');const binary=exportsObj.createApiClient('http://localhost',{getToken:()=> 'unit',fetch:async()=>new Response('bytes')});assert.equal(await (await binary.assetContent('r','a')).text(),'bytes')});
+ await check('拒绝凭据 URL 与非法协议',async()=>{for(const url of ['file:///bad','https://name:pass@example.com','https://example.com?key=bad'])assert.throws(()=>exportsObj.createApiClient(url))});
+ await check('公开分享不附带主人令牌，错误消息隐藏令牌',async()=>{status=404;payload={detail:'unit-test-token'};await assert.rejects(()=>client.sharedNote('share'),e=>e.status===404);assert.equal(last.init.headers.has('Authorization'),false);await assert.rejects(()=>client.getBook('b'),e=>!e.message.includes('unit-test-token'))});
+ await check('交互留痕使用 A 路径与必填字段',async()=>{status=201;payload={id:'i',run_id:'r',status:'recorded_only'};await client.recordInteraction('run/1',{interaction_type:'touch',input:{video_ms:1},output:{producer:'c_interaction_agent',status:'uncertain'},latency_ms:3});assert.equal(last.url,'http://localhost:8000/api/runs/run%2F1/interactions');assert.equal(last.init.method,'POST');const body=JSON.parse(last.init.body);assert.equal(body.output.producer,'c_interaction_agent');assert.ok(body.latency_ms>=0);assert.equal(last.init.headers.get('Authorization'),'Bearer unit-test-token')});
+ const report={date:'2026-11-05',mode:'拦截 fetch 的适配器测试；实际服务测试另见 backend-integration-results.json',checks};
+ fs.writeFileSync(path.join(root,'docs/api-adapter-test.json'),JSON.stringify(report,null,2));
+})().catch(error=>{console.error(error);process.exitCode=1});

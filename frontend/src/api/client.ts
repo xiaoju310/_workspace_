@@ -15,6 +15,8 @@ export interface ProgressResponse { run_id:string; status:string; stages:{stage:
 export interface RevisionResponse { book_id:string; page_no:number; revision:number; ocr:Record<string,unknown>|null; vision:Record<string,unknown>|null; source:string }
 export interface NoteResponse { id:string; book_id:string; owner_id:string; content:Record<string,unknown>; status:string; version:number; created_at:string; updated_at:string }
 export interface ShareResponse { id:string; share_mode:'invite_only'|'link'; shared_user_id:string|null; expires_at:string|null; status:string; token?:string|null }
+export interface InteractionIn { interaction_type:'voice'|'touch'; input:Record<string,unknown>; output:Record<string,unknown>&{producer:string}; latency_ms:number }
+export interface InteractionRecorded { id:string; run_id:string; status:string }
 export interface AssetResponse { id:string; run_id:string; asset_type:string; mime_type:string; sha256:string }
 export interface ApiOptions { getToken?:()=>string; timeoutMs?:number; fetch?:typeof fetch }
 const statusCodes:Record<number,string> = {400:'BAD_REQUEST',401:'UNAUTHORIZED',403:'FORBIDDEN',404:'NOT_FOUND',409:'CONFLICT',410:'GONE',413:'PAYLOAD_TOO_LARGE',415:'UNSUPPORTED_MEDIA_TYPE',422:'VALIDATION_ERROR',503:'SERVICE_UNAVAILABLE'}
@@ -87,6 +89,7 @@ export function createApiClient(baseUrl:string,options:ApiOptions={}) {
     assets:(runId:string)=>request<AssetResponse[]>(`/api/runs/${id(runId)}/assets`),
     assetContent:(runId:string,assetId:string)=>request<Blob>(`/api/runs/${id(runId)}/assets/${id(assetId)}/content`,{},true,true),
     interactions:(runId:string)=>request<Record<string,unknown>[]>(`/api/runs/${id(runId)}/interactions`),
+    recordInteraction:(runId:string,body:InteractionIn)=>request<InteractionRecorded>(`/api/runs/${id(runId)}/interactions`,json('POST',body)),
     generateNote:(bookId:string,noteTemplate='standard')=>request<NoteResponse>(`/api/books/${id(bookId)}/notes/generate`,json('POST',{note_template:noteTemplate})),
     getNote:(noteId:string)=>request<NoteResponse>(`/api/notes/${id(noteId)}`),
     updateNote:(noteId:string,content:Record<string,unknown>)=>request<NoteResponse>(`/api/notes/${id(noteId)}`,json('PATCH',{content})),
