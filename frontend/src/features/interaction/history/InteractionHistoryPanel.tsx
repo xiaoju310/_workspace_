@@ -115,7 +115,7 @@ export const InteractionHistoryPanel: React.FC<InteractionHistoryPanelProps> = (
                   >
                     {item.cache_hit ? '缓存命中' : '实时'}
                   </span>
-                  <span style={{ fontSize: '11px', color: '#64748b' }}>耗时 {item.latency_ms}ms</span>
+                  <span style={{ fontSize: '11px', color: '#64748b' }}>{typeof item.latency_ms === 'number' ? `耗时 ${item.latency_ms}ms` : '延迟未实测'}</span>
                 </div>
               </div>
 
@@ -134,6 +134,8 @@ export const InteractionHistoryPanel: React.FC<InteractionHistoryPanelProps> = (
                   <span style={{ fontSize: '11px', color: '#64748b' }}>
                     依据：第 {item.evidence[0].page_no} 页 ｜ {item.evidence[0].snippet}
                   </span>
+                  {/* 页级证据(evidence_type='page')的 video_start_ms 是 0 占位，不是视频时间，不能拿来跳转 */}
+                  {item.evidence[0].evidence_type !== 'page' && (
                   <button
                     type="button"
                     onClick={() => onSeekToMs(item.evidence![0].video_start_ms)}
@@ -149,6 +151,7 @@ export const InteractionHistoryPanel: React.FC<InteractionHistoryPanelProps> = (
                   >
                     ▶ 跳转片段
                   </button>
+                  )}
                 </div>
               )}
             </div>

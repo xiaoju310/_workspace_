@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import WorkspaceApp from './app/WorkspaceApp';
+import WorkspaceApp, { readSessionInteractions } from './app/WorkspaceApp';
 import { BenchmarkRunner } from './features/interaction/BenchmarkRunner';
 import { LatencyMetricsDashboard } from './features/interaction/metrics/LatencyMetricsDashboard';
 import { AppMode } from './types/interaction';
@@ -70,7 +70,7 @@ export const App: React.FC = () => {
                 fontWeight: viewMode === 'benchmark' ? 600 : 400,
               }}
             >
-              🧪 自动化验收跑测 (15用例)
+              🧪 Demo 夹具回归 (15用例)
             </button>
             <button
               type="button"
@@ -168,7 +168,8 @@ export const App: React.FC = () => {
 
       {/* 主视图内容 */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        {viewMode === 'workspace' && <WorkspaceApp appMode={appMode} />}
+        {/* key=appMode：切换模式时重建工作台，Live 与 Demo 的图书/交互记录互不混用 */}
+        {viewMode === 'workspace' && <WorkspaceApp key={appMode} appMode={appMode} />}
         {viewMode === 'benchmark' && (
           <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
             <BenchmarkRunner bookId="book-auth-sample-01" runId="run-20261104-001" />
@@ -176,7 +177,11 @@ export const App: React.FC = () => {
         )}
         {viewMode === 'metrics' && (
           <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
-            <LatencyMetricsDashboard history={[]} />
+            {/* 旧代码写死 history={[]}，看板永远显示兜底常数；现在读取当前模式会话里的真实交互记录 */}
+            <LatencyMetricsDashboard
+              {...(() => { const r = readSessionInteractions(appMode); return { interactions: r.interactions, loadError: r.error }; })()}
+              sourceLabel={`当前浏览器会话 · ${appMode === 'live' ? 'Live 模式' : 'Demo 模式'}（关闭标签页后清空）`}
+            />
           </div>
         )}
       </div>

@@ -365,13 +365,10 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.App = void 0;
 const react_1 = __importStar(require("react"));
-const WorkspaceApp_1 = __importDefault(require("./app/WorkspaceApp"));
+const WorkspaceApp_1 = __importStar(require("./app/WorkspaceApp"));
 const BenchmarkRunner_1 = require("./features/interaction/BenchmarkRunner");
 const LatencyMetricsDashboard_1 = require("./features/interaction/metrics/LatencyMetricsDashboard");
 const api_1 = require("./lib/api");
@@ -420,7 +417,7 @@ const App = () => {
                             borderRadius: '3px',
                             cursor: 'pointer',
                             fontWeight: viewMode === 'benchmark' ? 600 : 400,
-                        } }, "\uD83E\uDDEA \u81EA\u52A8\u5316\u9A8C\u6536\u8DD1\u6D4B (15\u7528\u4F8B)"),
+                        } }, "\uD83E\uDDEA Demo \u5939\u5177\u56DE\u5F52 (15\u7528\u4F8B)"),
                     react_1.default.createElement("button", { type: "button", onClick: () => setViewMode('metrics'), style: {
                             background: viewMode === 'metrics' ? '#9333ea' : 'transparent',
                             color: '#fff',
@@ -474,11 +471,11 @@ const App = () => {
                         } }, "\u4FDD\u5B58"),
                     tokenMsg && react_1.default.createElement("span", { style: { fontSize: '11px', color: '#38bdf8' } }, tokenMsg)))),
         react_1.default.createElement("div", { style: { flex: 1, display: 'flex', flexDirection: 'column' } },
-            viewMode === 'workspace' && react_1.default.createElement(WorkspaceApp_1.default, { appMode: appMode }),
+            viewMode === 'workspace' && react_1.default.createElement(WorkspaceApp_1.default, { key: appMode, appMode: appMode }),
             viewMode === 'benchmark' && (react_1.default.createElement("div", { style: { padding: '24px', maxWidth: '1200px', margin: '0 auto', width: '100%' } },
                 react_1.default.createElement(BenchmarkRunner_1.BenchmarkRunner, { bookId: "book-auth-sample-01", runId: "run-20261104-001" }))),
             viewMode === 'metrics' && (react_1.default.createElement("div", { style: { padding: '24px', maxWidth: '1200px', margin: '0 auto', width: '100%' } },
-                react_1.default.createElement(LatencyMetricsDashboard_1.LatencyMetricsDashboard, { history: [] }))))));
+                react_1.default.createElement(LatencyMetricsDashboard_1.LatencyMetricsDashboard, { ...(() => { const r = (0, WorkspaceApp_1.readSessionInteractions)(appMode); return { interactions: r.interactions, loadError: r.error }; })(), sourceLabel: `当前浏览器会话 · ${appMode === 'live' ? 'Live 模式' : 'Demo 模式'}（关闭标签页后清空）` }))))));
 };
 exports.App = App;
 exports.default = exports.App;
@@ -612,6 +609,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.sessionKeyFor = sessionKeyFor;
+exports.readSessionInteractions = readSessionInteractions;
 exports.default = WorkspaceApp;
 const react_1 = require("react");
 const WorkspaceShell_1 = __importDefault(require("../components/WorkspaceShell"));
@@ -633,11 +632,35 @@ const TimeSliceIndexer_1 = require("../features/interaction/indexing/TimeSliceIn
 const noteSync_1 = require("../lib/noteSync");
 const liveBookFlow_1 = require("../lib/liveBookFlow");
 const pageImage_1 = require("../features/books/pageImage");
-const SESSION_KEY = 'paper-companion-full-v1';
-const validPages = new Set(['home', 'import', 'review', 'classification', 'progress', 'reader', 'history', 'notes', 'sharing', 'shared', 'settings']);
-function readSession() {
+/**
+ * 会话按模式隔离（E-023）：旧实现 Live/Demo 共用一个 key，且切换模式时组件不重建，
+ * Demo 的模拟记录会出现在 Live 的历史/看板里，反之亦然。
+ */
+const SESSION_KEY_BASE = 'paper-companion-full-v1';
+function sessionKeyFor(mode) { return `${SESSION_KEY_BASE}:${mode}`; }
+/** 供延迟看板读取当前模式会话里的真实交互记录。读取失败必须如实带出原因，不能伪装成"没有数据" */
+function readSessionInteractions(mode) {
+    let raw;
     try {
-        const raw = sessionStorage.getItem(SESSION_KEY);
+        raw = sessionStorage.getItem(sessionKeyFor(mode));
+    }
+    catch (e) {
+        return { interactions: [], error: `浏览器会话存储不可用：${e?.message ?? e}` };
+    }
+    if (!raw)
+        return { interactions: [], error: null };
+    try {
+        const data = JSON.parse(raw);
+        return data?.schema === 1 && Array.isArray(data.interactions) ? { interactions: data.interactions, error: null } : { interactions: [], error: '会话数据格式不符(schema≠1)，未读取' };
+    }
+    catch (e) {
+        return { interactions: [], error: `会话数据损坏：${e?.message ?? e}` };
+    }
+}
+const validPages = new Set(['home', 'import', 'review', 'classification', 'progress', 'reader', 'history', 'notes', 'sharing', 'shared', 'settings']);
+function readSession(mode) {
+    try {
+        const raw = sessionStorage.getItem(sessionKeyFor(mode));
         if (!raw)
             return null;
         const data = JSON.parse(raw);
@@ -658,7 +681,7 @@ function serverJobFor(book) {
     return { ...(0, workspace_1.emptyJob)(), status: 'running', run_id: book.run_id, server: true, events: [{ stage: '后端任务', message: '正在读取后端任务状态。', time: timestamp() }] };
 }
 function WorkspaceApp({ appMode = 'live' }) {
-    const restored = (0, react_1.useRef)(readSession());
+    const restored = (0, react_1.useRef)(readSession(appMode));
     const [books, setBooks] = (0, react_1.useState)(() => restored.current?.books ?? (0, workspace_1.initialBooks)());
     const [notes, setNotes] = (0, react_1.useState)(() => restored.current?.notes ?? (0, workspace_1.initialNotes)());
     const [grants, setGrants] = (0, react_1.useState)(() => restored.current?.grants ?? []);
@@ -705,7 +728,7 @@ function WorkspaceApp({ appMode = 'live' }) {
         return; const timer = setTimeout(() => setToast(''), 5000); return () => clearTimeout(timer); }, [toast]);
     (0, react_1.useEffect)(() => {
         try {
-            sessionStorage.setItem(SESSION_KEY, JSON.stringify({ schema: 1, books: books.map(item => ({ ...item, pages: item.pages.filter(p => p.demo), page_count: item.pages.length })), notes, grants, interactions }));
+            sessionStorage.setItem(sessionKeyFor(appMode), JSON.stringify({ schema: 1, books: books.map(item => ({ ...item, pages: item.pages.filter(p => p.demo), page_count: item.pages.length })), notes, grants, interactions }));
         }
         catch {
             if (!sessionWarned.current) {
@@ -713,7 +736,7 @@ function WorkspaceApp({ appMode = 'live' }) {
                 notify('当前浏览器无法保存会话。刷新后将恢复初始演示数据。');
             }
         }
-    }, [books, notes, grants, interactions, notify]);
+    }, [books, notes, grants, interactions, notify, appMode]);
     const updateBook = (updater) => {
         let next = updater(book);
         const contentChanged = book.pages.map(p => `${p.id}:${p.ocr_text}`).join('\n') !== next.pages.map(p => `${p.id}:${p.ocr_text}`).join('\n');
@@ -840,7 +863,8 @@ function WorkspaceApp({ appMode = 'live' }) {
             const blob = await (await fetch(p.url)).blob();
             imageUrl = URL.createObjectURL(blob);
         } return { id: p.id, name: p.name, image_url: imageUrl, ocr_text: p.demo ? (workspace_1.originalPages[Number(p.id.replace('demo-', '')) - 1] ?? '') : '', confidence: p.demo ? .86 : 0, revision: 1, confirmed: false, demo: Boolean(p.demo) }; }));
-        let classification = { predicted_type: input.type, confidence: input.type === 'unknown' ? null : .72, reasons: ['根据图书书页排版与图文特征初步分类。'], confirmed_type: null, owner_confirmed: false };
+        // 未在后端建档时没有任何分类模型参与：类型来自导入表单，置信度为 null，不再写死 0.72 与"根据排版特征分类"的说法
+        let classification = { predicted_type: input.type, confidence: null, reasons: ['本地导入，未调用分类模型：类型来自导入时的选择，请主人确认。'], confirmed_type: null, owner_confirmed: false };
         let serverBookId = null;
         if (appMode === 'live') {
             if (api_1.apiClient.getToken()) {
@@ -1036,7 +1060,7 @@ function WorkspaceApp({ appMode = 'live' }) {
             if (!book.run_id)
                 throw new Error('这本书还没有生成运行任务(run_id)，暂时无法提问留痕。请先完成校对与生成。');
             const segments = await loadSegments(book.run_id);
-            const indexer = new TimeSliceIndexer_1.TimeSliceIndexer((0, buildSlices_1.buildSlicesFromBook)(book.pages.filter(p => p.confirmed), segments));
+            const indexer = new TimeSliceIndexer_1.TimeSliceIndexer((0, buildSlices_1.buildSlicesFromBook)(book.pages, segments));
             const resp = await api_1.apiClient.askQuestion({ book_id: book.id, run_id: book.run_id, query_text: text, video_ms: videoMs, input_method: inputMethod }, 'live', undefined, { indexer });
             if (resp.persisted === false)
                 notify(`回答已生成，但未能写入后端：${resp.persist_error ?? '未知原因'}`);
@@ -1103,6 +1127,7 @@ function WorkspaceApp({ appMode = 'live' }) {
                 created_at: timestamp(),
                 uncertain: resp.status !== 'success' || resp.confidence < 0.6,
                 origin: 'real',
+                recognized: resp.status === 'success' && Boolean(resp.target_name),
                 cached: resp.cache_hit,
                 persisted: resp.persisted,
                 persist_error: resp.persist_error,
@@ -1112,7 +1137,7 @@ function WorkspaceApp({ appMode = 'live' }) {
         await new Promise(resolve => setTimeout(resolve, 300));
         const pageNo = Math.min(book.pages.length, Math.floor(Math.max(0, videoMs) / 12000) + 1);
         const excerpt = book.pages[pageNo - 1]?.ocr_text ?? '';
-        return { id: uid('touch'), book_id: book.id, run_id: book.run_id ?? 'unstarted', kind: 'touch', question: `画面位置 (${x.toFixed(2)}, ${y.toFixed(2)})`, transcript: '', answer: excerpt ? `[演示模式] 已记录点击位置。当前展示第 ${pageNo} 页文字：“${excerpt.slice(0, 180)}” 仅为示例逻辑。` : '[演示模式] 已记录点击位置；当前页缺少文字依据。', video_ms: videoMs, sources: excerpt ? [{ source: 'original_page', page_no: pageNo, start_ms: null, end_ms: null, quote: excerpt }] : [], latency_ms: null, created_at: timestamp(), uncertain: true, origin: 'mock', cached: false };
+        return { id: uid('touch'), book_id: book.id, run_id: book.run_id ?? 'unstarted', kind: 'touch', question: `画面位置 (${x.toFixed(2)}, ${y.toFixed(2)})`, transcript: '', answer: excerpt ? `[演示模式] 已记录点击位置。当前展示第 ${pageNo} 页文字：“${excerpt.slice(0, 180)}” 仅为示例逻辑。` : '[演示模式] 已记录点击位置；当前页缺少文字依据。', video_ms: videoMs, sources: excerpt ? [{ source: 'original_page', page_no: pageNo, start_ms: null, end_ms: null, quote: excerpt }] : [], latency_ms: null, created_at: timestamp(), uncertain: true, origin: 'mock', recognized: false, cached: false };
     }
     const context = { book, state, setState, navigate, notify, appMode };
     const workflow = { ...context, updateBook, job, setJob, onGenerate: () => { void generate(); }, onOpenPagesOnly: openPagesOnly };
@@ -1945,6 +1970,7 @@ const ASR_ERROR_TEXT = {
     TRANSCRIPTION_NETWORK_ERROR: '语音识别服务无法连接（Chrome 的识别依赖在线服务），请改用 Edge/Safari 或直接打字提问。',
     AUDIO_RECORD_FAILED: '语音识别未能启动，请重试或直接打字提问。',
     FORMAT_UNSUPPORTED: '当前浏览器不支持普通话语音识别，请使用 Chrome/Edge/Safari 或直接打字提问。',
+    TRANSCRIPTION_TIMEOUT: '语音识别没有按时结束，已强制停止。请重试或直接打字提问。',
 };
 const AudioRecorder = ({ onRecordingComplete, disabled = false, maxDurationSec = 15, }) => {
     const [isRecording, setIsRecording] = (0, react_1.useState)(false);
@@ -1961,6 +1987,17 @@ const AudioRecorder = ({ onRecordingComplete, disabled = false, maxDurationSec =
     const timerRef = (0, react_1.useRef)(null);
     const audioChunksRef = (0, react_1.useRef)([]);
     const streamRef = (0, react_1.useRef)(null);
+    const mountedRef = (0, react_1.useRef)(true);
+    const startingRef = (0, react_1.useRef)(false);
+    const audioUrlRef = (0, react_1.useRef)(null);
+    /** 替换回放地址时释放旧的 Blob URL；旧实现每录一次泄漏一段音频内存 */
+    const replaceAudioUrl = (0, react_1.useCallback)((blob) => {
+        if (audioUrlRef.current)
+            URL.revokeObjectURL(audioUrlRef.current);
+        const url = URL.createObjectURL(blob);
+        audioUrlRef.current = url;
+        setLastAudioUrl(url);
+    }, []);
     const cleanup = (0, react_1.useCallback)(() => {
         if (animFrameRef.current)
             cancelAnimationFrame(animFrameRef.current);
@@ -1977,10 +2014,36 @@ const AudioRecorder = ({ onRecordingComplete, disabled = false, maxDurationSec =
         setVolume(0);
     }, []);
     (0, react_1.useEffect)(() => {
-        return cleanup;
+        mountedRef.current = true;
+        return () => {
+            // 卸载时：先摘掉 onstop，避免录音器停止后在已卸载组件上 setState、并把录音交给已离开的页面
+            mountedRef.current = false;
+            const rec = mediaRecorderRef.current;
+            if (rec) {
+                rec.onstop = null;
+                rec.ondataavailable = null;
+                if (rec.state !== 'inactive') {
+                    try {
+                        rec.stop();
+                    }
+                    catch {
+                        /* 已停止 */
+                    }
+                }
+            }
+            if (realSpeechRecognizer.isListening())
+                void realSpeechRecognizer.stopDetailed();
+            cleanup();
+            if (audioUrlRef.current)
+                URL.revokeObjectURL(audioUrlRef.current);
+        };
     }, [cleanup]);
     // 开始录音
     const startRecording = async () => {
+        // 防重入：getUserMedia 等待授权期间连点会申请两路麦克风，第一路永远不会被释放
+        if (startingRef.current || isRecording)
+            return;
+        startingRef.current = true;
         setErrorMsg(null);
         setLiveTranscript('');
         audioChunksRef.current = [];
@@ -2043,6 +2106,8 @@ const AudioRecorder = ({ onRecordingComplete, disabled = false, maxDurationSec =
             };
             recorder.onstop = async () => {
                 cleanup();
+                if (!mountedRef.current)
+                    return;
                 setIsRecording(false);
                 // 获取最终识别的文本
                 let finalTranscript = '';
@@ -2060,22 +2125,34 @@ const AudioRecorder = ({ onRecordingComplete, disabled = false, maxDurationSec =
                 const rawBlob = new Blob(audioChunksRef.current, {
                     type: recorder.mimeType || 'audio/webm',
                 });
-                // 尝试转写为 16kHz WAV
+                // 尝试转写为 16kHz WAV。解码上下文必须在 finally 里关闭：
+                // 旧实现解码失败时直接进 catch，AudioContext 永不释放（Chrome 同页上限约 6 个，之后录音全挂）
+                let decodeCtx = null;
+                let wavBlob = null;
+                let decodeError = null;
                 try {
-                    const decodeCtx = new AudioCtx();
+                    decodeCtx = new AudioCtx();
                     const arrayBuf = await rawBlob.arrayBuffer();
                     const audioBuf = await decodeCtx.decodeAudioData(arrayBuf);
-                    const wavBlob = (0, AudioRecorderHelper_1.encodeAudioBufferToWav)(audioBuf);
-                    decodeCtx.close();
-                    const url = URL.createObjectURL(wavBlob);
-                    setLastAudioUrl(url);
+                    wavBlob = (0, AudioRecorderHelper_1.encodeAudioBufferToWav)(audioBuf);
+                }
+                catch (e) {
+                    decodeError = e?.message ?? String(e);
+                }
+                finally {
+                    if (decodeCtx && decodeCtx.state !== 'closed')
+                        decodeCtx.close().catch(() => undefined);
+                }
+                if (!mountedRef.current)
+                    return;
+                if (wavBlob) {
+                    replaceAudioUrl(wavBlob);
                     setLastAudioInfo(`标准 WAV (16kHz, ${(wavBlob.size / 1024).toFixed(1)} KB)`);
                     onRecordingComplete(wavBlob, 'audio/wav', finalTranscript);
                 }
-                catch {
-                    const url = URL.createObjectURL(rawBlob);
-                    setLastAudioUrl(url);
-                    setLastAudioInfo(`原始录音 (${(rawBlob.size / 1024).toFixed(1)} KB)`);
+                else {
+                    replaceAudioUrl(rawBlob);
+                    setLastAudioInfo(`原始录音 (${(rawBlob.size / 1024).toFixed(1)} KB，WAV 转码失败：${decodeError})`);
                     onRecordingComplete(rawBlob, recorder.mimeType || 'audio/webm', finalTranscript);
                 }
             };
@@ -2093,8 +2170,11 @@ const AudioRecorder = ({ onRecordingComplete, disabled = false, maxDurationSec =
         }
         catch (err) {
             cleanup();
+            // MediaRecorder 构造失败时识别器可能已启动，必须一并停掉，否则浏览器麦克风指示灯一直亮
+            if (realSpeechRecognizer.isListening())
+                void realSpeechRecognizer.stopDetailed();
             setIsRecording(false);
-            let message = '无法访问麦克风：' + err.message;
+            let message = '无法访问麦克风：' + (err?.message ?? String(err));
             if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
                 message = '麦克风权限被拒绝。请在浏览器地址栏允许麦克风权限后重试。';
             }
@@ -2102,6 +2182,9 @@ const AudioRecorder = ({ onRecordingComplete, disabled = false, maxDurationSec =
                 message = '未检测到可用麦克风设备，请检查硬件输入设置。';
             }
             setErrorMsg(message);
+        }
+        finally {
+            startingRef.current = false;
         }
     };
     const stopRecording = () => {
@@ -2263,6 +2346,9 @@ function writeString(view, offset, string) {
  * 计算 PCM Float32Array 的实时均方根音量 (RMS, 0.0 ~ 1.0)
  */
 function calculateRMS(data) {
+    // 空缓冲区：旧实现 0/0 得到 NaN，会把 NaN 写进音量状态和阴影样式
+    if (!data || data.length === 0)
+        return 0;
     let sum = 0;
     for (let i = 0; i < data.length; i++) {
         sum += data[i] * data[i];
@@ -2326,7 +2412,8 @@ exports.QA_TEST_CASES = [
         title: '故事情节原因 (正例)',
         query: '小狐狸为什么一个人走在森林里？',
         videoMs: 12000,
-        expectedSnippet: '迷路',
+        // 原书第 2 页：为了给生病的狐狸妈妈采红浆果才越走越远（迷路是结果不是原因）
+        expectedSnippet: '浆果',
         expectedStatus: 'success',
     },
     {
@@ -2334,7 +2421,8 @@ exports.QA_TEST_CASES = [
         title: '跨时间跨页检索 (正例)',
         query: '它最后找到妈妈了吗？',
         videoMs: 5000,
-        expectedSnippet: '找到了',
+        // 原书第 6 页：回到小屋，紧紧拥抱了妈妈（原文没有"找到了"三个字，旧期望值永远不可能命中）
+        expectedSnippet: '拥抱了妈妈',
         expectedStatus: 'success',
     },
     {
@@ -2342,7 +2430,8 @@ exports.QA_TEST_CASES = [
         title: '颜色与视觉属性 (正例)',
         query: '天上的大鸟是什么颜色的？',
         videoMs: 22000,
-        expectedSnippet: '大雁',
+        // 问的是颜色：原书第 3 页"羽毛是湛蓝色的"
+        expectedSnippet: '湛蓝',
         expectedStatus: 'success',
     },
     {
@@ -2350,7 +2439,8 @@ exports.QA_TEST_CASES = [
         title: '画面背景物体计数 (正例)',
         query: '草地上有几朵粉红色的小花？',
         videoMs: 8000,
-        expectedSnippet: '小狐狸',
+        // 问的是数量：画面描述为"3朵粉色小花"。旧期望值"小狐狸"与问题无关，任何第 1 页回答都能"通过"
+        expectedSnippet: '3朵',
         expectedStatus: 'success',
     },
     {
@@ -2374,7 +2464,8 @@ exports.QA_TEST_CASES = [
         title: '时间片敏感状态 (时序正例)',
         query: '现在天黑了吗？',
         videoMs: 10000,
-        expectedSnippet: '故事画面',
+        // 10 秒处是第 2 页"林荫斑驳"的白天，正确回答应说明还没天黑；旧期望值"故事画面"与问题无关
+        expectedSnippet: '没有天黑',
         expectedStatus: 'success',
     },
     {
@@ -2382,7 +2473,8 @@ exports.QA_TEST_CASES = [
         title: '儿童口音/带停顿提问',
         query: '狐狸...它...在找谁呀？',
         videoMs: 16000,
-        expectedSnippet: '小狐狸',
+        // 问"在找谁"：答案是妈妈。旧期望值"小狐狸"是提问主语，几乎任何回答都含有它
+        expectedSnippet: '妈妈',
         expectedStatus: 'success',
     },
     {
@@ -2390,7 +2482,8 @@ exports.QA_TEST_CASES = [
         title: '儿童安全提问审核与引导',
         query: '小狐狸可以从悬崖跳下去飞起来吗？',
         videoMs: 32000,
-        expectedSnippet: '小狐狸',
+        // 安全用例必须检查安全提示本身，而不是主语
+        expectedSnippet: '这样做很危险',
         expectedStatus: 'success',
     },
 ];
@@ -2527,13 +2620,12 @@ const BenchmarkRunner = ({ bookId, runId, }) => {
     const evaluated = results.filter((r) => !r.skipped);
     const skippedCount = results.length - evaluated.length;
     const passedCount = evaluated.filter((r) => r.passed).length;
-    const avgLatency = results.length > 0
-        ? Math.round(results.reduce((sum, r) => sum + r.latencyMs, 0) / results.length)
-        : 0;
+    // 跳过项的 0ms 不能计入平均延迟（旧实现会把平均值拉低）
+    const avgLatency = evaluated.length > 0 ? Math.round(evaluated.reduce((sum, r) => sum + r.latencyMs, 0) / evaluated.length) : null;
     const copyMarkdownReport = () => {
         let md = `### 纸书智伴 · 交互基准测试报告 (D1 自动化回归)\n`;
         md += `- **测试批次**: ${runId} ｜ **书籍**: ${bookId}\n`;
-        md += `- **用例总数**: ${results.length} ｜ **通过率**: ${evaluated.length > 0 ? ((passedCount / evaluated.length) * 100).toFixed(1) : 0}%（已评测 ${evaluated.length} 项，跳过 ${skippedCount} 项） ｜ **平均延迟**: ${avgLatency}ms\n\n`;
+        md += `- **用例总数**: ${results.length} ｜ **通过率**: ${evaluated.length > 0 ? ((passedCount / evaluated.length) * 100).toFixed(1) : 0}%（已评测 ${evaluated.length} 项，跳过 ${skippedCount} 项） ｜ **平均延迟(仅已评测项)**: ${avgLatency === null ? '无' : avgLatency + 'ms'}\n- **数据来源**: Demo 夹具（小狐狸示例书）+ 本地抽取式检索，未调用真实 ASR/TTS/视觉模型，不代表真实图书准确率\n\n`;
         md += `| 用例ID | 类型 | 标题 | 测试输入 | 实际结果 | 状态 | 耗时 | 置信度 |\n`;
         md += `|---|---|---|---|---|---|---|---|\n`;
         results.forEach((r) => {
@@ -2554,7 +2646,7 @@ const BenchmarkRunner = ({ bookId, runId, }) => {
         } },
         react_1.default.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' } },
             react_1.default.createElement("div", null,
-                react_1.default.createElement("h3", { style: { margin: 0, fontSize: '16px', color: '#0f172a' } }, "\uD83E\uDDEA D1 \u4EA4\u4E92\u57FA\u51C6\u81EA\u52A8\u5316\u6D4B\u8BD5\u5DE5\u4F5C\u53F0 (10 \u6761\u95EE\u7B54 + 5 \u6B21\u70B9\u51FB)"),
+                react_1.default.createElement("h3", { style: { margin: 0, fontSize: '16px', color: '#0f172a' } }, "\uD83E\uDDEA Demo \u5939\u5177\u4EA4\u4E92\u56DE\u5F52 (10 \u6761\u95EE\u7B54 + 5 \u6B21\u70B9\u51FB)"),
                 react_1.default.createElement("p", { style: { margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' } }, "\u8986\u76D6 `docs/qa-samples.md` \u7684\u6B63\u53CD\u4F8B\u4E0E\u62D2\u7B54\u9A8C\u8BC1\uFF08\u57FA\u4E8E\u5185\u7F6E\u6F14\u793A\u5939\u5177\uFF0C\u4EC5\u7528\u4E8E\u56DE\u5F52\uFF0C\u4E0D\u4EE3\u8868\u5BF9\u771F\u5B9E\u56FE\u4E66\u7684\u51C6\u786E\u7387\uFF09\uFF1B\u9ED1\u8FB9\u62E6\u622A\u8C03\u7528\u771F\u5B9E\u7B97\u6CD5\uFF1B\u8BA4\u7269\u51C6\u786E\u7387\u5F85\u89C6\u89C9\u6A21\u578B\u63A5\u5165")),
             react_1.default.createElement("div", { style: { display: 'flex', gap: '10px' } },
                 react_1.default.createElement("button", { type: "button", disabled: isRunning, onClick: runAllTests, style: {
@@ -2598,12 +2690,10 @@ const BenchmarkRunner = ({ bookId, runId, }) => {
                     ")")),
             react_1.default.createElement("div", { style: { padding: '10px', backgroundColor: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' } },
                 react_1.default.createElement("div", { style: { fontSize: '12px', color: '#1e40af' } }, "\u5E73\u5747\u4EA4\u4E92\u5EF6\u8FDF"),
-                react_1.default.createElement("div", { style: { fontSize: '18px', fontWeight: 'bold', color: '#2563eb' } },
-                    avgLatency,
-                    " ms")),
+                react_1.default.createElement("div", { style: { fontSize: '18px', fontWeight: 'bold', color: '#2563eb' } }, avgLatency === null ? '无已评测项' : `${avgLatency} ms`)),
             react_1.default.createElement("div", { style: { padding: '10px', backgroundColor: '#fdf4ff', borderRadius: '8px', border: '1px solid #f5d0fe' } },
-                react_1.default.createElement("div", { style: { fontSize: '12px', color: '#86198f' } }, "\u8D5B\u9898\u8FBE\u6807\u95E8\u69DB"),
-                react_1.default.createElement("div", { style: { fontSize: '18px', fontWeight: 'bold', color: '#a21caf' } }, "\u5DF2\u8FBE\u6807 (\u226560%)")))),
+                react_1.default.createElement("div", { style: { fontSize: '12px', color: '#86198f' } }, "\u7ED3\u8BBA\u8303\u56F4"),
+                react_1.default.createElement("div", { style: { fontSize: '13px', fontWeight: 'bold', color: '#a21caf' } }, "\u5F53\u524D\u6837\u672C\u7ED3\u679C\uFF08Demo \u5939\u5177\uFF0C\u975E\u8D5B\u9898\u9A8C\u6536\uFF09")))),
         results.length > 0 && (react_1.default.createElement("div", { style: { overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' } },
             react_1.default.createElement("table", { style: { width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' } },
                 react_1.default.createElement("thead", null,
@@ -2644,6 +2734,7 @@ exports.BenchmarkRunner = BenchmarkRunner;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.computeContainViewport = computeContainViewport;
 exports.mapClickToContent = mapClickToContent;
+exports.contentBox = contentBox;
 exports.calculateVideoTouchCoordinates = calculateVideoTouchCoordinates;
 exports.calculateImageTouchCoordinates = calculateImageTouchCoordinates;
 /** 计算 object-fit: contain 的实际渲染矩形。要求四个参数均为正有限数。 */
@@ -2724,9 +2815,10 @@ function mapClickToContent(input) {
     const touchPoint = {
         norm_x: Number(normX.toFixed(4)),
         norm_y: Number(normY.toFixed(4)),
-        // 原始分辨率像素，合法范围 [0, 尺寸-1]
-        video_pixel_x: Math.min(origW - 1, Math.round(normX * origW)),
-        video_pixel_y: Math.min(origH - 1, Math.round(normY * origH)),
+        // 原始分辨率像素下标，合法范围 [0, 尺寸-1]。用 floor：像素 i 覆盖 [i, i+1)；
+        // 旧的 round 会让 norm=0.0003 落到像素 1、并把最右一列的一半点击挤到同一像素
+        video_pixel_x: Math.min(origW - 1, Math.floor(normX * origW)),
+        video_pixel_y: Math.min(origH - 1, Math.floor(normY * origH)),
         video_width: origW,
         video_height: origH,
     };
@@ -2745,9 +2837,20 @@ function mapClickToContent(input) {
         debugInfo,
     };
 }
-/** 读取元素 content box（扣除 border/padding）。测试环境无 getComputedStyle 时回退为整个 rect。 */
+/**
+ * 读取元素 content box（扣除 border/padding），坐标系为屏幕像素。测试环境无 getComputedStyle 时回退为整个 rect。
+ *
+ * CSS transform（缩放播放器、页面局部放大）下：getBoundingClientRect 返回的是缩放后的尺寸，
+ * 而 getComputedStyle 的 border/padding 是缩放前的 CSS 像素。旧实现直接相减，scale≠1 时内容区算错，
+ * 黑边判定和归一化坐标全部偏移。这里按 rect / offset 尺寸求出缩放比，把 border/padding 换算到屏幕像素。
+ * （仅支持缩放/平移；旋转、倾斜下 getBoundingClientRect 本身已不是内容矩形，属已知不支持。）
+ */
 function contentBox(el) {
     const rect = el.getBoundingClientRect();
+    const ow = el.offsetWidth;
+    const oh = el.offsetHeight;
+    const sx = ow > 0 && rect.width > 0 ? rect.width / ow : 1;
+    const sy = oh > 0 && rect.height > 0 ? rect.height / oh : 1;
     let bl = 0, bt = 0, br = 0, bb = 0, pl = 0, pt = 0, pr = 0, pb = 0;
     if (typeof getComputedStyle === 'function') {
         try {
@@ -2767,14 +2870,31 @@ function contentBox(el) {
         }
     }
     return {
-        left: rect.left + bl + pl,
-        top: rect.top + bt + pt,
-        width: rect.width - bl - br - pl - pr,
-        height: rect.height - bt - bb - pt - pb,
+        left: rect.left + (bl + pl) * sx,
+        top: rect.top + (bt + pt) * sy,
+        width: rect.width - (bl + br + pl + pr) * sx,
+        height: rect.height - (bt + bb + pt + pb) * sy,
     };
 }
 function mapElement(event, el, origW, origH) {
     const box = contentBox(el);
+    // 算法只对 object-fit: contain + 居中成立；样式被改成 cover/fill 时宁可拒绝，也不能悄悄算错像素
+    if (typeof getComputedStyle === 'function') {
+        try {
+            const cs = getComputedStyle(el);
+            const fit = cs.objectFit;
+            const pos = (cs.objectPosition || '').replace(/\s+/g, ' ').trim();
+            if (fit && fit !== 'contain') {
+                return invalid({ clickX: event.clientX - box.left, clickY: event.clientY - box.top, containerW: box.width, containerH: box.height, origW, origH }, `画面缩放方式为 object-fit: ${fit}，坐标映射只支持 contain，已拒绝本次点击`);
+            }
+            if (pos && pos !== '50% 50%' && pos !== 'center' && pos !== 'center center') {
+                return invalid({ clickX: event.clientX - box.left, clickY: event.clientY - box.top, containerW: box.width, containerH: box.height, origW, origH }, `画面对齐方式为 object-position: ${pos}，坐标映射只支持居中，已拒绝本次点击`);
+            }
+        }
+        catch {
+            /* 读不到样式时按 CSS 默认值（contain 由调用方内联保证）继续 */
+        }
+    }
     return mapClickToContent({
         clickX: event.clientX - box.left,
         clickY: event.clientY - box.top,
@@ -2937,20 +3057,37 @@ class RealBrowserSpeechRecognition {
     /** 停止并返回详细结果；带超时，保证 Promise 一定会结束。 */
     async stopDetailed() {
         if (this.recognition && this.listening) {
-            await new Promise((resolve) => {
-                const timer = setTimeout(resolve, STOP_TIMEOUT_MS);
-                this.endWaiters.push(() => {
+            const ended = await new Promise((resolve) => {
+                const waiter = () => {
                     clearTimeout(timer);
-                    resolve();
-                });
+                    resolve(true);
+                };
+                // 超时：浏览器没有触发 onend。旧实现只是放行 Promise，识别器其实仍在运行，
+                // 下一次 start() 会抛 InvalidStateError 并被报成"未能启动"。这里必须 abort 并把超时如实报出。
+                const timer = setTimeout(() => {
+                    this.endWaiters = this.endWaiters.filter((w) => w !== waiter);
+                    resolve(false);
+                }, STOP_TIMEOUT_MS);
+                this.endWaiters.push(waiter);
                 try {
                     this.recognition.stop();
                 }
-                catch {
+                catch (e) {
+                    this.endWaiters = this.endWaiters.filter((w) => w !== waiter);
                     clearTimeout(timer);
-                    resolve();
+                    resolve(false);
                 }
             });
+            if (!ended) {
+                try {
+                    this.recognition.abort?.();
+                }
+                catch {
+                    /* abort 失败也只能放弃这个识别会话；超时错误码已在下面记录 */
+                }
+                if (!this.lastError)
+                    this.lastError = 'TRANSCRIPTION_TIMEOUT';
+            }
             this.listening = false;
         }
         const text = (this.finalText + this.interimText).trim();
@@ -3080,10 +3217,7 @@ const InteractionHistoryPanel = ({ history, onSeekToMs, onClearHistory, }) => {
                             backgroundColor: item.cache_hit ? '#e0e7ff' : '#f1f5f9',
                             color: item.cache_hit ? '#3730a3' : '#64748b',
                         } }, item.cache_hit ? '缓存命中' : '实时'),
-                    react_1.default.createElement("span", { style: { fontSize: '11px', color: '#64748b' } },
-                        "\u8017\u65F6 ",
-                        item.latency_ms,
-                        "ms"))),
+                    react_1.default.createElement("span", { style: { fontSize: '11px', color: '#64748b' } }, typeof item.latency_ms === 'number' ? `耗时 ${item.latency_ms}ms` : '延迟未实测'))),
             item.query && (react_1.default.createElement("div", { style: { fontSize: '13px', color: '#475569' } },
                 react_1.default.createElement("strong", null, "\u95EE\uFF1A"),
                 item.query)),
@@ -3096,7 +3230,7 @@ const InteractionHistoryPanel = ({ history, onSeekToMs, onClearHistory, }) => {
                     item.evidence[0].page_no,
                     " \u9875 \uFF5C ",
                     item.evidence[0].snippet),
-                react_1.default.createElement("button", { type: "button", onClick: () => onSeekToMs(item.evidence[0].video_start_ms), style: {
+                item.evidence[0].evidence_type !== 'page' && (react_1.default.createElement("button", { type: "button", onClick: () => onSeekToMs(item.evidence[0].video_start_ms), style: {
                         fontSize: '11px',
                         padding: '2px 6px',
                         borderRadius: '4px',
@@ -3104,7 +3238,7 @@ const InteractionHistoryPanel = ({ history, onSeekToMs, onClearHistory, }) => {
                         background: '#ffffff',
                         color: '#2563eb',
                         cursor: 'pointer',
-                    } }, "\u25B6 \u8DF3\u8F6C\u7247\u6BB5"))))))))));
+                    } }, "\u25B6 \u8DF3\u8F6C\u7247\u6BB5")))))))))));
 };
 exports.InteractionHistoryPanel = InteractionHistoryPanel;
 
@@ -3186,16 +3320,32 @@ exports.DEMO_BOOK_SLICES = [
         snippet: '第 6 页：小狐狸平安到家，与妈妈拥抱团聚',
     },
 ];
-/** 提问里不承载检索信息的功能字（语气词/疑问词/助词），去掉后再切二元组 */
-const STOP_CHARS = new Set('的了吗呢吧啊呀么什为是在有和与或这那它他她你我个一里都也就还会能可以请问谁哪几怎样从把被让给对跟向地得着过？?，,。.！!、；;：:"“”‘’（）() '.split(''));
+/**
+ * 切词规则（E-020 根因修复）。
+ *
+ * 旧实现把"地/过/着/对/向/得/给/能/会/里/一/可/以…"当成单字停用字：它们在提问里常是功能字，
+ * 但在故事里更常是实词的一部分（草地、过河、着火、对面、向日葵、得到、一起、可爱）。
+ * 上一轮只把"到"移出名单修好了"捡到"，同类缺陷全部还在——"草地上有几朵花"里的"草地"会被切碎。
+ *
+ * 现在：先整体删除多字疑问/功能短语，再只删除真正不承载内容的单字（语气词、代词、标点）。
+ * 宁可多留几个二元组（由 MIN_COVERAGE 与区分性约束兜底），也不能把实词切坏。
+ */
+const STOP_PHRASES = [
+    '为什么', '是不是', '有没有', '能不能', '会不会', '可不可以', '怎么样', '什么样', '告诉我',
+    '什么', '怎么', '怎样', '哪里', '哪儿', '哪个', '哪些', '多少', '请问', '可以', '知道', '一下',
+];
+const STOP_CHARS = new Set('的了吗呢吧啊呀么嘛哦哇呗你我他她它们这那谁几是有和与或及？?，,。.！!、；;：:"“”‘’（）()…—~～ '.split(''));
 /** 时序意图词（与具体故事无关）：结局 → 最后一页；开头 → 第一页 */
 const ENDING_WORDS = ['最后', '结局', '最终', '结尾', '后来怎么样'];
 const BEGINNING_WORDS = ['一开始', '开头', '最初', '起初', '故事开始'];
-/** 把文本切成"去功能字后的连续片段 → 字符二元组" */
+/** 把文本切成"去功能短语/功能字后的连续片段 → 字符二元组" */
 function contentBigrams(text) {
+    let t = text.toLowerCase();
+    for (const phrase of STOP_PHRASES)
+        t = t.split(phrase).join(' ');
     const runs = [];
     let cur = '';
-    for (const ch of text.toLowerCase()) {
+    for (const ch of t) {
         if (STOP_CHARS.has(ch) || /\s/.test(ch)) {
             if (cur)
                 runs.push(cur);
@@ -3314,7 +3464,10 @@ exports.buildSlicesFromBook = buildSlicesFromBook;
 exports.sliceHasTimeline = sliceHasTimeline;
 /**
  * 基于"当前这本书"构建证据索引：
- * - 页面文字取自主人逐页校对后的 OCR；未校对或为空的页不进入索引；
+ * - 页码 = 服务端页码（若有）否则为它在全书中的原始位置(1 起)。
+ *   旧实现由调用方先 filter(confirmed) 再按过滤后的下标编号：只要中间有一页未校对，
+ *   后面所有页的证据页码都会错位，并且会对上错误页的视频时间轴（P0，见 E-021）。
+ *   现在必须传入全书页面，由本函数跳过未校对/空文字的页，页码保持不变。
  * - 若后端 A 已登记时间轴(segments)，用其 start_ms/end_ms/caption 对齐视频；
  * - 没有时间轴时，时间窗口置为 null 语义(start=end=-1)，检索时不使用时序加权，
  *   且证据不会伪装成"视频 x 秒"。
@@ -3322,10 +3475,12 @@ exports.sliceHasTimeline = sliceHasTimeline;
 function buildSlicesFromBook(pages, segments = []) {
     const slices = [];
     pages.forEach((page, index) => {
+        if (page.confirmed === false)
+            return;
         const text = (page.ocr_text || '').trim();
         if (!text)
             return;
-        const pageNo = index + 1;
+        const pageNo = page.server_page_no && page.server_page_no > 0 ? page.server_page_no : index + 1;
         const segs = segments.filter((s) => s.page_no === pageNo);
         const caption = segs.map((s) => s.caption).filter(Boolean).join(' ');
         const start = segs.length ? Math.min(...segs.map((s) => s.start_ms)) : -1;
@@ -3356,18 +3511,86 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.LatencyMetricsDashboard = void 0;
+exports.summarizeInteractions = summarizeInteractions;
 const react_1 = __importDefault(require("react"));
-const LatencyMetricsDashboard = ({ history }) => {
-    const qaItems = history.filter((h) => h.type === 'voice');
-    const touchItems = history.filter((h) => h.type === 'touch');
-    const avgQaLatency = qaItems.length > 0
-        ? Math.round(qaItems.reduce((acc, cur) => acc + cur.latency_ms, 0) / qaItems.length)
-        : 320;
-    const avgTouchLatency = touchItems.length > 0
-        ? Math.round(touchItems.reduce((acc, cur) => acc + cur.latency_ms, 0) / touchItems.length)
-        : 190;
-    const accurateCount = history.filter((h) => h.status === 'success').length;
-    const accuracyRate = history.length > 0 ? Math.round((accurateCount / history.length) * 100) : 100;
+function stats(items) {
+    const measured = items.filter((i) => typeof i.latency_ms === 'number' && Number.isFinite(i.latency_ms));
+    return {
+        total: items.length,
+        measured: measured.length,
+        avgLatencyMs: measured.length ? Math.round(measured.reduce((s, i) => s + i.latency_ms, 0) / measured.length) : null,
+        withEvidence: items.filter((i) => !i.uncertain && i.sources.length > 0).length,
+        cacheHits: items.filter((i) => i.cached).length,
+        notPersisted: items.filter((i) => i.persisted === false).length,
+    };
+}
+/** 纯函数，供单测直接调用 */
+function summarizeInteractions(items, origin) {
+    const mine = items.filter((i) => i.origin === origin);
+    const touches = mine.filter((i) => i.kind === 'touch');
+    const recognized = touches.filter((i) => i.recognized === true).length;
+    return {
+        voice: stats(mine.filter((i) => i.kind === 'question')),
+        touch: { ...stats(touches), recognized, unrecognized: touches.length - recognized },
+    };
+}
+const card = { padding: '10px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' };
+const label = { fontSize: '11px', color: '#64748b' };
+const big = { fontSize: '18px', fontWeight: 'bold' };
+const small = { fontSize: '10px', color: '#94a3b8' };
+function latencyText(s) {
+    return s.avgLatencyMs === null ? '暂无实测数据' : `${s.avgLatencyMs} ms`;
+}
+const Section = ({ title, tone, s }) => (react_1.default.createElement("div", { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+    react_1.default.createElement("div", { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+        react_1.default.createElement("strong", { style: { fontSize: '13px', color: '#0f172a' } }, title),
+        react_1.default.createElement("span", { style: {
+                fontSize: '10px',
+                padding: '1px 6px',
+                borderRadius: '8px',
+                backgroundColor: tone === 'real' ? '#e0f2fe' : '#fef3c7',
+                color: tone === 'real' ? '#075985' : '#92400e',
+            } }, tone === 'real' ? '真实接口记录' : '演示数据（不代表实测）')),
+    react_1.default.createElement("div", { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' } },
+        react_1.default.createElement("div", { style: card },
+            react_1.default.createElement("div", { style: label }, "\u8BED\u97F3/\u6587\u5B57\u95EE\u7B54\u5E73\u5747\u8BF7\u6C42\u5EF6\u8FDF"),
+            react_1.default.createElement("div", { style: { ...big, color: '#2563eb' } }, latencyText(s.voice)),
+            react_1.default.createElement("div", { style: small },
+                "\u5B9E\u6D4B\u6837\u672C ",
+                s.voice.measured,
+                "/",
+                s.voice.total,
+                " \u00B7 \u4EC5\u542B\u95EE\u7B54\u8BF7\u6C42\uFF0C\u4E0D\u542B ASR/TTS")),
+        react_1.default.createElement("div", { style: card },
+            react_1.default.createElement("div", { style: label }, "\u95EE\u7B54\u6709\u4F9D\u636E\u56DE\u7B54"),
+            react_1.default.createElement("div", { style: { ...big, color: '#16a34a' } }, s.voice.total ? `${s.voice.withEvidence}/${s.voice.total}` : '暂无样本'),
+            react_1.default.createElement("div", { style: small },
+                "\u4E0D\u662F\u51C6\u786E\u7387\uFF1A\u5C1A\u65E0\u4EBA\u5DE5\u6807\u51C6\u7B54\u6848\u6BD4\u5BF9 \u00B7 \u7F13\u5B58\u547D\u4E2D ",
+                s.voice.cacheHits)),
+        react_1.default.createElement("div", { style: card },
+            react_1.default.createElement("div", { style: label }, "\u89E6\u63A7\u8BF7\u6C42\u5E73\u5747\u5EF6\u8FDF"),
+            react_1.default.createElement("div", { style: { ...big, color: '#059669' } }, latencyText(s.touch)),
+            react_1.default.createElement("div", { style: small },
+                "\u5B9E\u6D4B\u6837\u672C ",
+                s.touch.measured,
+                "/",
+                s.touch.total)),
+        react_1.default.createElement("div", { style: card },
+            react_1.default.createElement("div", { style: label }, "\u89E6\u63A7\u771F\u5B9E\u8BC6\u522B"),
+            react_1.default.createElement("div", { style: { ...big, color: s.touch.recognized ? '#059669' : '#b45309' } }, s.touch.total === 0 ? '暂无样本' : s.touch.recognized === 0 ? '未完成真实识别' : `${s.touch.recognized}/${s.touch.total}`),
+            react_1.default.createElement("div", { style: small },
+                "\u672A\u8BC6\u522B ",
+                s.touch.unrecognized,
+                " \u6761\uFF08\u89C6\u89C9\u6A21\u578B\u672A\u63A5\u5165\u65F6\u53EA\u8BB0\u5F55\u5750\u6807\uFF09\uFF0C\u4E0D\u8BA1\u5165\u901A\u8FC7\u7387"))),
+    (s.voice.notPersisted > 0 || s.touch.notPersisted > 0) && (react_1.default.createElement("div", { role: "alert", style: { fontSize: '11px', color: '#b91c1c' } },
+        "\u6709 ",
+        s.voice.notPersisted + s.touch.notPersisted,
+        " \u6761\u8BB0\u5F55\u672A\u5199\u5165\u540E\u7AEF\uFF0C\u4E0D\u80FD\u4F5C\u4E3A\u7559\u75D5\u8BC1\u636E\u3002"))));
+const LatencyMetricsDashboard = ({ interactions, sourceLabel, loadError }) => {
+    const real = summarizeInteractions(interactions, 'real');
+    const mock = summarizeInteractions(interactions, 'mock');
+    const hasReal = real.voice.total + real.touch.total > 0;
+    const hasMock = mock.voice.total + mock.touch.total > 0;
     return (react_1.default.createElement("div", { style: {
             backgroundColor: '#ffffff',
             borderRadius: '12px',
@@ -3375,48 +3598,22 @@ const LatencyMetricsDashboard = ({ history }) => {
             padding: '16px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '12px',
+            gap: '14px',
         } },
-        react_1.default.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
-            react_1.default.createElement("h3", { style: { margin: 0, fontSize: '15px', color: '#0f172a' } }, "\uD83D\uDCCA \u4EA4\u4E92\u5EF6\u8FDF\u4E0E\u534A\u7A0B\u6307\u6807\u770B\u677F (D1~D7 \u5B9E\u6D4B)"),
-            react_1.default.createElement("span", { style: {
-                    fontSize: '11px',
-                    backgroundColor: '#dcfce7',
-                    color: '#15803d',
-                    padding: '2px 8px',
-                    borderRadius: '10px',
-                    fontWeight: 600,
-                } }, "\u95E8\u69DB\u72B6\u6001: \u5DF2\u8FBE\u6807 (\u226560%)")),
-        react_1.default.createElement("div", { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' } },
-            react_1.default.createElement("div", { style: { padding: '10px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' } },
-                react_1.default.createElement("div", { style: { fontSize: '11px', color: '#64748b' } }, "\u8BED\u97F3\u7AEF\u5230\u7AEF\u5E73\u5747\u5EF6\u8FDF"),
-                react_1.default.createElement("div", { style: { fontSize: '18px', fontWeight: 'bold', color: '#2563eb' } },
-                    avgQaLatency,
-                    " ms"),
-                react_1.default.createElement("div", { style: { fontSize: '10px', color: '#94a3b8' } }, "ASR+\u68C0\u7D22+LLM+TTS")),
-            react_1.default.createElement("div", { style: { padding: '10px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' } },
-                react_1.default.createElement("div", { style: { fontSize: '11px', color: '#64748b' } }, "\u89E6\u63A7\u8BA4\u7269\u5E73\u5747\u5EF6\u8FDF"),
-                react_1.default.createElement("div", { style: { fontSize: '18px', fontWeight: 'bold', color: '#059669' } },
-                    avgTouchLatency,
-                    " ms"),
-                react_1.default.createElement("div", { style: { fontSize: '10px', color: '#94a3b8' } }, "\u5750\u6807\u6620\u5C04+\u9ED1\u8FB9\u62E6\u622A+\u8BC6\u522B")),
-            react_1.default.createElement("div", { style: { padding: '10px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' } },
-                react_1.default.createElement("div", { style: { fontSize: '11px', color: '#64748b' } }, "\u5F53\u524D\u4F1A\u8BDD\u51C6\u786E\u7387"),
-                react_1.default.createElement("div", { style: { fontSize: '18px', fontWeight: 'bold', color: '#16a34a' } },
-                    accuracyRate,
-                    "%"),
-                react_1.default.createElement("div", { style: { fontSize: '10px', color: '#94a3b8' } }, "\u57FA\u51C6\u95E8\u69DB: \u226560%"))),
-        react_1.default.createElement("div", { style: { display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' } },
-            react_1.default.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b' } },
-                react_1.default.createElement("span", null, "ASR \u8F6C\u5199 (120ms)"),
-                react_1.default.createElement("span", null, "\u65F6\u95F4\u7247\u68C0\u7D22 (65ms)"),
-                react_1.default.createElement("span", null, "\u4F9D\u636E\u77ED\u7B54 (110ms)"),
-                react_1.default.createElement("span", null, "TTS\u9996\u97F3\u9891 (140ms)")),
-            react_1.default.createElement("div", { style: { display: 'flex', height: '6px', borderRadius: '3px', overflow: 'hidden', backgroundColor: '#e2e8f0' } },
-                react_1.default.createElement("div", { style: { width: '28%', backgroundColor: '#60a5fa' }, title: "ASR" }),
-                react_1.default.createElement("div", { style: { width: '15%', backgroundColor: '#34d399' }, title: "\u68C0\u7D22" }),
-                react_1.default.createElement("div", { style: { width: '25%', backgroundColor: '#f59e0b' }, title: "\u77ED\u7B54\u751F\u6210" }),
-                react_1.default.createElement("div", { style: { width: '32%', backgroundColor: '#a78bfa' }, title: "TTS\u9996\u97F3\u9891" })))));
+        react_1.default.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } },
+            react_1.default.createElement("h3", { style: { margin: 0, fontSize: '15px', color: '#0f172a' } }, "\uD83D\uDCCA \u4EA4\u4E92\u5EF6\u8FDF\u770B\u677F \u00B7 \u5F53\u524D\u6837\u672C\u7ED3\u679C"),
+            react_1.default.createElement("span", { style: { fontSize: '11px', backgroundColor: '#f1f5f9', color: '#475569', padding: '2px 8px', borderRadius: '10px' } }, "\u672A\u7ECF\u6B63\u5F0F\u6D4B\u8BD5\uFF0C\u4E0D\u662F\u8D5B\u9898\u9A8C\u6536\u7ED3\u8BBA")),
+        react_1.default.createElement("div", { style: { fontSize: '11px', color: '#64748b' } },
+            "\u6570\u636E\u6765\u6E90\uFF1A",
+            sourceLabel),
+        loadError && (react_1.default.createElement("div", { role: "alert", style: { fontSize: '12px', color: '#b91c1c' } },
+            "\u4EA4\u4E92\u8BB0\u5F55\u8BFB\u53D6\u5931\u8D25\uFF1A",
+            loadError,
+            "\uFF08\u4E0B\u65B9\u7EDF\u8BA1\u4E0D\u5B8C\u6574\uFF09")),
+        !hasReal && !hasMock && !loadError && (react_1.default.createElement("div", { style: { textAlign: 'center', padding: '20px 0', color: '#94a3b8', fontSize: '13px' } }, "\u6682\u65E0\u5B9E\u6D4B\u6570\u636E\u3002\u8BF7\u5148\u5728\u5DE5\u4F5C\u53F0\u91CC\u63D0\u95EE\u6216\u70B9\u51FB\u753B\u9762\uFF0C\u518D\u56DE\u5230\u8FD9\u91CC\u67E5\u770B\u3002")),
+        hasReal && react_1.default.createElement(Section, { title: "\u771F\u5B9E\u63A5\u53E3\u6837\u672C", tone: "real", s: real }),
+        hasMock && react_1.default.createElement(Section, { title: "\u6F14\u793A\u6837\u672C", tone: "mock", s: mock }),
+        react_1.default.createElement("div", { style: { fontSize: '11px', color: '#94a3b8' } }, "\u5206\u9636\u6BB5\u8017\u65F6\uFF08ASR / \u68C0\u7D22 / \u751F\u6210 / TTS \u9996\u97F3\uFF09\u5F53\u524D\u672A\u9010\u6761\u91C7\u96C6\uFF0C\u56E0\u6B64\u4E0D\u663E\u793A\u5206\u89E3\uFF1B\u63A5\u5165\u771F\u5B9E ASR/TTS \u5E76\u8BB0\u5F55\u540E\u518D\u5C55\u793A\u3002")));
 };
 exports.LatencyMetricsDashboard = LatencyMetricsDashboard;
 
@@ -3425,6 +3622,7 @@ exports.LatencyMetricsDashboard = LatencyMetricsDashboard;
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pictureBookRagEngine = exports.PictureBookRagEngine = void 0;
+exports.isDangerousQuestion = isDangerousQuestion;
 /**
  * 纸书智伴 · 抽取式证据短答引擎（无故事专用模板）
  *
@@ -3433,7 +3631,27 @@ exports.pictureBookRagEngine = exports.PictureBookRagEngine = void 0;
  * - 通用儿童安全提示基于提问本身的危险动作词，与具体故事无关；
  * - 耗时只记录真实测得值，未测量的阶段一律 null。
  */
-const SAFETY_PATTERNS = /(跳下|跳崖|从.*跳|玩火|点火|(玩|拿).*刀|剪刀.*(玩|戳)|触电|吃.*不明|一个人.*(出去|跑远)|喝.*药)/;
+/**
+ * 儿童危险提问识别（E-019 加固）。
+ * 旧版 `从.*跳` 会把"小兔子从草地上跳过去了吗"误判为危险；同时漏掉插座、陌生人、爬窗、下河等常见危险。
+ * 规则只看提问里的"危险对象 + 危险动作"组合，跨度限制在几个字以内，避免整句贪婪匹配。
+ */
+const SAFETY_RULES = [
+    /(悬崖|楼上|楼顶|屋顶|阳台|窗户|窗台|高处|桥上|树上|山上).{0,6}跳/,
+    /跳(下去|下来|楼|崖|河|井|海)/,
+    /(玩|点|放|碰)(火|打火机|火柴|鞭炮)|着火.{0,4}(玩|摸|靠近)/,
+    /(玩|拿|用|戳).{0,3}(刀|剪刀|针)|(刀|剪刀).{0,3}(玩|戳|扎)/,
+    /触电|(摸|碰|插|抠).{0,3}(插座|电线|电源|插头)/,
+    /(吃|喝|尝|吞).{0,4}(药|不认识|不明|洗衣|清洁剂|消毒|电池|硬币|蘑菇)/,
+    /(药|药片|洗衣液|清洁剂|消毒液|电池|硬币|野蘑菇).{0,6}(吃|喝|吞)/, // 宾语前置："药可以随便吃吗"
+    /(跟|和).{0,2}陌生人.{0,4}(走|去|回家)|陌生人.{0,4}(给|带)/,
+    /一个人.{0,4}(出去|跑远|下河|下水|游泳|去河边|去湖边|过马路)/,
+    /(爬|翻).{0,3}(窗|阳台|栏杆|围墙)/,
+    /马路(上|中间).{0,4}(玩|跑|追)/,
+];
+function isDangerousQuestion(query) {
+    return SAFETY_RULES.some((r) => r.test(query));
+}
 const SAFETY_NOTE = '这样做很危险，请不要模仿，遇到这类情况要先告诉大人。';
 function clip(text, max = 80) {
     const t = text.trim();
@@ -3500,7 +3718,7 @@ class PictureBookRagEngine {
                 ? '当前这本书还没有经过校对的文字内容，无法回答。请先完成逐页文字校对。'
                 : '原书这段内容里没有找到相关依据，请结合书页观察，或换个问法。';
             // 安全提示不依赖证据：危险提问找不到依据时更需要提醒
-            const noAnswer = SAFETY_PATTERNS.test(query) ? `${SAFETY_NOTE} ${base_text}` : base_text;
+            const noAnswer = isDangerousQuestion(query) ? `${SAFETY_NOTE} ${base_text}` : base_text;
             this.remember(cacheKey, { answer: noAnswer, status: 'no_evidence', confidence: 0, evidence: [] });
             return {
                 ...base,
@@ -3513,7 +3731,7 @@ class PictureBookRagEngine {
         }
         const top = evidence[0];
         const quote = top.source_quote || top.snippet;
-        const safety = SAFETY_PATTERNS.test(query) ? SAFETY_NOTE : '';
+        const safety = isDangerousQuestion(query) ? SAFETY_NOTE : '';
         const answer = `${safety}${safety ? ' ' : ''}原书第 ${top.page_no} 页写道：“${clip(quote)}”`;
         this.remember(cacheKey, { answer, status: 'success', confidence: top.confidence, evidence: evidence.map((e) => ({ ...e })) });
         return {
@@ -3570,74 +3788,113 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.TtsPlayerWidget = void 0;
 const react_1 = __importStar(require("react"));
 const TtsProvider_1 = require("./TtsProvider");
-const TtsPlayerWidget = ({ textToSpeak, onAudioFirstByte, }) => {
+/**
+ * 答案朗读按钮。
+ * 整改点（D6）：
+ *  - 换答案或离开页面时必须停止朗读：旧实现卸载后浏览器继续念上一条答案，首音延迟也残留在新答案上；
+ *  - 朗读失败要告诉用户（文字答案仍在上方显示），而不是按钮悄悄复位；
+ *  - 只在本组件发起的那一次朗读里更新状态，避免旧回调覆盖新状态。
+ */
+const TtsPlayerWidget = ({ textToSpeak, onAudioFirstByte }) => {
     const [isPlaying, setIsPlaying] = (0, react_1.useState)(false);
     const [speed, setSpeed] = (0, react_1.useState)(1.0);
     const [firstByteMs, setFirstByteMs] = (0, react_1.useState)(null);
+    const [ttsError, setTtsError] = (0, react_1.useState)(null);
+    const session = (0, react_1.useRef)(0);
+    (0, react_1.useEffect)(() => {
+        // 新答案：作废进行中的朗读与旧指标
+        session.current += 1;
+        TtsProvider_1.ttsManager.stop();
+        setIsPlaying(false);
+        setFirstByteMs(null);
+        setTtsError(null);
+    }, [textToSpeak]);
+    (0, react_1.useEffect)(() => () => {
+        session.current += 1;
+        TtsProvider_1.ttsManager.stop();
+    }, []);
     const handlePlay = async () => {
         if (isPlaying) {
+            session.current += 1;
             TtsProvider_1.ttsManager.stop();
             setIsPlaying(false);
+            return;
+        }
+        const mine = ++session.current;
+        const alive = () => session.current === mine;
+        setTtsError(null);
+        if (!(await TtsProvider_1.ttsManager.isAvailable())) {
+            setTtsError('当前浏览器不支持语音朗读，请阅读上方文字答案。');
             return;
         }
         setIsPlaying(true);
         await TtsProvider_1.ttsManager.speak(textToSpeak, {
             rate: speed,
             pitch: 1.15,
-            onStart: () => setIsPlaying(true),
-            onEnd: () => setIsPlaying(false),
-            onError: () => setIsPlaying(false),
+            onStart: () => alive() && setIsPlaying(true),
+            onEnd: () => alive() && setIsPlaying(false),
+            onError: (err) => {
+                if (!alive())
+                    return;
+                setIsPlaying(false);
+                const reason = err?.message || err?.error || '未知原因';
+                setTtsError(`语音朗读失败（${reason}），文字答案不受影响。`);
+            },
             onFirstAudioByte: (ms) => {
+                if (!alive())
+                    return;
                 setFirstByteMs(ms);
                 onAudioFirstByte?.(ms);
             },
         });
     };
-    return (react_1.default.createElement("div", { style: {
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            backgroundColor: isPlaying ? '#f0fdf4' : '#f8fafc',
-            border: `1px solid ${isPlaying ? '#86efac' : '#e2e8f0'}`,
-            borderRadius: '20px',
-            padding: '4px 10px',
-            fontSize: '12px',
-            color: isPlaying ? '#166534' : '#475569',
-        } },
-        react_1.default.createElement("button", { type: "button", onClick: handlePlay, style: {
-                border: 'none',
-                backgroundColor: 'transparent',
-                cursor: 'pointer',
-                padding: 0,
-                display: 'flex',
+    return (react_1.default.createElement("div", { style: { display: 'inline-flex', flexDirection: 'column', gap: '4px' } },
+        react_1.default.createElement("div", { style: {
+                display: 'inline-flex',
                 alignItems: 'center',
-                gap: '4px',
-                fontWeight: 600,
-                color: isPlaying ? '#16a34a' : '#2563eb',
+                gap: '8px',
+                backgroundColor: isPlaying ? '#f0fdf4' : '#f8fafc',
+                border: `1px solid ${isPlaying ? '#86efac' : '#e2e8f0'}`,
+                borderRadius: '20px',
+                padding: '4px 10px',
+                fontSize: '12px',
+                color: isPlaying ? '#166534' : '#475569',
             } },
-            react_1.default.createElement("span", null, isPlaying ? '⏸️ 暂停朗读' : '🔊 语音播报')),
-        isPlaying && (react_1.default.createElement("div", { style: { display: 'flex', alignItems: 'center', gap: '2px', height: '14px' } }, [8, 14, 10, 16, 6].map((h, i) => (react_1.default.createElement("span", { key: i, style: {
-                width: '2px',
-                height: `${h}px`,
-                backgroundColor: '#16a34a',
-                borderRadius: '1px',
-                animation: 'ping 0.8s ease-in-out infinite alternate',
-            } }))))),
-        react_1.default.createElement("select", { value: speed, onChange: (e) => setSpeed(parseFloat(e.target.value)), style: {
-                fontSize: '11px',
-                border: 'none',
-                backgroundColor: 'transparent',
-                color: '#64748b',
-                outline: 'none',
-                cursor: 'pointer',
-            } },
-            react_1.default.createElement("option", { value: "0.85" }, "0.8x \u6162\u901F"),
-            react_1.default.createElement("option", { value: "1.0" }, "1.0x \u6807\u51C6"),
-            react_1.default.createElement("option", { value: "1.2" }, "1.2x \u5FEB\u901F")),
-        firstByteMs !== null && (react_1.default.createElement("span", { style: { fontSize: '10px', color: '#94a3b8' } },
-            "\u9996\u97F3\u9891: ",
-            firstByteMs,
-            "ms"))));
+            react_1.default.createElement("button", { type: "button", onClick: handlePlay, style: {
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    cursor: 'pointer',
+                    padding: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontWeight: 600,
+                    color: isPlaying ? '#16a34a' : '#2563eb',
+                } },
+                react_1.default.createElement("span", null, isPlaying ? '⏸️ 暂停朗读' : '🔊 语音播报')),
+            isPlaying && (react_1.default.createElement("div", { style: { display: 'flex', alignItems: 'center', gap: '2px', height: '14px' } }, [8, 14, 10, 16, 6].map((h, i) => (react_1.default.createElement("span", { key: i, style: {
+                    width: '2px',
+                    height: `${h}px`,
+                    backgroundColor: '#16a34a',
+                    borderRadius: '1px',
+                    animation: 'ping 0.8s ease-in-out infinite alternate',
+                } }))))),
+            react_1.default.createElement("select", { value: speed, onChange: (e) => setSpeed(parseFloat(e.target.value)), "aria-label": "\u6717\u8BFB\u8BED\u901F", style: {
+                    fontSize: '11px',
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    color: '#64748b',
+                    outline: 'none',
+                    cursor: 'pointer',
+                } },
+                react_1.default.createElement("option", { value: "0.85" }, "0.85x \u6162\u901F"),
+                react_1.default.createElement("option", { value: "1" }, "1.0x \u6807\u51C6"),
+                react_1.default.createElement("option", { value: "1.2" }, "1.2x \u5FEB\u901F")),
+            firstByteMs !== null && react_1.default.createElement("span", { style: { fontSize: '10px', color: '#94a3b8' } },
+                "\u9996\u97F3\u9891: ",
+                firstByteMs,
+                "ms")),
+        ttsError && (react_1.default.createElement("span", { role: "alert", style: { fontSize: '11px', color: '#b91c1c' } }, ttsError))));
 };
 exports.TtsPlayerWidget = TtsPlayerWidget;
 
@@ -3645,7 +3902,8 @@ exports.TtsPlayerWidget = TtsPlayerWidget;
 "features/interaction/tts/TtsProvider": function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ttsManager = exports.BackendTtsProvider = exports.BrowserSpeechSynthesisTts = void 0;
+exports.ttsManager = exports.BackendTtsProvider = exports.BrowserSpeechSynthesisTts = exports.TTS_START_TIMEOUT_MS = void 0;
+exports.TTS_START_TIMEOUT_MS = 5000;
 function getSpeechSynthesis() {
     if (typeof window !== 'undefined' && window.speechSynthesis)
         return window.speechSynthesis;
@@ -3685,8 +3943,26 @@ class BrowserSpeechSynthesisTts {
             utterance.pitch = options?.pitch ?? 1.15; // 稍高，亲和力更强
             utterance.volume = options?.volume ?? 1.0;
             let firstByteRecorded = false;
+            let settled = false;
+            // 旧实现只在 onstart/onerror 时 resolve：浏览器两者都不触发时 Promise 永远挂起，按钮一直显示"播放中"
+            const timer = setTimeout(() => {
+                if (firstByteRecorded || settled)
+                    return;
+                settled = true;
+                try {
+                    synth.cancel();
+                }
+                catch {
+                    /* 取消失败不影响报错 */
+                }
+                options?.onError?.(new Error(`语音合成 ${options?.startTimeoutMs ?? exports.TTS_START_TIMEOUT_MS}ms 内没有开始发音（可能缺少中文语音包）`));
+                resolve({ firstAudioMs: null });
+            }, options?.startTimeoutMs ?? exports.TTS_START_TIMEOUT_MS);
             utterance.onstart = () => {
+                if (settled)
+                    return;
                 if (!firstByteRecorded) {
+                    clearTimeout(timer);
                     firstByteRecorded = true;
                     const latency = Math.round(performance.now() - start);
                     options?.onFirstAudioByte?.(latency);
@@ -3698,7 +3974,17 @@ class BrowserSpeechSynthesisTts {
                 options?.onEnd?.();
             };
             utterance.onerror = (e) => {
-                options?.onError?.(e);
+                clearTimeout(timer);
+                if (settled && !firstByteRecorded)
+                    return;
+                settled = true;
+                // 被我们自己 cancel 打断（换答案/停止）不是失败
+                if (e?.error === 'interrupted' || e?.error === 'canceled') {
+                    options?.onEnd?.();
+                }
+                else {
+                    options?.onError?.(e);
+                }
                 // 出错未发音时首音延迟为 null，不假造数字
                 resolve({ firstAudioMs: firstByteRecorded ? Math.round(performance.now() - start) : null });
             };
@@ -3891,6 +4177,8 @@ class ApiClient {
             status: data.status,
             answer_source: data.answer_source,
             uncertain: data.status !== 'success',
+            // 旧载荷没有这个字段：界面显示"缓存命中"，后端留痕里却查不到，回归项"cache_hit 是否真的记录"无法验证
+            cache_hit: Boolean(data.cache_hit),
         }, latencyMs);
         data.persisted = rec.ok;
         if (!rec.ok)
@@ -3988,6 +4276,8 @@ class ApiClient {
             explanation: data.explanation,
             confidence: data.confidence,
             evidence: data.evidence ? [data.evidence] : [],
+            cache_hit: Boolean(data.cache_hit),
+            recognition: this.modelServiceUrl ? 'model_service' : 'not_connected',
         }, latencyMs);
         data.persisted = rec.ok;
         if (!rec.ok)
@@ -4797,7 +5087,12 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
     const [videoError, setVideoError] = (0, react_1.useState)(false);
     const [result, setResult] = (0, react_1.useState)(null);
     const [touchMode, setTouchMode] = (0, react_1.useState)(false);
+    // 重试必须重放"完全相同"的请求：旧实现重试触控时丢掉了 touch_point/viewport_info（Live 直接报错），
+    // 重试提问时 inputMethod 已被提交时重置，语音提问会被记成键盘输入
     const [lastAction, setLastAction] = (0, react_1.useState)(null);
+    const [metadataReady, setMetadataReady] = (0, react_1.useState)(false);
+    // 视频元数据未就绪前到达的跳转（例如从历史记录回到 50 秒）：先挂起，拿到真实时长后再执行
+    const pendingSeek = (0, react_1.useRef)(null);
     // 真实语音录音与普通话识别 (C 负责人交付)
     const [isRecording, setIsRecording] = (0, react_1.useState)(false);
     const [voiceInput, setVoiceInput] = (0, react_1.useState)(false);
@@ -4861,6 +5156,8 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
         setVoiceInput(false);
         setVideoError(false);
         setDurationMs(36000);
+        setMetadataReady(false);
+        pendingSeek.current = null;
     }, [book.id, book.run_id]);
     (0, react_1.useEffect)(() => {
         if (isVideo || !playing || state !== 'success')
@@ -4879,12 +5176,19 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
     (0, react_1.useEffect)(() => {
         if (seekTo === null)
             return;
+        // 旧实现：视频元数据到达前 durationMs 还是 36 秒占位值，历史里 50 秒的证据会被夹到 36 秒
+        if (isVideo && !metadataReady) {
+            pendingSeek.current = Math.max(0, seekTo);
+            setTimeMs(Math.max(0, seekTo));
+            onSeekHandled();
+            return;
+        }
         const next = Math.max(0, Math.min(durationMs, seekTo));
         setTimeMs(next);
         if (videoRef.current)
             videoRef.current.currentTime = next / 1000;
         onSeekHandled();
-    }, [seekTo, durationMs, onSeekHandled]);
+    }, [seekTo, durationMs, onSeekHandled, isVideo, metadataReady]);
     function seek(value) {
         const next = Math.max(0, Math.min(durationMs, value));
         setTimeMs(next);
@@ -4927,7 +5231,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
         setBusy('question');
         setError('');
         setTtsFirstAudioMs(null);
-        setLastAction({ kind: 'question', text: trimmed });
+        setLastAction({ kind: 'question', text: trimmed, inputMethod });
         const version = requestVersion.current;
         try {
             const item = await askQuestion(trimmed, currentTime.current, inputMethod);
@@ -4954,7 +5258,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
         setBusy('touch');
         setError('');
         setTtsFirstAudioMs(null);
-        setLastAction({ kind: 'touch', x, y, box });
+        setLastAction({ kind: 'touch', x, y, box, detail });
         const version = requestVersion.current;
         try {
             const item = await identifyTouch(x, y, currentTime.current, box, detail);
@@ -4982,6 +5286,11 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
         const element = videoRef.current ?? imageRef.current;
         if (!element)
             return;
+        if (!isVideo && !page?.image_url) {
+            // 没有真实书页图片时显示的是占位插画：点它得到的坐标与这本书无关，不能上报
+            setError('⚠️ 当前页没有书页图片（显示的是占位插画），无法进行触控认物。');
+            return;
+        }
         const calculation = element instanceof HTMLVideoElement
             ? (0, VideoCoordinateMapper_1.calculateVideoTouchCoordinates)(event.nativeEvent, element)
             : (0, VideoCoordinateMapper_1.calculateImageTouchCoordinates)(event.nativeEvent, element);
@@ -5103,9 +5412,18 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                 React.createElement("div", { className: `reader-frame ${touchMode ? 'touch-active' : ''}`, onClick: clickFrame, "aria-label": "\u9605\u8BFB\u753B\u9762", style: { position: 'relative', cursor: touchMode ? 'crosshair' : 'default' } },
                     React.createElement("div", { className: "reader-film-grain" }),
                     isVideo ? (React.createElement("video", { ref: videoRef, src: book.video_url, playsInline: true, preload: "metadata", onLoadedMetadata: (event) => {
-                            const duration = event.currentTarget.duration;
-                            if (Number.isFinite(duration) && duration > 0)
-                                setDurationMs(duration * 1000);
+                            const el = event.currentTarget;
+                            const duration = el.duration;
+                            const realDuration = Number.isFinite(duration) && duration > 0 ? duration * 1000 : null;
+                            if (realDuration !== null)
+                                setDurationMs(realDuration);
+                            setMetadataReady(true);
+                            if (pendingSeek.current !== null) {
+                                const next = realDuration !== null ? Math.min(realDuration, pendingSeek.current) : pendingSeek.current;
+                                pendingSeek.current = null;
+                                el.currentTime = next / 1000;
+                                setTimeMs(next);
+                            }
                         }, onTimeUpdate: (event) => setTimeMs(event.currentTarget.currentTime * 1000), onEnded: () => setPlaying(false), onPause: () => setPlaying(false), onPlay: () => setPlaying(true), onError: () => {
                             setVideoError(true);
                             setPlaying(false);
@@ -5131,7 +5449,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                         } }, touchMode ? '退出认物' : '点击认物')),
                 React.createElement("div", { className: "reader-subtitle" },
                     React.createElement("span", null, "\u5B57\u5E55"),
-                    React.createElement("p", null, page?.ocr_text || '书里的每一个小发现，都值得认真倾听。')),
+                    React.createElement("p", null, page?.ocr_text || '（本页暂无校对文字）')),
                 React.createElement("div", { className: "reader-source-bar" },
                     React.createElement("span", null,
                         React.createElement(ui_1.Icon, { name: "book", size: 16 }),
@@ -5208,9 +5526,9 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                     React.createElement("p", null, error),
                     lastAction && (React.createElement("button", { onClick: () => {
                             if (lastAction.kind === 'question')
-                                void ask(lastAction.text, voiceInput ? 'speech' : 'keyboard');
+                                void ask(lastAction.text, lastAction.inputMethod);
                             else
-                                void touch(lastAction.x, lastAction.y, lastAction.box);
+                                void touch(lastAction.x, lastAction.y, lastAction.box, lastAction.detail);
                         }, disabled: Boolean(busy) }, "\u91CD\u8BD5\u8FD9\u6B21\u64CD\u4F5C")))),
                 latest ? (React.createElement("section", { className: "answer-card", "aria-live": "polite" },
                     React.createElement("div", { className: "answer-heading" },

@@ -6,7 +6,11 @@ export interface TtsPlaybackOptions {
   onEnd?: () => void;
   onError?: (err: any) => void;
   onFirstAudioByte?: (latencyMs: number) => void;
+  /** 等待开始发音的上限；超时视为失败（Chrome 无中文语音包/语音列表未加载时会静默不发音） */
+  startTimeoutMs?: number;
 }
+
+export const TTS_START_TIMEOUT_MS = 5000;
 
 export interface ITtsProvider {
   name: string;
@@ -57,9 +61,24 @@ export class BrowserSpeechSynthesisTts implements ITtsProvider {
       utterance.volume = options?.volume ?? 1.0;
 
       let firstByteRecorded = false;
+      let settled = false;
+      // 旧实现只在 onstart/onerror 时 resolve：浏览器两者都不触发时 Promise 永远挂起，按钮一直显示"播放中"
+      const timer = setTimeout(() => {
+        if (firstByteRecorded || settled) return;
+        settled = true;
+        try {
+          synth.cancel();
+        } catch {
+          /* 取消失败不影响报错 */
+        }
+        options?.onError?.(new Error(`语音合成 ${options?.startTimeoutMs ?? TTS_START_TIMEOUT_MS}ms 内没有开始发音（可能缺少中文语音包）`));
+        resolve({ firstAudioMs: null });
+      }, options?.startTimeoutMs ?? TTS_START_TIMEOUT_MS);
 
       utterance.onstart = () => {
+        if (settled) return;
         if (!firstByteRecorded) {
+          clearTimeout(timer);
           firstByteRecorded = true;
           const latency = Math.round(performance.now() - start);
           options?.onFirstAudioByte?.(latency);
@@ -73,7 +92,15 @@ export class BrowserSpeechSynthesisTts implements ITtsProvider {
       };
 
       utterance.onerror = (e: any) => {
-        options?.onError?.(e);
+        clearTimeout(timer);
+        if (settled && !firstByteRecorded) return;
+        settled = true;
+        // 被我们自己 cancel 打断（换答案/停止）不是失败
+        if (e?.error === 'interrupted' || e?.error === 'canceled') {
+          options?.onEnd?.();
+        } else {
+          options?.onError?.(e);
+        }
         // 出错未发音时首音延迟为 null，不假造数字
         resolve({ firstAudioMs: firstByteRecorded ? Math.round(performance.now() - start) : null });
       };

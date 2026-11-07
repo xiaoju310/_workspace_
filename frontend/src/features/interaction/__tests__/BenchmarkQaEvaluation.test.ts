@@ -86,7 +86,7 @@ export interface GoldStandardCase {
   humanGoldHasAnswer: boolean;
   humanGoldPage?: number;
   safetyRequired?: boolean;
-  gapCategory?: 'TIMELINE_INTENT' | 'CROSS_LINGUAL' | 'QUERY_DILUTION' | 'STOPWORD_SINGLE_CHAR' | 'NONE';
+  gapCategory?: 'TIMELINE_INTENT' | 'CROSS_LINGUAL' | 'QUERY_DILUTION' | 'STOPWORD_SINGLE_CHAR' | 'PAGE_REFERENCE' | 'VISUAL_COUNT' | 'NONE';
 }
 
 export const GOLD_STANDARD_CASES: GoldStandardCase[] = [
@@ -111,11 +111,19 @@ export const GOLD_STANDARD_CASES: GoldStandardCase[] = [
   { id: 'GS-14', query: '谁', humanGoldHasAnswer: false, gapCategory: 'NONE' },
   { id: 'GS-15', query: 'fox 是什么？', humanGoldHasAnswer: false, gapCategory: 'NONE' },
   { id: 'GS-16', query: 'blue bird 在哪里？', humanGoldHasAnswer: false, gapCategory: 'NONE' },
-  { id: 'GS-17', query: '第1页有什么？', humanGoldHasAnswer: false, gapCategory: 'NONE' },
+  // 第 4 轮更正：上一轮把它标成"人类标准无答案"，这是贴着实现填标签——人当然知道第 1 页讲了什么。
+  { id: 'GS-17', query: '第1页有什么？', humanGoldHasAnswer: true, humanGoldPage: 1, gapCategory: 'PAGE_REFERENCE' },
   { id: 'GS-18', query: '今天北京天气怎么样？', humanGoldHasAnswer: false, gapCategory: 'NONE' },
   { id: 'GS-19', query: '请问勾股定理是什么？', humanGoldHasAnswer: false, gapCategory: 'NONE' },
   { id: 'GS-20', query: '小狐狸', humanGoldHasAnswer: false, gapCategory: 'NONE' },
+  // 第 4 轮新增（队长复查点名）：草地/花在第 1 页画面描述里
+  // 标签先于运行写定(有答案/第1页)；运行后如实失败：5 个二元组只命中"草地"，覆盖率 0.2 < 0.4，诊断归为稀释缺口
+  { id: 'GS-21', query: '草地上开着什么颜色的花？', humanGoldHasAnswer: true, humanGoldPage: 1, gapCategory: 'QUERY_DILUTION' },
 ];
+
+// 第 4 轮实测：召回 8/15 = 53.3%（上一轮 61.5% 是因为 GS-17 标签贴着实现填、且没有 GS-21），精确率 8/8。
+// 系统召回数没有变化(tp 仍为 8)，下降完全来自标签更正与新增用例。
+const GOLD_MEASURED = { tp: 8, fn: 7, fp: 0, tn: 6 };
 
 describe('独立人工标注黄金标准评测 (Gold Standard Benchmark)', () => {
   const indexer = new TimeSliceIndexer(DEMO_BOOK_SLICES);
@@ -160,16 +168,11 @@ describe('独立人工标注黄金标准评测 (Gold Standard Benchmark)', () =>
     const recall = tp / (tp + fn);
     const precision = tp / (tp + fp);
 
-    // 如实断言实测指标：
-    // 真实召回率 Recall = 8 / 13 = 61.5%
-    // 真实精确率 Precision = 8 / 8 = 100%（在召回的内容中假阳性为 0）
-    // 识别出 5 个明确的能力缺口（时序、跨语言、单字、稀释）
-    expect(tp).toBe(8);
-    expect(fn).toBe(5);
-    expect(fp).toBe(0);
-    expect(tn).toBe(7);
-    expect(recall).toBeCloseTo(0.615, 2);
-    expect(precision).toBe(1.0);
-    expect(identifiedGaps.length).toBe(5);
+    // 实测值（第 4 轮，标签更正 + 切词修复后重新跑出，不是先定数字再调代码）：
+    console.info('[GOLD]', JSON.stringify({ tp, fn, fp, tn, recall: Number(recall.toFixed(3)), precision: Number(precision.toFixed(3)), gaps: identifiedGaps }));
+    // 注意：这 21 条全部基于同一本 Demo 夹具书（小狐狸），只能说明抽取式检索在这本书上的行为，
+    // 不能外推为"任意图书准确率"。授权真实绘本的评测集尚未建立（依赖 B/E 提供素材）。
+    expect({ tp, fn, fp, tn }).toEqual(GOLD_MEASURED);
+    expect(precision).toBe(GOLD_MEASURED.tp / (GOLD_MEASURED.tp + GOLD_MEASURED.fp));
   });
 });

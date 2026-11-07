@@ -33,7 +33,8 @@ export const QA_TEST_CASES = [
     title: '故事情节原因 (正例)',
     query: '小狐狸为什么一个人走在森林里？',
     videoMs: 12000,
-    expectedSnippet: '迷路',
+    // 原书第 2 页：为了给生病的狐狸妈妈采红浆果才越走越远（迷路是结果不是原因）
+    expectedSnippet: '浆果',
     expectedStatus: 'success',
   },
   {
@@ -41,7 +42,8 @@ export const QA_TEST_CASES = [
     title: '跨时间跨页检索 (正例)',
     query: '它最后找到妈妈了吗？',
     videoMs: 5000,
-    expectedSnippet: '找到了',
+    // 原书第 6 页：回到小屋，紧紧拥抱了妈妈（原文没有"找到了"三个字，旧期望值永远不可能命中）
+    expectedSnippet: '拥抱了妈妈',
     expectedStatus: 'success',
   },
   {
@@ -49,7 +51,8 @@ export const QA_TEST_CASES = [
     title: '颜色与视觉属性 (正例)',
     query: '天上的大鸟是什么颜色的？',
     videoMs: 22000,
-    expectedSnippet: '大雁',
+    // 问的是颜色：原书第 3 页"羽毛是湛蓝色的"
+    expectedSnippet: '湛蓝',
     expectedStatus: 'success',
   },
   {
@@ -57,7 +60,8 @@ export const QA_TEST_CASES = [
     title: '画面背景物体计数 (正例)',
     query: '草地上有几朵粉红色的小花？',
     videoMs: 8000,
-    expectedSnippet: '小狐狸',
+    // 问的是数量：画面描述为"3朵粉色小花"。旧期望值"小狐狸"与问题无关，任何第 1 页回答都能"通过"
+    expectedSnippet: '3朵',
     expectedStatus: 'success',
   },
   {
@@ -81,7 +85,8 @@ export const QA_TEST_CASES = [
     title: '时间片敏感状态 (时序正例)',
     query: '现在天黑了吗？',
     videoMs: 10000,
-    expectedSnippet: '故事画面',
+    // 10 秒处是第 2 页"林荫斑驳"的白天，正确回答应说明还没天黑；旧期望值"故事画面"与问题无关
+    expectedSnippet: '没有天黑',
     expectedStatus: 'success',
   },
   {
@@ -89,7 +94,8 @@ export const QA_TEST_CASES = [
     title: '儿童口音/带停顿提问',
     query: '狐狸...它...在找谁呀？',
     videoMs: 16000,
-    expectedSnippet: '小狐狸',
+    // 问"在找谁"：答案是妈妈。旧期望值"小狐狸"是提问主语，几乎任何回答都含有它
+    expectedSnippet: '妈妈',
     expectedStatus: 'success',
   },
   {
@@ -97,7 +103,8 @@ export const QA_TEST_CASES = [
     title: '儿童安全提问审核与引导',
     query: '小狐狸可以从悬崖跳下去飞起来吗？',
     videoMs: 32000,
-    expectedSnippet: '小狐狸',
+    // 安全用例必须检查安全提示本身，而不是主语
+    expectedSnippet: '这样做很危险',
     expectedStatus: 'success',
   },
 ];
@@ -256,15 +263,14 @@ export const BenchmarkRunner: React.FC<{ bookId: string; runId: string }> = ({
   const evaluated = results.filter((r) => !r.skipped);
   const skippedCount = results.length - evaluated.length;
   const passedCount = evaluated.filter((r) => r.passed).length;
+  // 跳过项的 0ms 不能计入平均延迟（旧实现会把平均值拉低）
   const avgLatency =
-    results.length > 0
-      ? Math.round(results.reduce((sum, r) => sum + r.latencyMs, 0) / results.length)
-      : 0;
+    evaluated.length > 0 ? Math.round(evaluated.reduce((sum, r) => sum + r.latencyMs, 0) / evaluated.length) : null;
 
   const copyMarkdownReport = () => {
     let md = `### 纸书智伴 · 交互基准测试报告 (D1 自动化回归)\n`;
     md += `- **测试批次**: ${runId} ｜ **书籍**: ${bookId}\n`;
-    md += `- **用例总数**: ${results.length} ｜ **通过率**: ${evaluated.length > 0 ? ((passedCount / evaluated.length) * 100).toFixed(1) : 0}%（已评测 ${evaluated.length} 项，跳过 ${skippedCount} 项） ｜ **平均延迟**: ${avgLatency}ms\n\n`;
+    md += `- **用例总数**: ${results.length} ｜ **通过率**: ${evaluated.length > 0 ? ((passedCount / evaluated.length) * 100).toFixed(1) : 0}%（已评测 ${evaluated.length} 项，跳过 ${skippedCount} 项） ｜ **平均延迟(仅已评测项)**: ${avgLatency === null ? '无' : avgLatency + 'ms'}\n- **数据来源**: Demo 夹具（小狐狸示例书）+ 本地抽取式检索，未调用真实 ASR/TTS/视觉模型，不代表真实图书准确率\n\n`;
     md += `| 用例ID | 类型 | 标题 | 测试输入 | 实际结果 | 状态 | 耗时 | 置信度 |\n`;
     md += `|---|---|---|---|---|---|---|---|\n`;
     results.forEach((r) => {
@@ -290,7 +296,7 @@ export const BenchmarkRunner: React.FC<{ bookId: string; runId: string }> = ({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <div>
           <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a' }}>
-            🧪 D1 交互基准自动化测试工作台 (10 条问答 + 5 次点击)
+            🧪 Demo 夹具交互回归 (10 条问答 + 5 次点击)
           </h3>
           <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
             覆盖 `docs/qa-samples.md` 的正反例与拒答验证（基于内置演示夹具，仅用于回归，不代表对真实图书的准确率）；黑边拦截调用真实算法；认物准确率待视觉模型接入
@@ -357,13 +363,13 @@ export const BenchmarkRunner: React.FC<{ bookId: string; runId: string }> = ({
           <div style={{ padding: '10px', backgroundColor: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
             <div style={{ fontSize: '12px', color: '#1e40af' }}>平均交互延迟</div>
             <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#2563eb' }}>
-              {avgLatency} ms
+              {avgLatency === null ? '无已评测项' : `${avgLatency} ms`}
             </div>
           </div>
           <div style={{ padding: '10px', backgroundColor: '#fdf4ff', borderRadius: '8px', border: '1px solid #f5d0fe' }}>
-            <div style={{ fontSize: '12px', color: '#86198f' }}>赛题达标门槛</div>
-            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#a21caf' }}>
-              已达标 (≥60%)
+            <div style={{ fontSize: '12px', color: '#86198f' }}>结论范围</div>
+            <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#a21caf' }}>
+              当前样本结果（Demo 夹具，非赛题验收）
             </div>
           </div>
         </div>

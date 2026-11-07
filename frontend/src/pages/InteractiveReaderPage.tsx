@@ -35,9 +35,16 @@ export default function InteractiveReaderPage({
   const [videoError, setVideoError] = useState(false)
   const [result, setResult] = useState<Interaction | null>(null)
   const [touchMode, setTouchMode] = useState(false)
+  // 重试必须重放"完全相同"的请求：旧实现重试触控时丢掉了 touch_point/viewport_info（Live 直接报错），
+  // 重试提问时 inputMethod 已被提交时重置，语音提问会被记成键盘输入
   const [lastAction, setLastAction] = useState<
-    { kind: 'question'; text: string } | { kind: 'touch'; x: number; y: number; box: { width: number; height: number } } | null
+    | { kind: 'question'; text: string; inputMethod: 'speech' | 'keyboard' }
+    | { kind: 'touch'; x: number; y: number; box: { width: number; height: number }; detail?: TouchDetail }
+    | null
   >(null)
+  const [metadataReady, setMetadataReady] = useState(false)
+  // 视频元数据未就绪前到达的跳转（例如从历史记录回到 50 秒）：先挂起，拿到真实时长后再执行
+  const pendingSeek = useRef<number | null>(null)
 
   // 真实语音录音与普通话识别 (C 负责人交付)
   const [isRecording, setIsRecording] = useState(false)
@@ -102,6 +109,8 @@ export default function InteractiveReaderPage({
     setVoiceInput(false)
     setVideoError(false)
     setDurationMs(36000)
+    setMetadataReady(false)
+    pendingSeek.current = null
   }, [book.id, book.run_id])
 
   useEffect(() => {
@@ -120,11 +129,18 @@ export default function InteractiveReaderPage({
 
   useEffect(() => {
     if (seekTo === null) return
+    // 旧实现：视频元数据到达前 durationMs 还是 36 秒占位值，历史里 50 秒的证据会被夹到 36 秒
+    if (isVideo && !metadataReady) {
+      pendingSeek.current = Math.max(0, seekTo)
+      setTimeMs(Math.max(0, seekTo))
+      onSeekHandled()
+      return
+    }
     const next = Math.max(0, Math.min(durationMs, seekTo))
     setTimeMs(next)
     if (videoRef.current) videoRef.current.currentTime = next / 1000
     onSeekHandled()
-  }, [seekTo, durationMs, onSeekHandled])
+  }, [seekTo, durationMs, onSeekHandled, isVideo, metadataReady])
 
   function seek(value: number) {
     const next = Math.max(0, Math.min(durationMs, value))
@@ -164,7 +180,7 @@ export default function InteractiveReaderPage({
     setBusy('question')
     setError('')
     setTtsFirstAudioMs(null)
-    setLastAction({ kind: 'question', text: trimmed })
+    setLastAction({ kind: 'question', text: trimmed, inputMethod })
     const version = requestVersion.current
     try {
       const item = await askQuestion(trimmed, currentTime.current, inputMethod)
@@ -189,7 +205,7 @@ export default function InteractiveReaderPage({
     setBusy('touch')
     setError('')
     setTtsFirstAudioMs(null)
-    setLastAction({ kind: 'touch', x, y, box })
+    setLastAction({ kind: 'touch', x, y, box, detail })
     const version = requestVersion.current
     try {
       const item = await identifyTouch(x, y, currentTime.current, box, detail)
@@ -214,6 +230,11 @@ export default function InteractiveReaderPage({
     if (!touchMode || busy) return
     const element = videoRef.current ?? imageRef.current
     if (!element) return
+    if (!isVideo && !page?.image_url) {
+      // 没有真实书页图片时显示的是占位插画：点它得到的坐标与这本书无关，不能上报
+      setError('⚠️ 当前页没有书页图片（显示的是占位插画），无法进行触控认物。')
+      return
+    }
 
     const calculation =
       element instanceof HTMLVideoElement
@@ -374,8 +395,17 @@ export default function InteractiveReaderPage({
                 playsInline
                 preload="metadata"
                 onLoadedMetadata={(event) => {
-                  const duration = event.currentTarget.duration
-                  if (Number.isFinite(duration) && duration > 0) setDurationMs(duration * 1000)
+                  const el = event.currentTarget
+                  const duration = el.duration
+                  const realDuration = Number.isFinite(duration) && duration > 0 ? duration * 1000 : null
+                  if (realDuration !== null) setDurationMs(realDuration)
+                  setMetadataReady(true)
+                  if (pendingSeek.current !== null) {
+                    const next = realDuration !== null ? Math.min(realDuration, pendingSeek.current) : pendingSeek.current
+                    pendingSeek.current = null
+                    el.currentTime = next / 1000
+                    setTimeMs(next)
+                  }
                 }}
                 onTimeUpdate={(event) => setTimeMs(event.currentTarget.currentTime * 1000)}
                 onEnded={() => setPlaying(false)}
@@ -454,7 +484,7 @@ export default function InteractiveReaderPage({
 
           <div className="reader-subtitle">
             <span>字幕</span>
-            <p>{page?.ocr_text || '书里的每一个小发现，都值得认真倾听。'}</p>
+            <p>{page?.ocr_text || '（本页暂无校对文字）'}</p>
           </div>
 
           <div className="reader-source-bar">
@@ -585,8 +615,8 @@ export default function InteractiveReaderPage({
               {lastAction && (
                 <button
                   onClick={() => {
-                    if (lastAction.kind === 'question') void ask(lastAction.text, voiceInput ? 'speech' : 'keyboard')
-                    else void touch(lastAction.x, lastAction.y, lastAction.box)
+                    if (lastAction.kind === 'question') void ask(lastAction.text, lastAction.inputMethod)
+                    else void touch(lastAction.x, lastAction.y, lastAction.box, lastAction.detail)
                   }}
                   disabled={Boolean(busy)}
                 >

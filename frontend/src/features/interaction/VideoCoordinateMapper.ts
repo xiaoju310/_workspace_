@@ -143,9 +143,10 @@ export function mapClickToContent(input: MapInput): VideoViewportCalculation {
   const touchPoint: TouchPoint = {
     norm_x: Number(normX.toFixed(4)),
     norm_y: Number(normY.toFixed(4)),
-    // 原始分辨率像素，合法范围 [0, 尺寸-1]
-    video_pixel_x: Math.min(origW - 1, Math.round(normX * origW)),
-    video_pixel_y: Math.min(origH - 1, Math.round(normY * origH)),
+    // 原始分辨率像素下标，合法范围 [0, 尺寸-1]。用 floor：像素 i 覆盖 [i, i+1)；
+    // 旧的 round 会让 norm=0.0003 落到像素 1、并把最右一列的一半点击挤到同一像素
+    video_pixel_x: Math.min(origW - 1, Math.floor(normX * origW)),
+    video_pixel_y: Math.min(origH - 1, Math.floor(normY * origH)),
     video_width: origW,
     video_height: origH,
   };
@@ -168,9 +169,20 @@ export function mapClickToContent(input: MapInput): VideoViewportCalculation {
 
 type PointerLike = { clientX: number; clientY: number };
 
-/** 读取元素 content box（扣除 border/padding）。测试环境无 getComputedStyle 时回退为整个 rect。 */
-function contentBox(el: HTMLElement): { left: number; top: number; width: number; height: number } {
+/**
+ * 读取元素 content box（扣除 border/padding），坐标系为屏幕像素。测试环境无 getComputedStyle 时回退为整个 rect。
+ *
+ * CSS transform（缩放播放器、页面局部放大）下：getBoundingClientRect 返回的是缩放后的尺寸，
+ * 而 getComputedStyle 的 border/padding 是缩放前的 CSS 像素。旧实现直接相减，scale≠1 时内容区算错，
+ * 黑边判定和归一化坐标全部偏移。这里按 rect / offset 尺寸求出缩放比，把 border/padding 换算到屏幕像素。
+ * （仅支持缩放/平移；旋转、倾斜下 getBoundingClientRect 本身已不是内容矩形，属已知不支持。）
+ */
+export function contentBox(el: HTMLElement): { left: number; top: number; width: number; height: number } {
   const rect = el.getBoundingClientRect();
+  const ow = (el as HTMLElement).offsetWidth;
+  const oh = (el as HTMLElement).offsetHeight;
+  const sx = ow > 0 && rect.width > 0 ? rect.width / ow : 1;
+  const sy = oh > 0 && rect.height > 0 ? rect.height / oh : 1;
   let bl = 0, bt = 0, br = 0, bb = 0, pl = 0, pt = 0, pr = 0, pb = 0;
   if (typeof getComputedStyle === 'function') {
     try {
@@ -183,15 +195,31 @@ function contentBox(el: HTMLElement): { left: number; top: number; width: number
     }
   }
   return {
-    left: rect.left + bl + pl,
-    top: rect.top + bt + pt,
-    width: rect.width - bl - br - pl - pr,
-    height: rect.height - bt - bb - pt - pb,
+    left: rect.left + (bl + pl) * sx,
+    top: rect.top + (bt + pt) * sy,
+    width: rect.width - (bl + br + pl + pr) * sx,
+    height: rect.height - (bt + bb + pt + pb) * sy,
   };
 }
 
 function mapElement(event: PointerLike, el: HTMLElement, origW: number, origH: number): VideoViewportCalculation {
   const box = contentBox(el);
+  // 算法只对 object-fit: contain + 居中成立；样式被改成 cover/fill 时宁可拒绝，也不能悄悄算错像素
+  if (typeof getComputedStyle === 'function') {
+    try {
+      const cs = getComputedStyle(el);
+      const fit = cs.objectFit;
+      const pos = (cs.objectPosition || '').replace(/\s+/g, ' ').trim();
+      if (fit && fit !== 'contain') {
+        return invalid({ clickX: event.clientX - box.left, clickY: event.clientY - box.top, containerW: box.width, containerH: box.height, origW, origH }, `画面缩放方式为 object-fit: ${fit}，坐标映射只支持 contain，已拒绝本次点击`);
+      }
+      if (pos && pos !== '50% 50%' && pos !== 'center' && pos !== 'center center') {
+        return invalid({ clickX: event.clientX - box.left, clickY: event.clientY - box.top, containerW: box.width, containerH: box.height, origW, origH }, `画面对齐方式为 object-position: ${pos}，坐标映射只支持居中，已拒绝本次点击`);
+      }
+    } catch {
+      /* 读不到样式时按 CSS 默认值（contain 由调用方内联保证）继续 */
+    }
+  }
   return mapClickToContent({
     clickX: event.clientX - box.left,
     clickY: event.clientY - box.top,

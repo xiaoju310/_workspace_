@@ -39,6 +39,8 @@ export interface Interaction {
   origin: 'mock' | 'real'; cached: boolean
   /** Live 下是否已写入后端 A；false 时界面必须提示 */
   persisted?: boolean; persist_error?: string
+  /** 仅触控：是否由真实视觉模型给出了物体名称。未接入模型时为 false，看板据此显示"未完成真实识别" */
+  recognized?: boolean
 }
 export interface JobState { status: 'idle' | 'running' | 'failed' | 'review' | 'ready'; stage: number; progress: number; error: string | null; run_id: string | null; events: { stage: string; message: string; time: string }[]; /** true: 进度来自后端真实任务，不走本地模拟计时器 */ server?: boolean }
 export interface PageContext {

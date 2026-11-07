@@ -9,7 +9,27 @@ import { TimeSliceIndexer } from '../indexing/TimeSliceIndexer';
  * - 通用儿童安全提示基于提问本身的危险动作词，与具体故事无关；
  * - 耗时只记录真实测得值，未测量的阶段一律 null。
  */
-const SAFETY_PATTERNS = /(跳下|跳崖|从.*跳|玩火|点火|(玩|拿).*刀|剪刀.*(玩|戳)|触电|吃.*不明|一个人.*(出去|跑远)|喝.*药)/;
+/**
+ * 儿童危险提问识别（E-019 加固）。
+ * 旧版 `从.*跳` 会把"小兔子从草地上跳过去了吗"误判为危险；同时漏掉插座、陌生人、爬窗、下河等常见危险。
+ * 规则只看提问里的"危险对象 + 危险动作"组合，跨度限制在几个字以内，避免整句贪婪匹配。
+ */
+const SAFETY_RULES: RegExp[] = [
+  /(悬崖|楼上|楼顶|屋顶|阳台|窗户|窗台|高处|桥上|树上|山上).{0,6}跳/,
+  /跳(下去|下来|楼|崖|河|井|海)/,
+  /(玩|点|放|碰)(火|打火机|火柴|鞭炮)|着火.{0,4}(玩|摸|靠近)/,
+  /(玩|拿|用|戳).{0,3}(刀|剪刀|针)|(刀|剪刀).{0,3}(玩|戳|扎)/,
+  /触电|(摸|碰|插|抠).{0,3}(插座|电线|电源|插头)/,
+  /(吃|喝|尝|吞).{0,4}(药|不认识|不明|洗衣|清洁剂|消毒|电池|硬币|蘑菇)/,
+  /(药|药片|洗衣液|清洁剂|消毒液|电池|硬币|野蘑菇).{0,6}(吃|喝|吞)/, // 宾语前置："药可以随便吃吗"
+  /(跟|和).{0,2}陌生人.{0,4}(走|去|回家)|陌生人.{0,4}(给|带)/,
+  /一个人.{0,4}(出去|跑远|下河|下水|游泳|去河边|去湖边|过马路)/,
+  /(爬|翻).{0,3}(窗|阳台|栏杆|围墙)/,
+  /马路(上|中间).{0,4}(玩|跑|追)/,
+];
+export function isDangerousQuestion(query: string): boolean {
+  return SAFETY_RULES.some((r) => r.test(query));
+}
 const SAFETY_NOTE = '这样做很危险，请不要模仿，遇到这类情况要先告诉大人。';
 
 function clip(text: string, max = 80): string {
@@ -92,7 +112,7 @@ export class PictureBookRagEngine {
         ? '当前这本书还没有经过校对的文字内容，无法回答。请先完成逐页文字校对。'
         : '原书这段内容里没有找到相关依据，请结合书页观察，或换个问法。';
       // 安全提示不依赖证据：危险提问找不到依据时更需要提醒
-      const noAnswer = SAFETY_PATTERNS.test(query) ? `${SAFETY_NOTE} ${base_text}` : base_text;
+      const noAnswer = isDangerousQuestion(query) ? `${SAFETY_NOTE} ${base_text}` : base_text;
       this.remember(cacheKey, { answer: noAnswer, status: 'no_evidence', confidence: 0, evidence: [] });
       return {
         ...base,
@@ -106,7 +126,7 @@ export class PictureBookRagEngine {
 
     const top = evidence[0];
     const quote = top.source_quote || top.snippet;
-    const safety = SAFETY_PATTERNS.test(query) ? SAFETY_NOTE : '';
+    const safety = isDangerousQuestion(query) ? SAFETY_NOTE : '';
     const answer = `${safety}${safety ? ' ' : ''}原书第 ${top.page_no} 页写道：“${clip(quote)}”`;
 
     this.remember(cacheKey, { answer, status: 'success', confidence: top.confidence, evidence: evidence.map((e) => ({ ...e })) });

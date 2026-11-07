@@ -23,10 +23,23 @@ import { registerServerBook, startServerAnalysis, summarizeRunJobs } from '../li
 import { pageImageBlob } from '../features/books/pageImage'
 import type { SegmentOut } from '../types/interaction'
 
-const SESSION_KEY = 'paper-companion-full-v1'
+/**
+ * 会话按模式隔离（E-023）：旧实现 Live/Demo 共用一个 key，且切换模式时组件不重建，
+ * Demo 的模拟记录会出现在 Live 的历史/看板里，反之亦然。
+ */
+const SESSION_KEY_BASE = 'paper-companion-full-v1'
+export function sessionKeyFor(mode: AppMode) { return `${SESSION_KEY_BASE}:${mode}` }
+/** 供延迟看板读取当前模式会话里的真实交互记录。读取失败必须如实带出原因，不能伪装成"没有数据" */
+export function readSessionInteractions(mode: AppMode): { interactions: Interaction[]; error: string | null } {
+  let raw: string | null
+  try { raw=sessionStorage.getItem(sessionKeyFor(mode)) } catch (e: any) { return { interactions: [], error: `浏览器会话存储不可用：${e?.message ?? e}` } }
+  if(!raw) return { interactions: [], error: null }
+  try { const data=JSON.parse(raw); return data?.schema===1&&Array.isArray(data.interactions)?{ interactions: data.interactions, error: null }:{ interactions: [], error: '会话数据格式不符(schema≠1)，未读取' } }
+  catch (e: any) { return { interactions: [], error: `会话数据损坏：${e?.message ?? e}` } }
+}
 const validPages = new Set<Page>(['home','import','review','classification','progress','reader','history','notes','sharing','shared','settings'])
-function readSession(): {books:ReadingBook[];notes:ReadingNote[];grants:ShareGrant[];interactions:Interaction[]}|null {
-  try { const raw=sessionStorage.getItem(SESSION_KEY);if(!raw)return null; const data=JSON.parse(raw);return data.schema===1&&Array.isArray(data.books)&&Array.isArray(data.notes)&&Array.isArray(data.grants)&&Array.isArray(data.interactions)?data:null } catch { return null }
+function readSession(mode: AppMode): {books:ReadingBook[];notes:ReadingNote[];grants:ShareGrant[];interactions:Interaction[]}|null {
+  try { const raw=sessionStorage.getItem(sessionKeyFor(mode));if(!raw)return null; const data=JSON.parse(raw);return data.schema===1&&Array.isArray(data.books)&&Array.isArray(data.notes)&&Array.isArray(data.grants)&&Array.isArray(data.interactions)?data:null } catch { return null }
 }
 function route() { const [name,query]=location.hash.replace(/^#\//,'').split('?');return {page:validPages.has(name as Page)?name as Page:'home' as Page,query:new URLSearchParams(query)} }
 function uid(prefix:string) { return `${prefix}-${crypto.randomUUID()}` }
@@ -40,7 +53,7 @@ function serverJobFor(book:ReadingBook):JobState{
 }
 
 export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }) {
-  const restored=useRef(readSession())
+  const restored=useRef(readSession(appMode))
   const [books,setBooks]=useState<ReadingBook[]>(()=>restored.current?.books??initialBooks())
   const [notes,setNotes]=useState<ReadingNote[]>(()=>restored.current?.notes??initialNotes())
   const [grants,setGrants]=useState<ShareGrant[]>(()=>restored.current?.grants??[])
@@ -77,9 +90,9 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   useEffect(()=>{const changed=()=>{const current=route();setPage(current.page);setState('success');const id=current.query.get('book');if(id)setSelectedId(id);if(current.page==='shared')setShareToken(current.query.get('token')??'')};window.addEventListener('hashchange',changed);return()=>window.removeEventListener('hashchange',changed)},[])
   useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(''),5000);return()=>clearTimeout(timer)},[toast])
   useEffect(()=>{
-    try {sessionStorage.setItem(SESSION_KEY,JSON.stringify({schema:1,books:books.map(item=>({...item,pages:item.pages.filter(p=>p.demo),page_count:item.pages.length})),notes,grants,interactions}))}
+    try {sessionStorage.setItem(sessionKeyFor(appMode),JSON.stringify({schema:1,books:books.map(item=>({...item,pages:item.pages.filter(p=>p.demo),page_count:item.pages.length})),notes,grants,interactions}))}
     catch { if(!sessionWarned.current){sessionWarned.current=true;notify('当前浏览器无法保存会话。刷新后将恢复初始演示数据。')} }
-  },[books,notes,grants,interactions,notify])
+  },[books,notes,grants,interactions,notify,appMode])
 
   const updateBook=(updater:(current:ReadingBook)=>ReadingBook)=>{
     let next=updater(book)
@@ -189,7 +202,8 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     const id=uid('book')
     const pages=await Promise.all(input.pages.map(async p=>{let imageUrl=p.url;if(!p.demo){const blob=await (await fetch(p.url)).blob();imageUrl=URL.createObjectURL(blob)}return {id:p.id,name:p.name,image_url:imageUrl,ocr_text:p.demo?(originalPages[Number(p.id.replace('demo-',''))-1]??''):'',confidence:p.demo?.86:0,revision:1,confirmed:false,demo:Boolean(p.demo)}}))
 
-    let classification:ReadingBook['classification']={predicted_type:input.type,confidence:input.type==='unknown'?null:.72,reasons:['根据图书书页排版与图文特征初步分类。'],confirmed_type:null,owner_confirmed:false}
+    // 未在后端建档时没有任何分类模型参与：类型来自导入表单，置信度为 null，不再写死 0.72 与"根据排版特征分类"的说法
+    let classification:ReadingBook['classification']={predicted_type:input.type,confidence:null,reasons:['本地导入，未调用分类模型：类型来自导入时的选择，请主人确认。'],confirmed_type:null,owner_confirmed:false}
     let serverBookId:string|null=null
     if(appMode==='live'){
       if(apiClient.getToken()){
@@ -330,7 +344,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
       if(!book.server_book_id)throw new Error('这本书是本地数据，没有在后端建档，真实模式下不能提问或留痕。请切换到演示模式，或填好令牌后重新导入。')
       if(!book.run_id)throw new Error('这本书还没有生成运行任务(run_id)，暂时无法提问留痕。请先完成校对与生成。')
       const segments=await loadSegments(book.run_id)
-      const indexer=new TimeSliceIndexer(buildSlicesFromBook(book.pages.filter(p=>p.confirmed),segments))
+      const indexer=new TimeSliceIndexer(buildSlicesFromBook(book.pages,segments))
       const resp = await apiClient.askQuestion(
         {book_id: book.id, run_id: book.run_id, query_text: text, video_ms: videoMs, input_method: inputMethod},
         'live',
@@ -403,6 +417,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
         created_at: timestamp(),
         uncertain: resp.status !== 'success' || resp.confidence < 0.6,
         origin: 'real',
+        recognized: resp.status === 'success' && Boolean(resp.target_name),
         cached: resp.cache_hit,
         persisted: resp.persisted,
         persist_error: resp.persist_error,
@@ -413,7 +428,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     await new Promise(resolve=>setTimeout(resolve,300))
     const pageNo=Math.min(book.pages.length,Math.floor(Math.max(0,videoMs)/12000)+1)
     const excerpt=book.pages[pageNo-1]?.ocr_text??''
-    return{id:uid('touch'),book_id:book.id,run_id:book.run_id??'unstarted',kind:'touch',question:`画面位置 (${x.toFixed(2)}, ${y.toFixed(2)})`,transcript:'',answer:excerpt?`[演示模式] 已记录点击位置。当前展示第 ${pageNo} 页文字：“${excerpt.slice(0,180)}” 仅为示例逻辑。`:'[演示模式] 已记录点击位置；当前页缺少文字依据。',video_ms:videoMs,sources:excerpt?[{source:'original_page',page_no:pageNo,start_ms:null,end_ms:null,quote:excerpt}]:[],latency_ms:null,created_at:timestamp(),uncertain:true,origin:'mock',cached:false}
+    return{id:uid('touch'),book_id:book.id,run_id:book.run_id??'unstarted',kind:'touch',question:`画面位置 (${x.toFixed(2)}, ${y.toFixed(2)})`,transcript:'',answer:excerpt?`[演示模式] 已记录点击位置。当前展示第 ${pageNo} 页文字：“${excerpt.slice(0,180)}” 仅为示例逻辑。`:'[演示模式] 已记录点击位置；当前页缺少文字依据。',video_ms:videoMs,sources:excerpt?[{source:'original_page',page_no:pageNo,start_ms:null,end_ms:null,quote:excerpt}]:[],latency_ms:null,created_at:timestamp(),uncertain:true,origin:'mock',recognized:false,cached:false}
   }
 
   const context={book,state,setState,navigate,notify,appMode}

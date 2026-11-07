@@ -23,7 +23,9 @@ export type AsrErrorCode =
   | 'NO_SPEECH_DETECTED'
   | 'AUDIO_RECORD_FAILED'
   | 'TRANSCRIPTION_NETWORK_ERROR'
-  | 'FORMAT_UNSUPPORTED';
+  | 'FORMAT_UNSUPPORTED'
+  /** 识别器在停止后迟迟不结束（浏览器未触发 onend），已强制中止 */
+  | 'TRANSCRIPTION_TIMEOUT';
 
 export type EvidenceType = 'page' | 'script' | 'video_frame' | 'none';
 

@@ -109,6 +109,8 @@ function writeString(view: DataView, offset: number, string: string) {
  * 计算 PCM Float32Array 的实时均方根音量 (RMS, 0.0 ~ 1.0)
  */
 export function calculateRMS(data: Float32Array): number {
+  // 空缓冲区：旧实现 0/0 得到 NaN，会把 NaN 写进音量状态和阴影样式
+  if (!data || data.length === 0) return 0;
   let sum = 0;
   for (let i = 0; i < data.length; i++) {
     sum += data[i] * data[i];

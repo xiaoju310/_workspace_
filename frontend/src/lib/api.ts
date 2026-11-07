@@ -186,6 +186,8 @@ export class ApiClient {
         status: data.status,
         answer_source: data.answer_source,
         uncertain: data.status !== 'success',
+        // 旧载荷没有这个字段：界面显示"缓存命中"，后端留痕里却查不到，回归项"cache_hit 是否真的记录"无法验证
+        cache_hit: Boolean(data.cache_hit),
       },
       latencyMs
     );
@@ -299,6 +301,8 @@ export class ApiClient {
         explanation: data.explanation,
         confidence: data.confidence,
         evidence: data.evidence ? [data.evidence] : [],
+        cache_hit: Boolean(data.cache_hit),
+        recognition: this.modelServiceUrl ? 'model_service' : 'not_connected',
       },
       latencyMs
     );

@@ -14,6 +14,7 @@ const ASR_ERROR_TEXT: Partial<Record<AsrErrorCode, string>> = {
   TRANSCRIPTION_NETWORK_ERROR: '语音识别服务无法连接（Chrome 的识别依赖在线服务），请改用 Edge/Safari 或直接打字提问。',
   AUDIO_RECORD_FAILED: '语音识别未能启动，请重试或直接打字提问。',
   FORMAT_UNSUPPORTED: '当前浏览器不支持普通话语音识别，请使用 Chrome/Edge/Safari 或直接打字提问。',
+  TRANSCRIPTION_TIMEOUT: '语音识别没有按时结束，已强制停止。请重试或直接打字提问。',
 };
 
 interface AudioRecorderProps {
@@ -42,6 +43,17 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const timerRef = useRef<any>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const mountedRef = useRef(true);
+  const startingRef = useRef(false);
+  const audioUrlRef = useRef<string | null>(null);
+
+  /** 替换回放地址时释放旧的 Blob URL；旧实现每录一次泄漏一段音频内存 */
+  const replaceAudioUrl = useCallback((blob: Blob) => {
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    const url = URL.createObjectURL(blob);
+    audioUrlRef.current = url;
+    setLastAudioUrl(url);
+  }, []);
 
   const cleanup = useCallback(() => {
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
@@ -58,11 +70,33 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   }, []);
 
   useEffect(() => {
-    return cleanup;
+    mountedRef.current = true;
+    return () => {
+      // 卸载时：先摘掉 onstop，避免录音器停止后在已卸载组件上 setState、并把录音交给已离开的页面
+      mountedRef.current = false;
+      const rec = mediaRecorderRef.current;
+      if (rec) {
+        rec.onstop = null;
+        rec.ondataavailable = null;
+        if (rec.state !== 'inactive') {
+          try {
+            rec.stop();
+          } catch {
+            /* 已停止 */
+          }
+        }
+      }
+      if (realSpeechRecognizer.isListening()) void realSpeechRecognizer.stopDetailed();
+      cleanup();
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    };
   }, [cleanup]);
 
   // 开始录音
   const startRecording = async () => {
+    // 防重入：getUserMedia 等待授权期间连点会申请两路麦克风，第一路永远不会被释放
+    if (startingRef.current || isRecording) return;
+    startingRef.current = true;
     setErrorMsg(null);
     setLiveTranscript('');
     audioChunksRef.current = [];
@@ -130,6 +164,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
 
       recorder.onstop = async () => {
         cleanup();
+        if (!mountedRef.current) return;
         setIsRecording(false);
 
         // 获取最终识别的文本
@@ -151,21 +186,29 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
           type: recorder.mimeType || 'audio/webm',
         });
 
-        // 尝试转写为 16kHz WAV
+        // 尝试转写为 16kHz WAV。解码上下文必须在 finally 里关闭：
+        // 旧实现解码失败时直接进 catch，AudioContext 永不释放（Chrome 同页上限约 6 个，之后录音全挂）
+        let decodeCtx: AudioContext | null = null;
+        let wavBlob: Blob | null = null;
+        let decodeError: string | null = null;
         try {
-          const decodeCtx = new AudioCtx();
+          decodeCtx = new AudioCtx();
           const arrayBuf = await rawBlob.arrayBuffer();
           const audioBuf = await decodeCtx.decodeAudioData(arrayBuf);
-          const wavBlob = encodeAudioBufferToWav(audioBuf);
-          decodeCtx.close();
-          const url = URL.createObjectURL(wavBlob);
-          setLastAudioUrl(url);
+          wavBlob = encodeAudioBufferToWav(audioBuf);
+        } catch (e: any) {
+          decodeError = e?.message ?? String(e);
+        } finally {
+          if (decodeCtx && decodeCtx.state !== 'closed') decodeCtx.close().catch(() => undefined);
+        }
+        if (!mountedRef.current) return;
+        if (wavBlob) {
+          replaceAudioUrl(wavBlob);
           setLastAudioInfo(`标准 WAV (16kHz, ${(wavBlob.size / 1024).toFixed(1)} KB)`);
           onRecordingComplete(wavBlob, 'audio/wav', finalTranscript);
-        } catch {
-          const url = URL.createObjectURL(rawBlob);
-          setLastAudioUrl(url);
-          setLastAudioInfo(`原始录音 (${(rawBlob.size / 1024).toFixed(1)} KB)`);
+        } else {
+          replaceAudioUrl(rawBlob);
+          setLastAudioInfo(`原始录音 (${(rawBlob.size / 1024).toFixed(1)} KB，WAV 转码失败：${decodeError})`);
           onRecordingComplete(rawBlob, recorder.mimeType || 'audio/webm', finalTranscript);
         }
       };
@@ -184,14 +227,18 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       }, 1000);
     } catch (err: any) {
       cleanup();
+      // MediaRecorder 构造失败时识别器可能已启动，必须一并停掉，否则浏览器麦克风指示灯一直亮
+      if (realSpeechRecognizer.isListening()) void realSpeechRecognizer.stopDetailed();
       setIsRecording(false);
-      let message = '无法访问麦克风：' + err.message;
+      let message = '无法访问麦克风：' + (err?.message ?? String(err));
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         message = '麦克风权限被拒绝。请在浏览器地址栏允许麦克风权限后重试。';
       } else if (err.name === 'NotFoundError') {
         message = '未检测到可用麦克风设备，请检查硬件输入设置。';
       }
       setErrorMsg(message);
+    } finally {
+      startingRef.current = false;
     }
   };
 

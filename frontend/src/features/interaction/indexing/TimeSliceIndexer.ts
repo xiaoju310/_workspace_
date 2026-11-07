@@ -91,18 +91,33 @@ export interface SearchMatchResult {
   matchedTerms: string[];
 }
 
-/** 提问里不承载检索信息的功能字（语气词/疑问词/助词），去掉后再切二元组 */
-const STOP_CHARS = new Set('的了吗呢吧啊呀么什为是在有和与或这那它他她你我个一里都也就还会能可以请问谁哪几怎样从把被让给对跟向地得着过？?，,。.！!、；;：:"“”‘’（）() '.split(''));
+/**
+ * 切词规则（E-020 根因修复）。
+ *
+ * 旧实现把"地/过/着/对/向/得/给/能/会/里/一/可/以…"当成单字停用字：它们在提问里常是功能字，
+ * 但在故事里更常是实词的一部分（草地、过河、着火、对面、向日葵、得到、一起、可爱）。
+ * 上一轮只把"到"移出名单修好了"捡到"，同类缺陷全部还在——"草地上有几朵花"里的"草地"会被切碎。
+ *
+ * 现在：先整体删除多字疑问/功能短语，再只删除真正不承载内容的单字（语气词、代词、标点）。
+ * 宁可多留几个二元组（由 MIN_COVERAGE 与区分性约束兜底），也不能把实词切坏。
+ */
+const STOP_PHRASES = [
+  '为什么', '是不是', '有没有', '能不能', '会不会', '可不可以', '怎么样', '什么样', '告诉我',
+  '什么', '怎么', '怎样', '哪里', '哪儿', '哪个', '哪些', '多少', '请问', '可以', '知道', '一下',
+];
+const STOP_CHARS = new Set('的了吗呢吧啊呀么嘛哦哇呗你我他她它们这那谁几是有和与或及？?，,。.！!、；;：:"“”‘’（）()…—~～ '.split(''));
 
 /** 时序意图词（与具体故事无关）：结局 → 最后一页；开头 → 第一页 */
 const ENDING_WORDS = ['最后', '结局', '最终', '结尾', '后来怎么样'];
 const BEGINNING_WORDS = ['一开始', '开头', '最初', '起初', '故事开始'];
 
-/** 把文本切成"去功能字后的连续片段 → 字符二元组" */
+/** 把文本切成"去功能短语/功能字后的连续片段 → 字符二元组" */
 export function contentBigrams(text: string): string[] {
+  let t = text.toLowerCase();
+  for (const phrase of STOP_PHRASES) t = t.split(phrase).join(' ');
   const runs: string[] = [];
   let cur = '';
-  for (const ch of text.toLowerCase()) {
+  for (const ch of t) {
     if (STOP_CHARS.has(ch) || /\s/.test(ch)) {
       if (cur) runs.push(cur);
       cur = '';

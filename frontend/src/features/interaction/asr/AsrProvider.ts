@@ -170,19 +170,34 @@ export class RealBrowserSpeechRecognition {
   /** 停止并返回详细结果；带超时，保证 Promise 一定会结束。 */
   async stopDetailed(): Promise<SpeechStopResult> {
     if (this.recognition && this.listening) {
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, STOP_TIMEOUT_MS);
-        this.endWaiters.push(() => {
+      const ended = await new Promise<boolean>((resolve) => {
+        const waiter = () => {
           clearTimeout(timer);
-          resolve();
-        });
+          resolve(true);
+        };
+        // 超时：浏览器没有触发 onend。旧实现只是放行 Promise，识别器其实仍在运行，
+        // 下一次 start() 会抛 InvalidStateError 并被报成"未能启动"。这里必须 abort 并把超时如实报出。
+        const timer = setTimeout(() => {
+          this.endWaiters = this.endWaiters.filter((w) => w !== waiter);
+          resolve(false);
+        }, STOP_TIMEOUT_MS);
+        this.endWaiters.push(waiter);
         try {
           this.recognition.stop();
-        } catch {
+        } catch (e) {
+          this.endWaiters = this.endWaiters.filter((w) => w !== waiter);
           clearTimeout(timer);
-          resolve();
+          resolve(false);
         }
       });
+      if (!ended) {
+        try {
+          this.recognition.abort?.();
+        } catch {
+          /* abort 失败也只能放弃这个识别会话；超时错误码已在下面记录 */
+        }
+        if (!this.lastError) this.lastError = 'TRANSCRIPTION_TIMEOUT';
+      }
       this.listening = false;
     }
     const text = (this.finalText + this.interimText).trim();

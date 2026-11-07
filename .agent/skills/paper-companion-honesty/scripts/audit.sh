@@ -24,6 +24,8 @@ E11	测试里自己重写被测逻辑(应 import 生产代码)	function (validat
 E12	UI 书籍类型未映射就发给 A	confirmClassification\(.*selectedType	__tests__	confirmClassification(id,selectedType)
 E13	验证脚本往页面写内容(会把结论伪造进截图)	(innerText|textContent|innerHTML) *= *[^=]	frontend/src	errEl.innerText = '已拦截'
 E14	前端自造 run_id 发给后端(只允许 Demo 分支)	run_id: *uid\(|run_id: *crypto\.randomUUID	__tests__	run_id:uid('run')
+E15	三元表达式里写死置信度(E-024：本地导入写死 0.72)	confidence:[^,]*\?[^,]*: *0?\.[1-9]	__tests__|mock/	confidence:input.type==='unknown'?null:.72
+E16	界面写死"已达标"结论(E-022：看板/基准页无测量即宣称达标)	已达标 *\(	__tests__	门槛状态: 已达标 (≥60%)
 RULES_END
 )
 
