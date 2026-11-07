@@ -44,6 +44,9 @@ export function buildSlicesFromBook(
       frame_objects: [],
       lighting: '',
       snippet: `第 ${pageNo} 页：${text.length > 36 ? text.slice(0, 36) + '…' : text}`,
+      // 按全书位置标注（不是按过滤后的索引），未校对的首/尾页不会被别的页顶替
+      is_first_page: index === 0,
+      is_last_page: index === pages.length - 1,
     });
   });
   return slices;

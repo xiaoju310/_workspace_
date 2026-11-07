@@ -14,6 +14,7 @@ import type {
 } from '../types/interaction';
 import { TimeSliceIndexer, demoTimeSliceIndexer } from '../features/interaction/indexing/TimeSliceIndexer';
 import { pictureBookRagEngine } from '../features/interaction/qa/PictureBookRagEngine';
+import { blobToBase64 } from '../features/interaction/frameCapture';
 
 /**
  * 角色 C 的业务层（语音问答 / 触控认物 / 交互留痕 / 笔记生命周期）。
@@ -119,6 +120,41 @@ export async function buildVoiceInput(audioBlob: Blob | undefined, voice: AskCon
 export interface TouchContext {
   /** 当前 run 的时间轴(来自 A)，用于给触控点附上真实字幕依据 */
   segments?: SegmentOut[];
+  /** 点击时显示的画面：视频（带登记产物的 id/sha256）或静态书页图；以及点击瞬间截图 */
+  frame?: {
+    kind: 'video' | 'page_image';
+    page_no: number;
+    asset_id?: string | null;
+    asset_sha256?: string | null;
+    snapshot?: Blob | null;
+    snapshot_width?: number;
+    snapshot_height?: number;
+    snapshot_error?: string;
+  };
+}
+
+/** 构造写入留痕的画面来源字段：E 据此区分"点的是视频还是静态图"，并用截图指纹核对 */
+export async function buildFrameInput(frame: TouchContext['frame']) {
+  if (!frame) return { frame_source: { kind: 'unknown' } };
+  return {
+    frame_source: {
+      kind: frame.kind,
+      page_no: frame.page_no,
+      asset_id: frame.kind === 'video' ? frame.asset_id ?? null : null,
+      asset_sha256: frame.kind === 'video' ? frame.asset_sha256 ?? null : null,
+    },
+    frame_snapshot: frame.snapshot
+      ? {
+          mime_type: frame.snapshot.type || 'image/jpeg',
+          width: frame.snapshot_width ?? null,
+          height: frame.snapshot_height ?? null,
+          size_bytes: frame.snapshot.size,
+          sha256: await sha256Hex(frame.snapshot),
+          // A 没有截图上传接口：截图只发给已配置的视觉模型服务，不进后端
+          storage: 'browser_only',
+        }
+      : { captured: false, reason: frame.snapshot_error ?? '未截图' },
+  };
 }
 
 function nowMs() {
@@ -279,7 +315,13 @@ export class ApiClient {
 
     let data: TouchRecognitionResponse;
     if (this.modelServiceUrl) {
-      data = await this.callModelService<TouchRecognitionResponse>('/interaction/touch', params, 3000);
+      // 截图随识别请求发给视觉模型服务（契约待 B 确认；字段缺失时服务端只能用坐标）
+      const frameImage = ctx.frame?.snapshot ? await blobToBase64(ctx.frame.snapshot) : undefined;
+      data = await this.callModelService<TouchRecognitionResponse>(
+        '/interaction/touch',
+        { ...params, frame_kind: ctx.frame?.kind, frame_image_base64: frameImage, frame_mime_type: frameImage ? 'image/jpeg' : undefined },
+        frameImage ? 6000 : 3000
+      );
       if (typeof data?.target_name !== 'string' || typeof data.confidence !== 'number') {
         throw new Error('触控模型服务返回格式无效（缺少 target_name / confidence）');
       }
@@ -326,6 +368,7 @@ export class ApiClient {
         video_width: tp.video_width,
         video_height: tp.video_height,
         viewport_info: params.viewport_info,
+        ...(await buildFrameInput(ctx.frame)),
       },
       {
         status: data.status,
@@ -393,6 +436,11 @@ export class ApiClient {
     return this.client.assets(runId);
   }
 
+  /** 带令牌下载已登记产物（视频/音频/字幕）；A 会校验 sha256，被篡改时返回 409 */
+  async getAssetContent(runId: string, assetId: string): Promise<Blob> {
+    return this.client.assetContent(runId, assetId);
+  }
+
   async createBook(input: { title: string; authorization_ref: string }) {
     return this.client.createBook(input);
   }
@@ -448,6 +496,10 @@ export class ApiClient {
   }
   async getSharedNote(token: string): Promise<BackendNoteOut> {
     return (await this.client.sharedNote(token)) as unknown as BackendNoteOut;
+  }
+  /** 指定用户分享：用访问者自己的令牌读取，服务端核验身份是否为被邀请人 */
+  async getInvitedNote(noteId: string, shareId: string): Promise<BackendNoteOut> {
+    return (await this.client.invitedNote(noteId, shareId)) as unknown as BackendNoteOut;
   }
 }
 

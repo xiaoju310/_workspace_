@@ -29,8 +29,9 @@ export const EVALUATION_CASES: EvalCase[] = [
   { id: 'EV-14', category: 'number_query', query: '第1页有什么？', expectEvidence: false, notes: '停用词去功能词后单数字1被丢弃，二元组为空，拒答' },
   { id: 'EV-15', category: 'number_query', query: '3朵粉色小花在哪个地方？', expectEvidence: true, expectedPage: 1, notes: '包含3朵/粉色/小花，可生成二元组并命中第1页' },
   // 时序意图在文本无词重叠时 coverage (0+0.3=0.3 < 0.4) 仍会拒答，如实体现抽取式限制
-  { id: 'EV-16', category: 'temporal_intent', query: '故事开头讲了什么？', expectEvidence: false, notes: '原文无“开头”二元组，coverage仅0.3<0.4，拒答（语义缺口）' },
-  { id: 'EV-17', category: 'temporal_intent', query: '结局是怎样的？', expectEvidence: false, notes: '原文无“结局”二元组，coverage仅0.3<0.4，拒答（语义缺口）' },
+  // 第 5 轮（D12，E-030）：无任何内容命中且只指向一端时，用全书首/尾页原文作页级依据
+  { id: 'EV-16', category: 'temporal_intent', query: '故事开头讲了什么？', expectEvidence: true, expectedPage: 1, notes: '位置意图兜底：无内容命中 → 第一页' },
+  { id: 'EV-17', category: 'temporal_intent', query: '结局是怎样的？', expectEvidence: true, expectedPage: 6, notes: '位置意图兜底：无内容命中 → 最后一页' },
   // 长问句多二元组稀释：5个二元组中仅中1个“悬崖”，1/5=0.2 < 0.4，被阈值拦截
   { id: 'EV-18', category: 'safety', query: '如果从悬崖跳下去会怎样？', expectEvidence: false, notes: '多二元组稀释导致1/5=0.2<0.4，单实体被阈值拦截（参数缺口）' },
   { id: 'EV-19', category: 'out_of_domain', query: '今天北京天气怎么样？', expectEvidence: false, notes: '完全无依据，正确拒答' },
@@ -122,8 +123,10 @@ export const GOLD_STANDARD_CASES: GoldStandardCase[] = [
 ];
 
 // 第 4 轮实测：召回 8/15 = 53.3%（上一轮 61.5% 是因为 GS-17 标签贴着实现填、且没有 GS-21），精确率 8/8。
-// 系统召回数没有变化(tp 仍为 8)，下降完全来自标签更正与新增用例。
-const GOLD_MEASURED = { tp: 8, fn: 7, fp: 0, tn: 6 };
+// 第 5 轮（D12 修主要错误类型，E-030 位置意图兜底）：GS-09/GS-10 由 FN 变 TP → 召回 10/15 = 66.7%，精确率 10/10。
+// 注意：这条规则是看着 TIMELINE_INTENT 这类错误写的，在同一本书、同一批题上复测，不是独立留出集结果；
+// 规则本身不含任何故事词，另有换书的留出用例见 Round5Regression.test.ts。标签一律未改。
+const GOLD_MEASURED = { tp: 10, fn: 5, fp: 0, tn: 6 };
 
 describe('独立人工标注黄金标准评测 (Gold Standard Benchmark)', () => {
   const indexer = new TimeSliceIndexer(DEMO_BOOK_SLICES);

@@ -6,6 +6,7 @@ import { calculateImageTouchCoordinates, calculateVideoTouchCoordinates } from '
 import { AudioRecorder } from '../features/interaction/AudioRecorder'
 import type { RecordingMeta } from '../features/interaction/AudioRecorder'
 import { TtsPlayerWidget } from '../features/interaction/tts/TtsPlayerWidget'
+import { captureFrame } from '../features/interaction/frameCapture'
 
 export function formatTime(ms: number) {
   const seconds = Math.max(0, Math.floor(ms / 1000))
@@ -25,6 +26,8 @@ export default function InteractiveReaderPage({
   askQuestion,
   identifyTouch,
   appMode = 'live',
+  videoState,
+  onReloadVideo,
 }: ReaderProps) {
   const [playing, setPlaying] = useState(false)
   const [timeMs, setTimeMs] = useState(0)
@@ -231,11 +234,22 @@ export default function InteractiveReaderPage({
       return
     }
     // 把映射算法的完整输出(原始像素 + 视口信息)原样透传，下游不得重算
-    void touch(
-      calculation.touchPoint.norm_x,
-      calculation.touchPoint.norm_y,
-      { width: calculation.debugInfo.renderWidth, height: calculation.debugInfo.renderHeight },
-      { touch_point: calculation.touchPoint, viewport_info: calculation.viewport }
+    const touchPoint = calculation.touchPoint
+    const viewport = calculation.viewport
+    const box = { width: calculation.debugInfo.renderWidth, height: calculation.debugInfo.renderHeight }
+    const frameKind = element instanceof HTMLVideoElement ? 'video' as const : 'page_image' as const
+    // D8：点击瞬间截取当前画面（视频帧或书页图）；截图失败不阻断触控，只如实记录原因
+    void captureFrame(element).then((shot) =>
+      touch(touchPoint.norm_x, touchPoint.norm_y, box, {
+        touch_point: touchPoint,
+        viewport_info: viewport,
+        frame: {
+          kind: frameKind,
+          page_no: currentPage + 1,
+          snapshot: shot.ok ? shot.snapshot : null,
+          snapshot_error: shot.ok ? undefined : shot.reason,
+        },
+      })
     )
   }
 
@@ -331,9 +345,33 @@ export default function InteractiveReaderPage({
         </div>
       </div>
 
+      {videoState && videoState.status !== 'ready' && (
+        <div className="wf-warning" role="status" data-video-status={videoState.status} style={{ margin: '0 0 12px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>
+            {videoState.status === 'loading'
+              ? '正在向后端查询本次运行的视频…'
+              : videoState.status === 'none'
+                ? `后端尚未登记本次运行的视频（已登记产物 ${videoState.assetCount} 个，无 video/mp4），当前显示静态书页。`
+                : `读取视频失败：${videoState.error}。当前显示静态书页。`}
+          </span>
+          {videoState.status !== 'loading' && onReloadVideo && (
+            <Button variant="secondary" onClick={onReloadVideo}>
+              重新检查视频
+            </Button>
+          )}
+        </div>
+      )}
+      {videoState?.status === 'ready' && (
+        <div className="notes-origin" role="status" data-video-status="ready" style={{ margin: '0 0 12px' }}>
+          <Icon name="info" size={17} />
+          <span>
+            正在播放后端登记的视频产物（sha256 {videoState.sha256.slice(0, 12)}…，{(videoState.size_bytes / 1024).toFixed(0)} KB）。
+          </span>
+        </div>
+      )}
       {book.pages_only && (
         <div className="wf-warning" role="status" style={{ margin: '0 0 12px' }}>
-          分析与视频尚未完成，当前只基于你校对过的书页文字回答，内容未经复核，也没有视频。
+          后端分析尚未完成，当前只基于你校对过的书页文字回答，内容未经复核。
         </div>
       )}
 

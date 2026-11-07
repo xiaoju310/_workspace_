@@ -1,5 +1,6 @@
 import type { Book, BookType, PreviewState } from '../features/books/types'
 import type { TouchPoint, ViewportInfo } from '../types/interaction'
+import type { SharedLoadResult } from '../lib/sharedNoteView'
 
 export type Page = 'home' | 'import' | 'review' | 'classification' | 'progress' | 'reader' | 'history' | 'notes' | 'sharing' | 'shared' | 'settings'
 export type Navigate = (page: Page, bookId?: string) => void
@@ -32,6 +33,8 @@ export interface ShareGrant {
   mode: 'named_users' | 'expiring_link'; recipients: string[]; expires_at: string; status: 'active' | 'revoked'; created_at: string
   /** 是否已由服务端创建（revoke 时必须调用服务端） */
   server?: boolean
+  /** 服务端分享的访问信息：只读页据此向 A 核验，而不是看本地快照 */
+  server_note_id?: string; server_mode?: 'link' | 'invite_only'
 }
 export interface Interaction {
   id: string; book_id: string; run_id: string; kind: 'question' | 'touch'; question: string; answer: string
@@ -72,8 +75,19 @@ export interface VoiceCapture {
   asrErrorCode?: string
 }
 /** 坐标映射算法的完整输出，原样透传到 A，不得在下游重算 */
-export interface TouchDetail { touch_point: TouchPoint; viewport_info: ViewportInfo }
+/** 点击时画面上显示的是什么（视频帧 / 静态书页图），以及点击瞬间的截图（D8） */
+export interface TouchFrame { kind: 'video' | 'page_image'; page_no: number; snapshot?: { blob: Blob; width: number; height: number; mimeType: string } | null; snapshot_error?: string }
+export interface TouchDetail { touch_point: TouchPoint; viewport_info: ViewportInfo; frame?: TouchFrame }
+/** Live 下当前 run 的视频状态（来自 A 登记的 B 产物） */
+export type RunVideoState =
+  | { status: 'loading' }
+  | { status: 'none'; assetCount: number }
+  | { status: 'ready'; url: string; asset_id: string; sha256: string; size_bytes: number }
+  | { status: 'error'; error: string }
 export interface ReaderProps extends PageContext {
+  /** Live 才有；Demo 不查询后端视频 */
+  videoState?: RunVideoState
+  onReloadVideo?: () => void
   interactions: Interaction[]
   onInteraction: (item: Interaction) => void
   seekTo: number | null
@@ -81,7 +95,9 @@ export interface ReaderProps extends PageContext {
   askQuestion: (text: string, videoMs: number, inputMethod?: 'speech' | 'keyboard', voice?: VoiceCapture) => Promise<Interaction>
   identifyTouch: (x: number, y: number, videoMs: number, box: { width: number; height: number }, detail?: TouchDetail) => Promise<Interaction>
 }
-export interface HistoryProps extends PageContext { interactions: Interaction[]; onSeek: (ms: number) => void }
+export interface HistoryProps extends PageContext { interactions: Interaction[]; onSeek: (ms: number) => void
+  /** Live：从 A 后端导出当前 run 的交互留痕 CSV 与延迟统计（D13） */
+  onExportServer?: () => Promise<void> }
 export interface NotesProps extends PageContext {
   note: ReadingNote | null
   onSave: (patch: Pick<ReadingNote, 'title' | 'summary' | 'concepts'>) => void
@@ -97,5 +113,8 @@ export interface SharingProps extends PageContext {
 }
 export interface SharedProps {
   state: PreviewState; grant: ShareGrant | null; recipient: string; setRecipient: (value: string) => void; navigate: Navigate
+  /** Live：服务端核验结果（有值时只读页只展示服务端返回的内容） */
+  serverView?: { status: 'loading' } | SharedLoadResult | { status: 'missing' }
+  onRetryServer?: () => void
 }
 export interface ImportedBookInput { title: string; authorization_ref: string; type: BookType; pages: { id: string; name: string; url: string; size: number; demo?: boolean }[] }

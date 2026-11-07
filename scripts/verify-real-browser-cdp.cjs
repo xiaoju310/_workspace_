@@ -2,9 +2,10 @@
  * 真实浏览器 CDP 端到端全流程与黑边门禁 (Real Browser CDP Gate)
  * 启动真实 FastAPI 后端与真实 Chrome，派发真实鼠标与输入事件，走完：
  * 填令牌 -> 导入建档 -> 自动分类 -> 确认分类 -> 发起分析 -> 如实失败 -> 开启书页问答 ->
- * 真实视频/书页黑边留白拦截验证 -> 真实有效画面点击留痕写入后端验证。
+ * 真实视频/书页黑边留白拦截验证 -> 真实有效画面点击留痕写入后端验证 ->
+ * 录音提问留痕 -> 登记合成测试视频 -> 阅读页播放视频 -> 视频黑边拦截与视频帧触控留痕。
  */
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
@@ -17,6 +18,8 @@ const BACKEND_PORT = 8991;
 const FRONTEND_PORT = 8992;
 const CDP_PORT = 9333;
 const TOKEN = 'live-cdp-token-123';
+// 第二个用户：只用于指定用户分享的身份核验
+const READER_TOKEN = 'live-cdp-reader-456';
 
 function log(msg) {
   console.log(`[CDP-Gate] ${msg}`);
@@ -218,6 +221,26 @@ async function fetchInteractions(runId) {
   return res.json();
 }
 
+/** 端口已被占用时直接失败：否则会连上残留的旧后端/旧 Chrome，测到的不是本次启动的实例（E-031） */
+async function assertPortFree(port, name) {
+  const inUse = await new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: 800 }, (res) => { res.resume(); resolve(true); });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(true); });
+  });
+  if (inUse) throw new Error(`[门禁失败] 端口 ${port}（${name}）已被占用，可能是上次残留的进程。请先结束它再运行门禁，避免测到旧实例。`);
+}
+
+/** dist 必须比所有前端源码新：构建失败时旧 dist 还在，门禁会测到旧代码却显示通过（E-031） */
+function assertDistFresh() {
+  const index = path.join(FRONTEND_DIST, 'index.html');
+  if (!fs.existsSync(index)) throw new Error('[门禁失败] frontend/dist 不存在，请先 npm run build');
+  const built = fs.statSync(index).mtimeMs;
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+  const stale = walk(path.join(ROOT_DIR, 'frontend', 'src')).filter((f) => fs.statSync(f).mtimeMs > built);
+  if (stale.length) throw new Error(`[门禁失败] frontend/dist 比源码旧（构建失败或未重新构建）：${stale.slice(0, 3).map((f) => path.relative(ROOT_DIR, f)).join(', ')}`);
+}
+
 async function run() {
   const chromePath = findChrome();
   if (!chromePath) {
@@ -230,8 +253,13 @@ async function run() {
   let backendProc = null;
   let chromeProc = null;
   let frontendServer = null;
+  let exitCode = 1;
 
   try {
+    assertDistFresh();
+    await assertPortFree(BACKEND_PORT, '后端');
+    await assertPortFree(FRONTEND_PORT, '前端');
+    await assertPortFree(CDP_PORT, 'Chrome 调试');
     log('1. 启动真实 FastAPI 后端 (临时 SQLite 数据库)...');
     const py = path.join(BACKEND_DIR, '.venv', 'bin', 'python');
     backendProc = spawn(
@@ -241,7 +269,7 @@ async function run() {
         cwd: BACKEND_DIR,
         env: {
           ...process.env,
-          APP_USER_TOKENS: JSON.stringify({ live_check: TOKEN }),
+          APP_USER_TOKENS: JSON.stringify({ live_check: TOKEN, reader_02: READER_TOKEN }),
           DATABASE_PATH: dbPath,
           DATA_ROOT: tmpDir,
         },
@@ -265,8 +293,9 @@ async function run() {
         '--disable-gpu',
         '--no-sandbox',
         '--window-size=1440,1200',
-        // Chrome 虚拟麦克风：真实走 getUserMedia + MediaRecorder + WAV 编码（输入是测试音，不是人声）
-        '--use-fake-ui-for-media-stream',
+        // Chrome 虚拟麦克风：真实走 getUserMedia + MediaRecorder + WAV 编码（输入是测试音，不是人声）。
+        // 不能加 --use-fake-ui-for-media-stream：它会自动同意授权，盖过 Browser.setPermission(denied)，
+        // "麦克风被拒绝"分支就测不到了（E-031：上一轮这一步其实连的是残留的旧 Chrome）。
         '--use-fake-device-for-media-stream',
         '--autoplay-policy=no-user-gesture-required',
         `--remote-debugging-port=${CDP_PORT}`,
@@ -630,22 +659,184 @@ async function run() {
     if (typeof voiceRec.output.cache_hit !== 'boolean') throw new Error('[门禁失败] 问答留痕缺少 cache_hit');
     log(`✓ [PASS] 后端问答留痕带音频指纹 sha256=${vi.audio.sha256.slice(0, 12)}… (${vi.audio.size_bytes} B, ${vi.audio.duration_ms} ms)、识别原文与 cache_hit`);
 
+    // ----------------------------------------------------
+    // 步骤 H: 视频产物 → 阅读页播放 → 在视频帧上测黑边拦截与触控留痕（E-028）
+    // 用的是 scripts/fixtures 里的合成测试视频（4:3），不是 B 的生成结果
+    // ----------------------------------------------------
+    log('步骤 H: 登记视频产物并在真实视频上触控...');
+    const fixture = path.join(__dirname, 'fixtures', 'synthetic-test-video.mp4');
+    const runDir = path.join(tmpDir, 'runs', runId);
+    fs.mkdirSync(runDir, { recursive: true });
+    const videoPath = path.join(runDir, 'synthetic-test-video.mp4');
+    fs.copyFileSync(fixture, videoPath);
+    const regRes = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/runs/${encodeURIComponent(runId)}/assets`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asset_type: 'video', file_path: videoPath, mime_type: 'video/mp4', duration_ms: 3000, metadata: { producer: 'cdp_gate_synthetic_fixture' } }),
+    });
+    if (regRes.status !== 201) throw new Error(`[门禁失败] 登记视频产物失败 HTTP ${regRes.status}: ${await regRes.text()}`);
+    const asset = await regRes.json();
+    log(`已登记合成测试视频: asset=${asset.id}, sha256=${asset.sha256.slice(0, 12)}…`);
+
+    // 进入阅读页时已查过一次（当时没有视频），页面必须如实显示"尚未登记"，并提供重新检查
+    const noVideoBanner = await cdp.evaluate(`document.querySelector('[data-video-status]')?.getAttribute('data-video-status') || ''`);
+    if (noVideoBanner !== 'none') throw new Error(`[门禁失败] 登记前页面没有如实显示"尚无视频": ${noVideoBanner}`);
+    log('✓ [PASS] 登记视频前：页面如实显示"后端尚未登记本次运行的视频"');
+    await cdp.clickButtonByText('重新检查视频');
+    let vstate = null;
+    for (let i = 0; i < 40; i += 1) {
+      await new Promise((r) => setTimeout(r, 250));
+      vstate = await cdp.evaluate(`(() => {
+        const v = document.querySelector('video[aria-label="互动阅读视频"]');
+        return { banner: document.querySelector('[data-video-status]')?.getAttribute('data-video-status') || '',
+          src: v ? v.currentSrc : '', readyState: v ? v.readyState : -1, w: v ? v.videoWidth : 0, h: v ? v.videoHeight : 0,
+          duration: v ? v.duration : 0, img: Boolean(document.querySelector('.reader-frame img')) };
+      })()`);
+      if (vstate.readyState >= 2) break;
+    }
+    log(`视频加载状态: ${JSON.stringify(vstate)}`);
+    if (vstate.banner !== 'ready' || !vstate.src.startsWith('blob:') || vstate.readyState < 2 || vstate.w !== 640 || vstate.h !== 480 || vstate.img) {
+      throw new Error(`[门禁失败] 阅读页没有播放后端登记的视频: ${JSON.stringify(vstate)}`);
+    }
+    if (!(Math.abs(vstate.duration - 3) < 0.5)) throw new Error(`[门禁失败] 视频时长不对: ${vstate.duration}`);
+    log('✓ [PASS] 阅读页带令牌下载视频并播放（blob: URL，640×480，约 3 秒），静态书页已替换');
+
+    await cdp.clickButtonByText('点击认物');
+    await new Promise((r) => setTimeout(r, 400));
+    const vrect = await cdp.evaluate(`(() => {
+      const v = document.querySelector('video[aria-label="互动阅读视频"]');
+      v.scrollIntoView({ block: 'center' });
+      const r = v.getBoundingClientRect();
+      return { left: r.left, top: r.top, width: r.width, height: r.height };
+    })()`);
+    await new Promise((r) => setTimeout(r, 300));
+    // 4:3 视频放进 16:10 画框 → 左右各有黑边
+    const renderW = vrect.height * (640 / 480);
+    const sideBar = (vrect.width - renderW) / 2;
+    log(`视频画框 ${JSON.stringify(vrect)}，理论黑边宽 ${sideBar.toFixed(1)}px`);
+    if (!(sideBar > 20)) throw new Error(`[门禁失败] 预期有左右黑边，实际 ${sideBar}`);
+    const before = (await fetchInteractions(runId)).filter((r) => r.interaction_type === 'touch').length;
+    await cdp.click(vrect.left + sideBar / 2, vrect.top + vrect.height / 2);
+    await new Promise((r) => setTimeout(r, 500));
+    const vErr = await cdp.evaluate(`document.querySelector('.assistant-error')?.textContent || ''`);
+    const afterBar = (await fetchInteractions(runId)).filter((r) => r.interaction_type === 'touch').length;
+    if (!(vErr.includes('黑边') || vErr.includes('留白')) || afterBar !== before) {
+      throw new Error(`[门禁失败] 视频黑边点击未被拦截或被上报: err="${vErr}", 记录 ${before}→${afterBar}`);
+    }
+    log('✓ [PASS] 视频黑边点击被拦截，没有上报后端');
+
+    // 点击视频画面里橙色圆的中心（原始坐标 320,240）
+    await cdp.click(vrect.left + vrect.width / 2, vrect.top + vrect.height / 2);
+    let vtouch = null;
+    for (let i = 0; i < 20; i += 1) {
+      await new Promise((r) => setTimeout(r, 250));
+      const list = (await fetchInteractions(runId)).filter((r) => r.interaction_type === 'touch');
+      if (list.length > before) { vtouch = list[list.length - 1]; break; }
+    }
+    if (!vtouch) throw new Error('[门禁失败] 视频画面点击没有写入后端');
+    const vi2 = vtouch.input;
+    log(`视频触控留痕 input: ${JSON.stringify({ norm: [vi2.norm_x, vi2.norm_y], px: [vi2.pixel_x, vi2.pixel_y], wh: [vi2.video_width, vi2.video_height], frame_source: vi2.frame_source, frame_snapshot: vi2.frame_snapshot })}`);
+    if (vi2.frame_source?.kind !== 'video' || vi2.frame_source.asset_sha256 !== asset.sha256 || vi2.frame_source.asset_id !== asset.id ||
+        vi2.video_width !== 640 || vi2.video_height !== 480 || Math.abs(vi2.pixel_x - 320) > 3 || Math.abs(vi2.pixel_y - 240) > 3 ||
+        !/^[0-9a-f]{64}$/.test(vi2.frame_snapshot?.sha256 || '') || vi2.frame_snapshot.width !== 640 || vi2.frame_snapshot.storage !== 'browser_only' ||
+        vtouch.output.recognition !== 'not_connected' || vtouch.output.target !== '') {
+      throw new Error(`[门禁失败] 视频触控留痕不符合预期: ${JSON.stringify(vtouch)}`);
+    }
+    log(`✓ [PASS] 视频触控留痕：frame_source=video（产物 sha256 一致）、原始像素≈(320,240)/640×480、截图指纹 ${vi2.frame_snapshot.sha256.slice(0, 12)}…；未接视觉模型如实记为 not_connected`);
+
+    // ----------------------------------------------------
+    // 步骤 I: Live 只读分享由服务端核验（E-029）：有效链接 / 撤销 / 过期 / 指定用户身份
+    // 前置条件说明：A 的笔记生成要求"真实分析成功"，而本环境没有分析 provider（步骤 D 如实失败），
+    // 所以这里直接在【临时测试库】插入一条 DRAFT 笔记；审核、分享、撤销全部走 A 的真实接口。
+    // ----------------------------------------------------
+    log('步骤 I: Live 只读分享服务端核验...');
+    const api = async (method, p, body, token = TOKEN) => {
+      const res = await fetch(`http://127.0.0.1:${BACKEND_PORT}${p}`, {
+        method, headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined,
+      });
+      const text = await res.text();
+      return { status: res.status, data: text ? JSON.parse(text) : null };
+    };
+    const run = await api('GET', `/api/runs/${encodeURIComponent(runId)}`);
+    const noteId = `cdp-note-${Date.now()}`;
+    const ins = spawnSync(path.join(BACKEND_DIR, '.venv', 'bin', 'python'), ['-c', `
+import sqlite3, json, sys
+c = sqlite3.connect(sys.argv[1])
+content = {"title": "门禁测试笔记", "summary": "小狐狸收到了一封信。", "concepts": ["友谊"], "sources": [{"page_no": 1, "quote": "门禁测试引用", "start_ms": None, "end_ms": None}]}
+c.execute("INSERT INTO reading_notes(id,book_id,owner_id,content_json,status,version,created_at,updated_at) VALUES(?,?,?,?, 'DRAFT', 1, datetime('now'), datetime('now'))", (sys.argv[2], sys.argv[3], 'live_check', json.dumps(content, ensure_ascii=False)))
+c.commit()
+`, dbPath, noteId, run.data.book_id], { encoding: 'utf8' });
+    if (ins.status !== 0) throw new Error(`[门禁失败] 测试库插入笔记失败: ${ins.stderr}`);
+    const approved = await api('POST', `/api/notes/${noteId}/review`, { action: 'approve' });
+    if (approved.status !== 200 || approved.data.status !== 'PRIVATE') throw new Error(`[门禁失败] 真实审核接口未通过: ${JSON.stringify(approved)}`);
+    const future = (sec) => new Date(Date.now() + sec * 1000).toISOString();
+    const link = await api('POST', `/api/notes/${noteId}/shares`, { share_mode: 'link', expires_at: future(600) });
+    const shortLink = await api('POST', `/api/notes/${noteId}/shares`, { share_mode: 'link', expires_at: future(3) });
+    const invite = await api('POST', `/api/notes/${noteId}/shares`, { share_mode: 'invite_only', shared_user_id: 'reader_02', expires_at: future(600) });
+    if (link.status !== 201 || !link.data.token || shortLink.status !== 201 || invite.status !== 201) throw new Error(`[门禁失败] 创建分享失败: ${JSON.stringify([link, shortLink, invite])}`);
+
+    const openShared = async (hash) => {
+      await cdp.evaluate(`(() => { location.hash = ${JSON.stringify(hash)}; })()`);
+      let st = null;
+      for (let i = 0; i < 20; i += 1) {
+        await new Promise((r) => setTimeout(r, 200));
+        st = await cdp.evaluate(`(() => { const el = document.querySelector('[data-shared-status]');
+          return el ? { status: el.getAttribute('data-shared-status'), code: el.getAttribute('data-shared-code'), text: el.innerText.slice(0, 160) } : null; })()`);
+        if (st && st.status !== 'loading') break;
+      }
+      return st;
+    };
+    // 先清掉本地分享快照：证明只读页不是靠本地数据显示的
+    await cdp.evaluate(`(() => { for (const k of Object.keys(sessionStorage)) if (k.startsWith('paper-companion-full-v1')) { const d = JSON.parse(sessionStorage.getItem(k)); d.grants = []; sessionStorage.setItem(k, JSON.stringify(d)); } })()`);
+    let st = await openShared(`#/shared?token=${encodeURIComponent(link.data.token)}`);
+    if (st?.status !== 'ok' || !st.text.includes('门禁测试笔记') || !st.text.includes('服务端已核验')) throw new Error(`[门禁失败] 有效链接未显示服务端内容: ${JSON.stringify(st)}`);
+    log('✓ [PASS] 有效限时链接：本地没有任何分享记录，仍从服务端读到并只读显示笔记');
+    st = await openShared(`#/shared?token=not-a-real-token`);
+    if (st?.status !== 'denied' || st.code !== 'NOT_FOUND' || st.text.includes('门禁测试笔记')) throw new Error(`[门禁失败] 伪造令牌未被拒绝: ${JSON.stringify(st)}`);
+    const revoked = await api('DELETE', `/api/notes/${noteId}/shares/${link.data.id}`);
+    if (revoked.status !== 204) throw new Error(`[门禁失败] 撤销失败: ${JSON.stringify(revoked)}`);
+    st = await openShared(`#/shared?token=${encodeURIComponent(link.data.token)}&r=1`);
+    if (st?.status !== 'denied' || st.code !== 'NOT_FOUND' || st.text.includes('门禁测试笔记')) throw new Error(`[门禁失败] 撤销后仍可访问: ${JSON.stringify(st)}`);
+    log('✓ [PASS] 伪造令牌与已撤销链接：服务端拒绝(404)，页面不显示任何笔记内容');
+    await new Promise((r) => setTimeout(r, 3500));
+    st = await openShared(`#/shared?token=${encodeURIComponent(shortLink.data.token)}`);
+    if (st?.status !== 'denied' || st.code !== 'GONE' || st.text.includes('门禁测试笔记')) throw new Error(`[门禁失败] 过期链接未被拒绝: ${JSON.stringify(st)}`);
+    log('✓ [PASS] 过期链接：服务端返回 410，页面显示"已经过期"');
+    const inviteHash = `#/shared?note=${encodeURIComponent(noteId)}&share=${encodeURIComponent(invite.data.id)}`;
+    if (inviteHash.includes(TOKEN) || invite.data.token) throw new Error('[门禁失败] 指定用户分享不应产生/携带令牌');
+    st = await openShared(inviteHash);
+    if (st?.status !== 'denied' || st.code !== 'NOT_FOUND') throw new Error(`[门禁失败] 主人以外身份核验未生效（主人令牌也不应能走邀请视图）: ${JSON.stringify(st)}`);
+    await cdp.evaluate(`(() => { localStorage.setItem('AUTH_BEARER_TOKEN', '${READER_TOKEN}'); location.hash = ${JSON.stringify(inviteHash)}; location.reload(); })()`);
+    await new Promise((r) => setTimeout(r, 1500));
+    st = await openShared(inviteHash);
+    if (st?.status !== 'ok' || !st.text.includes('门禁测试笔记')) throw new Error(`[门禁失败] 被邀请人用自己的令牌无法查看: ${JSON.stringify(st)}`);
+    log('✓ [PASS] 指定用户分享：链接不含令牌；非被邀请身份被拒，被邀请人用自己的令牌可只读查看');
+
     cdp.close();
     log('=== [SUCCESS] 真实浏览器 CDP 端到端门禁全部通过！===');
-    process.exit(0);
+    exitCode = 0;
   } catch (err) {
     console.error('=== [FAIL] 门禁执行异常 ===', err);
-    process.exit(1);
+    exitCode = 1;
   } finally {
+    // 旧实现在 try/catch 里直接 process.exit()，finally 永远不执行：每跑一次就残留一个后端和一个无头 Chrome，
+    // 下一次运行会连上残留实例（E-031）。现在先清理、等子进程退出，再退出。
     if (backendProc) backendProc.kill();
     if (chromeProc) chromeProc.kill();
     if (frontendServer) frontendServer.close();
+    const waitExit = (proc) => new Promise((resolve) => {
+      if (!proc || proc.exitCode !== null || proc.signalCode) return resolve();
+      const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch { /* 已退出 */ } resolve(); }, 3000);
+      proc.once('exit', () => { clearTimeout(timer); resolve(); });
+    });
+    await Promise.all([waitExit(backendProc), waitExit(chromeProc)]);
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch (cleanupErr) {
       console.warn('[cleanup] 临时目录清理告警:', cleanupErr.message);
     }
   }
+  process.exit(exitCode);
 }
 
 run();

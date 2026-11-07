@@ -10,6 +10,9 @@ export interface PictureBookSliceData {
   frame_objects: string[];
   lighting: string;
   snippet: string;
+  /** 是否为全书第一页/最后一页（由 buildSlicesFromBook 按全书位置标注；未标注时按索引数组首尾判断） */
+  is_first_page?: boolean;
+  is_last_page?: boolean;
 }
 
 /**
@@ -200,6 +203,25 @@ export class TimeSliceIndexer {
         slice.video_start_ms >= 0 && currentVideoMs >= slice.video_start_ms && currentVideoMs <= slice.video_end_ms;
       matches.push({ slice, coverage, matchedTerms: matched, rank: coverage + (inWindow ? 0.05 : 0), discriminative });
     });
+
+    // E-030 位置意图兜底：「故事开头讲了什么」「结局是怎样的」这类问题与原文没有字面重叠，旧规则一律拒答。
+    // 只在【没有任何内容命中】且问题只指向一端时，才用全书第一页/最后一页的原文作为页级依据；
+    // 若那一页没有校对（不在索引里），宁可拒答，不拿别的页冒充开头/结尾。
+    if (matches.length === 0 && wantsBeginning !== wantsEnding && this.slices.length >= 2) {
+      const flagged = this.slices.some((s) => s.is_first_page !== undefined || s.is_last_page !== undefined);
+      const target = wantsBeginning
+        ? flagged ? this.slices.find((s) => s.is_first_page) : this.slices[0]
+        : flagged ? this.slices.find((s) => s.is_last_page) : this.slices[lastIdx];
+      if (target) {
+        matches.push({
+          slice: target,
+          coverage: TimeSliceIndexer.MIN_COVERAGE,
+          matchedTerms: [wantsBeginning ? '<位置意图:开头>' : '<位置意图:结尾>'],
+          rank: TimeSliceIndexer.MIN_COVERAGE,
+          discriminative: true,
+        });
+      }
+    }
 
     matches.sort((a, b) => b.rank - a.rank);
 

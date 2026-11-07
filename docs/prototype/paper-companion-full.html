@@ -515,12 +515,12 @@ function createApiClient(baseUrl, options = {}) {
         throw new Error('请输入不含账号、参数或片段的 HTTP/HTTPS 服务地址。');
     const base = url.href.replace(/\/$/, '');
     const doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
-    async function request(path, init = {}, authenticated = true, binary = false) {
+    async function request(path, init = {}, authenticated = true, binary = false, timeoutMs) {
         const token = authenticated ? options.getToken?.().trim() ?? '' : '';
         if (authenticated && !token)
             throw new ApiError(401, 'AUTH_REQUIRED', '请先填写 A 配置的本地 Bearer 令牌。');
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 15000);
+        const timer = setTimeout(() => controller.abort(), timeoutMs ?? options.timeoutMs ?? 15000);
         try {
             const headers = new Headers(init.headers);
             if (token)
@@ -587,7 +587,8 @@ function createApiClient(baseUrl, options = {}) {
         history: (runId) => request(`/api/runs/${id(runId)}/history`),
         segments: (runId) => request(`/api/runs/${id(runId)}/segments`),
         assets: (runId) => request(`/api/runs/${id(runId)}/assets`),
-        assetContent: (runId, assetId) => request(`/api/runs/${id(runId)}/assets/${id(assetId)}/content`, {}, true, true),
+        // 视频文件可能较大，下载超时放宽到 120 秒
+        assetContent: (runId, assetId) => request(`/api/runs/${id(runId)}/assets/${id(assetId)}/content`, {}, true, true, 120000),
         interactions: (runId) => request(`/api/runs/${id(runId)}/interactions`),
         recordInteraction: (runId, body) => request(`/api/runs/${id(runId)}/interactions`, json('POST', body)),
         generateNote: (bookId, noteTemplate = 'standard') => request(`/api/books/${id(bookId)}/notes/generate`, json('POST', { note_template: noteTemplate })),
@@ -632,6 +633,9 @@ const TimeSliceIndexer_1 = require("../features/interaction/indexing/TimeSliceIn
 const noteSync_1 = require("../lib/noteSync");
 const liveBookFlow_1 = require("../lib/liveBookFlow");
 const pageImage_1 = require("../features/books/pageImage");
+const runVideo_1 = require("../lib/runVideo");
+const latencyExport_1 = require("../lib/latencyExport");
+const sharedNoteView_1 = require("../lib/sharedNoteView");
 /**
  * 会话按模式隔离（E-023）：旧实现 Live/Demo 共用一个 key，且切换模式时组件不重建，
  * Demo 的模拟记录会出现在 Live 的历史/看板里，反之亦然。
@@ -698,12 +702,19 @@ function WorkspaceApp({ appMode = 'live' }) {
     const [toast, setToast] = (0, react_1.useState)('');
     const [recipient, setRecipient] = (0, react_1.useState)('');
     const [shareToken, setShareToken] = (0, react_1.useState)(() => route().query.get('token') ?? '');
+    const [sharedRef, setSharedRef] = (0, react_1.useState)(() => (0, sharedNoteView_1.parseSharedRef)(route().query));
+    const [sharedView, setSharedView] = (0, react_1.useState)(undefined);
+    const [sharedNonce, setSharedNonce] = (0, react_1.useState)(0);
     const [seekTo, setSeekTo] = (0, react_1.useState)(null);
     const sessionWarned = (0, react_1.useRef)(false);
     const previousBookId = (0, react_1.useRef)(selectedId);
     const segmentsCacheRef = (0, react_1.useRef)(new Map());
     const warnedSegmentsRef = (0, react_1.useRef)(new Set());
+    // 每个 run 的视频加载状态（blob: URL 只在内存中，不写入会话存储，刷新后重新下载）
+    const [videos, setVideos] = (0, react_1.useState)({});
+    const videoUrlsRef = (0, react_1.useRef)(new Map());
     const book = books.find(item => item.id === selectedId) ?? books[0];
+    const video = book.run_id ? videos[book.run_id] : undefined;
     const note = notes.find(item => item.book_id === book.id) ?? null;
     const grant = grants.find(item => item.token === shareToken) ?? null;
     (0, react_1.useEffect)(() => { if (previousBookId.current === book.id)
@@ -722,10 +733,53 @@ function WorkspaceApp({ appMode = 'live' }) {
         window.scrollTo({ top: 0 });
     }, []);
     (0, react_1.useEffect)(() => { const changed = () => { const current = route(); setPage(current.page); setState('success'); const id = current.query.get('book'); if (id)
-        setSelectedId(id); if (current.page === 'shared')
-        setShareToken(current.query.get('token') ?? ''); }; window.addEventListener('hashchange', changed); return () => window.removeEventListener('hashchange', changed); }, []);
+        setSelectedId(id); if (current.page === 'shared') {
+        setShareToken(current.query.get('token') ?? '');
+        setSharedRef((0, sharedNoteView_1.parseSharedRef)(current.query));
+    } }; window.addEventListener('hashchange', changed); return () => window.removeEventListener('hashchange', changed); }, []);
     (0, react_1.useEffect)(() => { if (!toast)
         return; const timer = setTimeout(() => setToast(''), 5000); return () => clearTimeout(timer); }, [toast]);
+    // Live 只读分享：一律向 A 核验并展示服务端内容（E-029：旧实现只看本地快照，换浏览器打开即失效）
+    (0, react_1.useEffect)(() => {
+        if (appMode !== 'live' || page !== 'shared')
+            return;
+        if (!sharedRef) {
+            setSharedView({ status: 'missing' });
+            return;
+        }
+        let stale = false;
+        setSharedView({ status: 'loading' });
+        void (0, sharedNoteView_1.loadSharedNote)(api_1.apiClient, sharedRef).then(result => { if (!stale)
+            setSharedView(result); });
+        return () => { stale = true; };
+    }, [appMode, page, sharedRef, sharedNonce]);
+    // Live：进入阅读页时向 A 查询该 run 是否已登记 B 生成的视频（E-028：旧实现从不查询，永远显示静态书页）
+    (0, react_1.useEffect)(() => {
+        if (appMode !== 'live' || page !== 'reader' || !book.run_id || !book.server_book_id || videos[book.run_id])
+            return;
+        const runId = book.run_id;
+        setVideos(current => ({ ...current, [runId]: { status: 'loading' } }));
+        (0, runVideo_1.loadRunVideo)(api_1.apiClient, runId).then(result => {
+            if (result.status === 'none') {
+                setVideos(current => ({ ...current, [runId]: { status: 'none', assetCount: result.assetCount } }));
+                return;
+            }
+            const old = videoUrlsRef.current.get(runId);
+            if (old)
+                URL.revokeObjectURL(old);
+            videoUrlsRef.current.set(runId, result.url);
+            setVideos(current => ({ ...current, [runId]: { status: 'ready', url: result.url, asset_id: result.asset.id, sha256: result.asset.sha256, size_bytes: result.sizeBytes } }));
+        }).catch((e) => setVideos(current => ({ ...current, [runId]: { status: 'error', error: String(e?.message ?? e) } })));
+    }, [appMode, page, book.run_id, book.server_book_id, videos]);
+    (0, react_1.useEffect)(() => () => { videoUrlsRef.current.forEach(url => URL.revokeObjectURL(url)); videoUrlsRef.current.clear(); }, []);
+    const reloadVideo = (0, react_1.useCallback)((runId) => {
+        const old = videoUrlsRef.current.get(runId);
+        if (old) {
+            URL.revokeObjectURL(old);
+            videoUrlsRef.current.delete(runId);
+        }
+        setVideos(current => { const next = { ...current }; delete next[runId]; return next; });
+    }, []);
     (0, react_1.useEffect)(() => {
         try {
             sessionStorage.setItem(sessionKeyFor(appMode), JSON.stringify({ schema: 1, books: books.map(item => ({ ...item, pages: item.pages.filter(p => p.demo), page_count: item.pages.length })), notes, grants, interactions }));
@@ -950,6 +1004,7 @@ function WorkspaceApp({ appMode = 'live' }) {
         let shareId = uid('share');
         let token = crypto.randomUUID();
         let server = false;
+        let serverInfo = {};
         if (appMode === 'live') {
             if (!note.server_id) {
                 notify(LOCAL_ONLY);
@@ -960,13 +1015,14 @@ function WorkspaceApp({ appMode = 'live' }) {
                 shareId = created.id;
                 token = created.token ?? token;
                 server = true;
+                serverInfo = { server_note_id: note.server_id, server_mode: created.mode };
             }
             catch (e) {
                 notify(`服务端创建分享失败: ${e.message}`);
                 return null;
             }
         }
-        const next = { id: shareId, token, note_id: note.id, note_revision: note.revision, snapshot: JSON.parse(JSON.stringify(note)), mode: input.mode, recipients: input.recipients, expires_at: expiresAt, status: 'active', created_at: timestamp(), server };
+        const next = { id: shareId, token, note_id: note.id, note_revision: note.revision, snapshot: JSON.parse(JSON.stringify(note)), mode: input.mode, recipients: input.recipients, expires_at: expiresAt, status: 'active', created_at: timestamp(), server, ...serverInfo };
         setGrants(current => [next, ...current]);
         setNotes(current => current.map(item => item.id === note.id ? { ...item, visibility: 'shared' } : item));
         return next;
@@ -993,7 +1049,23 @@ function WorkspaceApp({ appMode = 'live' }) {
             setNotes(current => current.map(item => item.id === note?.id ? { ...item, visibility: 'private' } : item));
         notify('分享链接已成功撤销。');
     }
-    function openGrant(item) { setShareToken(item.token); setRecipient(''); setPage('shared'); setState('success'); location.hash = `#/shared?token=${encodeURIComponent(item.token)}`; window.scrollTo({ top: 0 }); }
+    function openGrant(item) {
+        if (item.server && item.server_note_id && item.server_mode) {
+            const hash = (0, sharedNoteView_1.serverShareHash)({ mode: item.server_mode, token: item.token, noteId: item.server_note_id, shareId: item.id });
+            setSharedRef((0, sharedNoteView_1.parseSharedRef)(new URLSearchParams(hash.split('?')[1])));
+            setPage('shared');
+            setState('success');
+            location.hash = hash;
+            window.scrollTo({ top: 0 });
+            return;
+        }
+        setShareToken(item.token);
+        setRecipient('');
+        setPage('shared');
+        setState('success');
+        location.hash = `#/shared?token=${encodeURIComponent(item.token)}`;
+        window.scrollTo({ top: 0 });
+    }
     function seek(source) { if (source.start_ms !== null) {
         setSeekTo(source.start_ms);
         navigate('reader', book.id);
@@ -1109,7 +1181,8 @@ function WorkspaceApp({ appMode = 'live' }) {
             if (!detail)
                 throw new Error('缺少坐标映射结果(touch_point/viewport_info)，已拒绝上报，避免记录错误像素。');
             const segments = await loadSegments(book.run_id);
-            const resp = await api_1.apiClient.recognizeTouch({ book_id: book.id, run_id: book.run_id, video_ms: videoMs, touch_point: detail.touch_point, viewport_info: detail.viewport_info }, 'live', { segments });
+            const frame = detail.frame;
+            const resp = await api_1.apiClient.recognizeTouch({ book_id: book.id, run_id: book.run_id, video_ms: videoMs, touch_point: detail.touch_point, viewport_info: detail.viewport_info }, 'live', { segments, frame: frame ? { kind: frame.kind, page_no: frame.page_no, asset_id: frame.kind === 'video' && video?.status === 'ready' ? video.asset_id : null, asset_sha256: frame.kind === 'video' && video?.status === 'ready' ? video.sha256 : null, snapshot: frame.snapshot?.blob ?? null, snapshot_width: frame.snapshot?.width, snapshot_height: frame.snapshot?.height, snapshot_error: frame.snapshot_error } : undefined });
             if (resp.persisted === false)
                 notify(`触控已处理，但未能写入后端：${resp.persist_error ?? '未知原因'}`);
             return {
@@ -1140,7 +1213,31 @@ function WorkspaceApp({ appMode = 'live' }) {
         const excerpt = book.pages[pageNo - 1]?.ocr_text ?? '';
         return { id: uid('touch'), book_id: book.id, run_id: book.run_id ?? 'unstarted', kind: 'touch', question: `画面位置 (${x.toFixed(2)}, ${y.toFixed(2)})`, transcript: '', answer: excerpt ? `[演示模式] 已记录点击位置。当前展示第 ${pageNo} 页文字：“${excerpt.slice(0, 180)}” 仅为示例逻辑。` : '[演示模式] 已记录点击位置；当前页缺少文字依据。', video_ms: videoMs, sources: excerpt ? [{ source: 'original_page', page_no: pageNo, start_ms: null, end_ms: null, quote: excerpt }] : [], latency_ms: null, created_at: timestamp(), uncertain: true, origin: 'mock', recognized: false, cached: false };
     }
+    // D13：导出 A 后端里的真实留痕（不是浏览器会话记录），附延迟 P50/P95 统计
+    async function exportServerLog() {
+        if (!book.run_id || !book.server_book_id) {
+            notify('这本书没有后端运行记录，无法导出后端留痕。');
+            return;
+        }
+        try {
+            const records = (await api_1.apiClient.fetchRemoteInteractions(book.run_id));
+            if (!records.length) {
+                notify('后端还没有这次运行的交互留痕。');
+                return;
+            }
+            const save = (content, type, name) => { const url = URL.createObjectURL(new Blob([content], { type })); const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); };
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            save((0, latencyExport_1.buildInteractionCsv)(records), 'text/csv;charset=utf-8', `interactions-${book.run_id}-${stamp}.csv`);
+            save(JSON.stringify((0, latencyExport_1.summarizeRecords)(book.run_id, records), null, 2), 'application/json;charset=utf-8', `latency-summary-${book.run_id}-${stamp}.json`);
+            notify(`已从后端导出 ${records.length} 条留痕（CSV）和延迟统计（JSON）。`);
+        }
+        catch (e) {
+            notify(`读取后端留痕失败：${e.message}`);
+        }
+    }
     const context = { book, state, setState, navigate, notify, appMode };
+    // 阅读页拿到的 book 带上已下载的视频地址；其它页面不受影响
+    const readerBook = video?.status === 'ready' ? { ...book, video_url: video.url } : book;
     const workflow = { ...context, updateBook, job, setJob, onGenerate: () => { void generate(); }, onOpenPagesOnly: openPagesOnly };
     const missingPages = book.pages.length === 0 && page !== 'home' && page !== 'import' && page !== 'settings' && page !== 'shared';
     return (React.createElement(WorkspaceShell_1.default, { page: page, state: state, setState: setState, navigate: navigate, appMode: appMode },
@@ -1162,7 +1259,7 @@ function WorkspaceApp({ appMode = 'live' }) {
             page === 'classification' && React.createElement(ReviewPages_1.ClassificationPage, { ...workflow }),
             page === 'progress' && React.createElement(ProgressPage_1.default, { ...workflow }),
             page === 'reader' && React.createElement(React.Fragment, null,
-                React.createElement(InteractiveReaderPage_1.default, { ...context, interactions: interactions.filter(i => i.book_id === book.id), onInteraction: item => setInteractions(current => [item, ...current]), seekTo: seekTo, onSeekHandled: () => setSeekTo(null), askQuestion: question, identifyTouch: touch, appMode: appMode }),
+                React.createElement(InteractiveReaderPage_1.default, { ...context, book: readerBook, videoState: appMode === 'live' && book.run_id && book.server_book_id ? (video ?? { status: 'loading' }) : undefined, onReloadVideo: book.run_id ? () => reloadVideo(book.run_id) : undefined, interactions: interactions.filter(i => i.book_id === book.id), onInteraction: item => setInteractions(current => [item, ...current]), seekTo: seekTo, onSeekHandled: () => setSeekTo(null), askQuestion: question, identifyTouch: touch, appMode: appMode }),
                 React.createElement("div", { className: "reader-next" },
                     React.createElement("button", { className: "button button-secondary", onClick: generateNote },
                         "\u6574\u7406\u9605\u8BFB\u7B14\u8BB0",
@@ -1170,10 +1267,10 @@ function WorkspaceApp({ appMode = 'live' }) {
                     React.createElement("button", { className: "button button-ghost", onClick: () => navigate('history') },
                         "\u67E5\u770B\u9605\u8BFB\u5386\u53F2",
                         React.createElement(ui_1.Icon, { name: "arrow", size: 16 })))),
-            page === 'history' && React.createElement(HistoryPage_1.default, { ...context, interactions: interactions.filter(i => i.book_id === book.id), onSeek: ms => { setSeekTo(ms); navigate('reader'); } }),
+            page === 'history' && React.createElement(HistoryPage_1.default, { ...context, interactions: interactions.filter(i => i.book_id === book.id), onSeek: ms => { setSeekTo(ms); navigate('reader'); }, onExportServer: appMode === 'live' && book.run_id && book.server_book_id ? exportServerLog : undefined }),
             page === 'notes' && React.createElement(NoteReviewPage_1.default, { ...context, note: note, onSave: saveNote, onReview: reviewNote, onSeek: seek }),
             page === 'sharing' && React.createElement(ShareNotePage_1.default, { ...context, note: note, grants: grants.filter(g => g.note_id === note?.id), onCreate: createShare, onRevoke: revoke, onOpen: openGrant }),
-            page === 'shared' && React.createElement(SharedNotePage_1.default, { state: state, grant: grant, recipient: recipient, setRecipient: setRecipient, navigate: navigate }),
+            page === 'shared' && React.createElement(SharedNotePage_1.default, { state: state, grant: grant, recipient: recipient, setRecipient: setRecipient, navigate: navigate, serverView: appMode === 'live' ? sharedView ?? { status: 'loading' } : undefined, onRetryServer: () => setSharedNonce(n => n + 1) }),
             page === 'settings' && React.createElement(SettingsPage_1.default, { navigate: navigate, onReset: () => { books.forEach(item => item.pages.forEach(p => { if (!p.demo)
                     URL.revokeObjectURL(p.image_url); })); setBooks((0, workspace_1.initialBooks)()); setNotes((0, workspace_1.initialNotes)()); setGrants([]); setInteractions([]); setSelectedId('demo-forest'); setJob((0, workspace_1.emptyJob)()); navigate('home'); notify('演示已重置。'); } })),
         toast && React.createElement("div", { className: "toast", role: "status" },
@@ -3161,6 +3258,63 @@ exports.AsrManager = AsrManager;
 exports.asrManager = new AsrManager();
 
 },
+"features/interaction/frameCapture": function(require,module,exports){
+"use strict";
+/**
+ * D8「点击时截取当前画面」：把点击瞬间的视频帧/书页图按原始分辨率（长边上限 maxSide）画到 canvas，
+ * 输出 JPEG Blob。用途：
+ *  - 配置了视觉模型服务时，作为识别输入一起发送（frame_image_base64）；
+ *  - 留痕里只写截图指纹与尺寸（A 没有截图上传接口，storage 如实写 browser_only），E 可据此核对。
+ *
+ * 失败（元素未就绪、跨域污染 canvas、浏览器不支持）一律返回 null 并给出原因，不能阻断触控本身。
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.fitWithin = fitWithin;
+exports.captureFrame = captureFrame;
+exports.blobToBase64 = blobToBase64;
+/** 纯函数：按长边上限等比缩放，至少 1px */
+function fitWithin(width, height, maxSide) {
+    if (!(width > 0 && height > 0))
+        return { width: 0, height: 0 };
+    const scale = Math.min(1, maxSide / Math.max(width, height));
+    return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+async function captureFrame(element, maxSide = 640) {
+    const isVideo = typeof HTMLVideoElement !== 'undefined' && element instanceof HTMLVideoElement;
+    const srcW = isVideo ? element.videoWidth : element.naturalWidth;
+    const srcH = isVideo ? element.videoHeight : element.naturalHeight;
+    if (isVideo && element.readyState < 2)
+        return { ok: false, reason: '视频当前帧尚未解码' };
+    const size = fitWithin(srcW, srcH, maxSide);
+    if (!size.width)
+        return { ok: false, reason: '画面尺寸未知' };
+    try {
+        const canvas = document.createElement('canvas');
+        canvas.width = size.width;
+        canvas.height = size.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx)
+            return { ok: false, reason: '浏览器不支持 canvas 2D' };
+        ctx.drawImage(element, 0, 0, size.width, size.height);
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+        if (!blob)
+            return { ok: false, reason: '截图编码失败' };
+        return { ok: true, snapshot: { blob, width: size.width, height: size.height, mimeType: 'image/jpeg' } };
+    }
+    catch (e) {
+        // 典型原因：跨域资源污染 canvas（SecurityError）
+        return { ok: false, reason: `截图失败：${e?.name ?? ''} ${e?.message ?? e}`.trim() };
+    }
+}
+async function blobToBase64(blob) {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 0x8000)
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(binary);
+}
+
+},
 "features/interaction/history/InteractionHistoryPanel": function(require,module,exports){
 "use strict";
 var __importDefault = (this && this.__importDefault) || function (mod) {
@@ -3446,6 +3600,24 @@ class TimeSliceIndexer {
             const inWindow = slice.video_start_ms >= 0 && currentVideoMs >= slice.video_start_ms && currentVideoMs <= slice.video_end_ms;
             matches.push({ slice, coverage, matchedTerms: matched, rank: coverage + (inWindow ? 0.05 : 0), discriminative });
         });
+        // E-030 位置意图兜底：「故事开头讲了什么」「结局是怎样的」这类问题与原文没有字面重叠，旧规则一律拒答。
+        // 只在【没有任何内容命中】且问题只指向一端时，才用全书第一页/最后一页的原文作为页级依据；
+        // 若那一页没有校对（不在索引里），宁可拒答，不拿别的页冒充开头/结尾。
+        if (matches.length === 0 && wantsBeginning !== wantsEnding && this.slices.length >= 2) {
+            const flagged = this.slices.some((s) => s.is_first_page !== undefined || s.is_last_page !== undefined);
+            const target = wantsBeginning
+                ? flagged ? this.slices.find((s) => s.is_first_page) : this.slices[0]
+                : flagged ? this.slices.find((s) => s.is_last_page) : this.slices[lastIdx];
+            if (target) {
+                matches.push({
+                    slice: target,
+                    coverage: TimeSliceIndexer.MIN_COVERAGE,
+                    matchedTerms: [wantsBeginning ? '<位置意图:开头>' : '<位置意图:结尾>'],
+                    rank: TimeSliceIndexer.MIN_COVERAGE,
+                    discriminative: true,
+                });
+            }
+        }
         matches.sort((a, b) => b.rank - a.rank);
         return matches.slice(0, 2).map((m) => {
             const hasTimeline = m.slice.video_start_ms >= 0 && m.slice.video_end_ms > m.slice.video_start_ms;
@@ -3515,6 +3687,9 @@ function buildSlicesFromBook(pages, segments = []) {
             frame_objects: [],
             lighting: '',
             snippet: `第 ${pageNo} 页：${text.length > 36 ? text.slice(0, 36) + '…' : text}`,
+            // 按全书位置标注（不是按过滤后的索引），未校对的首/尾页不会被别的页顶替
+            is_first_page: index === 0,
+            is_last_page: index === pages.length - 1,
         });
     });
     return slices;
@@ -3533,6 +3708,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.LatencyMetricsDashboard = void 0;
 exports.summarizeInteractions = summarizeInteractions;
 const react_1 = __importDefault(require("react"));
+const latencyExport_1 = require("../../../lib/latencyExport");
 function stats(items) {
     const measured = items.filter((i) => typeof i.latency_ms === 'number' && Number.isFinite(i.latency_ms));
     return {
@@ -3542,6 +3718,10 @@ function stats(items) {
         withEvidence: items.filter((i) => !i.uncertain && i.sources.length > 0).length,
         cacheHits: items.filter((i) => i.cached).length,
         notPersisted: items.filter((i) => i.persisted === false).length,
+        p50Ms: (0, latencyExport_1.latencyStats)(measured.map((i) => i.latency_ms)).p50,
+        p95Ms: (0, latencyExport_1.latencyStats)(measured.map((i) => i.latency_ms)).p95,
+        missAvgMs: (0, latencyExport_1.latencyStats)(measured.filter((i) => !i.cached).map((i) => i.latency_ms)).mean,
+        hitAvgMs: (0, latencyExport_1.latencyStats)(measured.filter((i) => i.cached).map((i) => i.latency_ms)).mean,
     };
 }
 /** 纯函数，供单测直接调用 */
@@ -3558,6 +3738,14 @@ const card = { padding: '10px', backgroundColor: '#f8fafc', borderRadius: '8px',
 const label = { fontSize: '11px', color: '#64748b' };
 const big = { fontSize: '18px', fontWeight: 'bold' };
 const small = { fontSize: '10px', color: '#94a3b8' };
+function ms(v) {
+    return v === null ? '—' : `${v} ms`;
+}
+function splitText(s) {
+    if (!s.measured)
+        return '分位数：暂无实测样本';
+    return `P50 ${ms(s.p50Ms)} · P95 ${ms(s.p95Ms)} · 未命中均值 ${ms(s.missAvgMs)} · 命中均值 ${ms(s.hitAvgMs)}${s.measured < 20 ? ` · 样本仅 ${s.measured} 条，P95 不稳定` : ''}`;
+}
 function latencyText(s) {
     return s.avgLatencyMs === null ? '暂无实测数据' : `${s.avgLatencyMs} ms`;
 }
@@ -3580,7 +3768,8 @@ const Section = ({ title, tone, s }) => (react_1.default.createElement("div", { 
                 s.voice.measured,
                 "/",
                 s.voice.total,
-                " \u00B7 \u4EC5\u542B\u95EE\u7B54\u8BF7\u6C42\uFF0C\u4E0D\u542B ASR/TTS")),
+                " \u00B7 \u4EC5\u542B\u95EE\u7B54\u8BF7\u6C42\uFF0C\u4E0D\u542B ASR/TTS"),
+            react_1.default.createElement("div", { style: small }, splitText(s.voice))),
         react_1.default.createElement("div", { style: card },
             react_1.default.createElement("div", { style: label }, "\u95EE\u7B54\u6709\u4F9D\u636E\u56DE\u7B54"),
             react_1.default.createElement("div", { style: { ...big, color: '#16a34a' } }, s.voice.total ? `${s.voice.withEvidence}/${s.voice.total}` : '暂无样本'),
@@ -3594,7 +3783,8 @@ const Section = ({ title, tone, s }) => (react_1.default.createElement("div", { 
                 "\u5B9E\u6D4B\u6837\u672C ",
                 s.touch.measured,
                 "/",
-                s.touch.total)),
+                s.touch.total),
+            react_1.default.createElement("div", { style: small }, splitText(s.touch))),
         react_1.default.createElement("div", { style: card },
             react_1.default.createElement("div", { style: label }, "\u89E6\u63A7\u771F\u5B9E\u8BC6\u522B"),
             react_1.default.createElement("div", { style: { ...big, color: s.touch.recognized ? '#059669' : '#b45309' } }, s.touch.total === 0 ? '暂无样本' : s.touch.recognized === 0 ? '未完成真实识别' : `${s.touch.recognized}/${s.touch.total}`),
@@ -4061,9 +4251,11 @@ exports.toBackendBookType = toBackendBookType;
 exports.fromBackendBookType = fromBackendBookType;
 exports.sha256Hex = sha256Hex;
 exports.buildVoiceInput = buildVoiceInput;
+exports.buildFrameInput = buildFrameInput;
 const client_1 = require("../api/client");
 const TimeSliceIndexer_1 = require("../features/interaction/indexing/TimeSliceIndexer");
 const PictureBookRagEngine_1 = require("../features/interaction/qa/PictureBookRagEngine");
+const frameCapture_1 = require("../features/interaction/frameCapture");
 /**
  * 角色 C 的业务层（语音问答 / 触控认物 / 交互留痕 / 笔记生命周期）。
  * 传输层统一复用 `api/client.ts`（超时、detail 解析、422 可读化、令牌脱敏），不再自带一套 fetch。
@@ -4147,6 +4339,30 @@ async function buildVoiceInput(audioBlob, voice, query) {
         asr_error: voice?.asrErrorCode ?? null,
         // 用户提交的问题与识别原文不同（手动改过，或识别失败后改为打字）
         transcript_edited: (voice?.transcript ?? '') !== query,
+    };
+}
+/** 构造写入留痕的画面来源字段：E 据此区分"点的是视频还是静态图"，并用截图指纹核对 */
+async function buildFrameInput(frame) {
+    if (!frame)
+        return { frame_source: { kind: 'unknown' } };
+    return {
+        frame_source: {
+            kind: frame.kind,
+            page_no: frame.page_no,
+            asset_id: frame.kind === 'video' ? frame.asset_id ?? null : null,
+            asset_sha256: frame.kind === 'video' ? frame.asset_sha256 ?? null : null,
+        },
+        frame_snapshot: frame.snapshot
+            ? {
+                mime_type: frame.snapshot.type || 'image/jpeg',
+                width: frame.snapshot_width ?? null,
+                height: frame.snapshot_height ?? null,
+                size_bytes: frame.snapshot.size,
+                sha256: await sha256Hex(frame.snapshot),
+                // A 没有截图上传接口：截图只发给已配置的视觉模型服务，不进后端
+                storage: 'browser_only',
+            }
+            : { captured: false, reason: frame.snapshot_error ?? '未截图' },
     };
 }
 function nowMs() {
@@ -4278,7 +4494,9 @@ class ApiClient {
         }
         let data;
         if (this.modelServiceUrl) {
-            data = await this.callModelService('/interaction/touch', params, 3000);
+            // 截图随识别请求发给视觉模型服务（契约待 B 确认；字段缺失时服务端只能用坐标）
+            const frameImage = ctx.frame?.snapshot ? await (0, frameCapture_1.blobToBase64)(ctx.frame.snapshot) : undefined;
+            data = await this.callModelService('/interaction/touch', { ...params, frame_kind: ctx.frame?.kind, frame_image_base64: frameImage, frame_mime_type: frameImage ? 'image/jpeg' : undefined }, frameImage ? 6000 : 3000);
             if (typeof data?.target_name !== 'string' || typeof data.confidence !== 'number') {
                 throw new Error('触控模型服务返回格式无效（缺少 target_name / confidence）');
             }
@@ -4322,6 +4540,7 @@ class ApiClient {
             video_width: tp.video_width,
             video_height: tp.video_height,
             viewport_info: params.viewport_info,
+            ...(await buildFrameInput(ctx.frame)),
         }, {
             status: data.status,
             target: data.target_name,
@@ -4377,6 +4596,10 @@ class ApiClient {
     async getRunAssets(runId) {
         return this.client.assets(runId);
     }
+    /** 带令牌下载已登记产物（视频/音频/字幕）；A 会校验 sha256，被篡改时返回 409 */
+    async getAssetContent(runId, assetId) {
+        return this.client.assetContent(runId, assetId);
+    }
     async createBook(input) {
         return this.client.createBook(input);
     }
@@ -4426,9 +4649,138 @@ class ApiClient {
     async getSharedNote(token) {
         return (await this.client.sharedNote(token));
     }
+    /** 指定用户分享：用访问者自己的令牌读取，服务端核验身份是否为被邀请人 */
+    async getInvitedNote(noteId, shareId) {
+        return (await this.client.invitedNote(noteId, shareId));
+    }
 }
 exports.ApiClient = ApiClient;
 exports.apiClient = new ApiClient();
+
+},
+"lib/latencyExport": function(require,module,exports){
+"use strict";
+/**
+ * D13「导出延迟日志」/ D11「复测延迟、标记缓存命中」：
+ * 直接用 A 后端里的交互留痕（GET /api/runs/{run_id}/interactions）生成 CSV 与统计摘要，交给 E 复核。
+ *
+ * 口径（写进导出文件，避免被误读）：
+ *  - latency_ms 是前端从发起请求到拿到回答/识别结果的耗时，不含 ASR 录音时长，也不含 TTS 首音；
+ *  - P50/P95 用最近秩法(nearest-rank)，只统计 latency_ms 为非负数的样本，并给出样本数；
+ *  - 缓存命中与未命中分开统计，避免命中样本把延迟拉低后被当成"热启动效果"；
+ *  - 不计算正确率：正确率需要人工标准答案，这里没有。
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.percentile = percentile;
+exports.latencyStats = latencyStats;
+exports.summarizeRecords = summarizeRecords;
+exports.recordToRow = recordToRow;
+exports.buildInteractionCsv = buildInteractionCsv;
+/** 最近秩法分位数；空数组返回 null */
+function percentile(values, p) {
+    const sorted = values.filter((v) => Number.isFinite(v) && v >= 0).sort((a, b) => a - b);
+    if (!sorted.length)
+        return null;
+    const rank = Math.max(1, Math.ceil((p / 100) * sorted.length));
+    return sorted[Math.min(sorted.length, rank) - 1];
+}
+function latencyStats(values) {
+    const ok = values.filter((v) => typeof v === 'number' && Number.isFinite(v) && v >= 0);
+    if (!ok.length)
+        return { n: 0, p50: null, p95: null, mean: null, max: null };
+    return {
+        n: ok.length,
+        p50: percentile(ok, 50),
+        p95: percentile(ok, 95),
+        mean: Math.round(ok.reduce((s, v) => s + v, 0) / ok.length),
+        max: Math.max(...ok),
+    };
+}
+function groupKey(r) {
+    const cache = r.output?.cache_hit === true ? 'cache_hit' : 'cache_miss';
+    if (r.interaction_type === 'voice')
+        return `voice_${r.input?.input_method === 'speech' ? 'speech' : 'keyboard'}_${cache}`;
+    if (r.interaction_type === 'touch')
+        return `touch_${r.input?.frame_source?.kind ?? 'unknown'}_${cache}`;
+    return `other_${cache}`;
+}
+function summarizeRecords(runId, records, now = new Date()) {
+    const buckets = new Map();
+    for (const r of records) {
+        const key = groupKey(r);
+        buckets.set(key, [...(buckets.get(key) ?? []), r]);
+    }
+    const groups = {};
+    for (const [key, items] of [...buckets.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+        groups[key] = { records: items.length, ...latencyStats(items.map((i) => i.latency_ms)) };
+    }
+    return {
+        run_id: runId,
+        generated_at: now.toISOString(),
+        total_records: records.length,
+        definitions: {
+            latency_ms: '前端发起问答/触控请求到拿到结果的耗时（含写入留痕前的本地检索或模型服务调用），不含录音时长、ASR、TTS 首音',
+            percentile: '最近秩法；n 为有效延迟样本数',
+            grouping: '按 类型_输入方式或画面来源_是否缓存命中 分组',
+            accuracy: '未计算：需要人工标准答案',
+        },
+        groups,
+    };
+}
+const COLUMNS = [
+    'created_at', 'interaction_id', 'run_id', 'type', 'input_method', 'frame_kind', 'query', 'video_ms',
+    'norm_x', 'norm_y', 'status', 'answer_source', 'recognition', 'target', 'cache_hit', 'latency_ms',
+    'evidence_pages', 'audio_sha256', 'audio_duration_ms', 'asr_transcript', 'asr_error', 'transcript_edited',
+    'frame_snapshot_sha256', 'video_asset_sha256',
+];
+function cell(value) {
+    if (value === null || value === undefined)
+        return '';
+    const text = typeof value === 'string' ? value : typeof value === 'object' ? JSON.stringify(value) : String(value);
+    // 防 CSV 公式注入（Excel 会执行以 = + - @ 开头的单元格）
+    const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+    return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+}
+function recordToRow(r) {
+    const i = r.input ?? {};
+    const o = r.output ?? {};
+    const pages = Array.isArray(o.evidence) ? [...new Set(o.evidence.map((e) => e?.page_no).filter((p) => p !== undefined && p !== null))].join('|') : '';
+    return {
+        created_at: r.created_at,
+        interaction_id: r.id,
+        run_id: r.run_id,
+        type: r.interaction_type,
+        input_method: i.input_method ?? (r.interaction_type === 'touch' ? 'touch' : ''),
+        frame_kind: i.frame_source?.kind ?? '',
+        query: i.query ?? '',
+        video_ms: i.video_ms ?? '',
+        norm_x: i.norm_x ?? '',
+        norm_y: i.norm_y ?? '',
+        status: o.status ?? '',
+        answer_source: o.answer_source ?? '',
+        recognition: o.recognition ?? '',
+        target: o.target ?? '',
+        cache_hit: o.cache_hit === true ? 'true' : o.cache_hit === false ? 'false' : '',
+        latency_ms: r.latency_ms ?? '',
+        evidence_pages: pages,
+        audio_sha256: i.audio?.sha256 ?? '',
+        audio_duration_ms: i.audio?.duration_ms ?? '',
+        asr_transcript: i.asr_transcript ?? '',
+        asr_error: i.asr_error ?? '',
+        transcript_edited: typeof i.transcript_edited === 'boolean' ? String(i.transcript_edited) : '',
+        frame_snapshot_sha256: i.frame_snapshot?.sha256 ?? '',
+        video_asset_sha256: i.frame_source?.asset_sha256 ?? '',
+    };
+}
+function buildInteractionCsv(records) {
+    const lines = [COLUMNS.join(',')];
+    for (const r of records) {
+        const row = recordToRow(r);
+        lines.push(COLUMNS.map((c) => cell(row[c])).join(','));
+    }
+    // BOM：Excel 打开中文不乱码
+    return '﻿' + lines.join('\r\n') + '\r\n';
+}
 
 },
 "lib/liveBookFlow": function(require,module,exports){
@@ -4556,6 +4908,129 @@ function noteToServerContent(note) {
 }
 
 },
+"lib/runVideo": function(require,module,exports){
+"use strict";
+/**
+ * 从后端运行产物(A 的 media_assets)取回 B 生成并登记的视频，供阅读页播放（E-028）。
+ *
+ * 旧实现：book.video_url 在导入时写成 null，之后没有任何代码去读 /api/runs/{run_id}/assets，
+ * Live 模式下阅读页永远显示静态书页，B 的视频无法播放，"视频上的触控"也从未被测过。
+ *
+ * 规则：
+ *  1. 只认 asset_type=video 且 mime_type=video/mp4 的登记产物（与 A 的白名单一致）；
+ *  2. 多个视频时取最晚登记的一个，并把 asset_id/sha256 带出，留痕里写明点的是哪个视频；
+ *  3. 产物内容接口要求 Bearer 令牌，<video src> 不能直接带请求头，所以先带令牌下载成 Blob，
+ *     再生成 blob: URL；调用方负责 revoke；
+ *  4. 没有登记视频 → 返回 none（如实显示"尚无视频，显示静态书页"）；读取失败 → 抛错，不能当成"没有视频"。
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.pickVideoAsset = pickVideoAsset;
+exports.loadRunVideo = loadRunVideo;
+/** 纯函数：选出可播放的视频产物 */
+function pickVideoAsset(assets) {
+    const videos = assets.filter((a) => a.asset_type === 'video' && a.mime_type === 'video/mp4');
+    if (!videos.length)
+        return null;
+    return [...videos].sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))[0];
+}
+async function loadRunVideo(api, runId, createUrl = (blob) => URL.createObjectURL(blob)) {
+    const assets = await api.getRunAssets(runId);
+    const asset = pickVideoAsset(assets);
+    if (!asset)
+        return { status: 'none', assetCount: assets.length };
+    const blob = await api.getAssetContent(runId, asset.id);
+    if (!blob || blob.size === 0)
+        throw new Error('视频产物内容为空');
+    // 后端 FileResponse 会带 video/mp4；个别代理丢失类型时按登记的 MIME 补上，否则 <video> 可能拒绝播放
+    const typed = blob.type === asset.mime_type ? blob : new Blob([blob], { type: asset.mime_type });
+    return { status: 'ready', url: createUrl(typed), asset, sizeBytes: typed.size };
+}
+
+},
+"lib/sharedNoteView": function(require,module,exports){
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.parseSharedRef = parseSharedRef;
+exports.serverShareHash = serverShareHash;
+exports.toSharedNoteView = toSharedNoteView;
+exports.describeShareError = describeShareError;
+exports.loadSharedNote = loadSharedNote;
+/**
+ * Live 只读分享访问（扩展任务 D8~D10「联调分享开关、过期、撤销和只读访问」，E-029）。
+ *
+ * 旧实现：只读页只看"当前浏览器里的本地授权快照"。服务端发放的链接复制到另一台设备/浏览器打开，
+ * 一律显示"没有找到这份分享"；服务端撤销/过期也从不核验——访问控制实际上是本地模拟。
+ *
+ * 现在 Live 下只读页一律向 A 读取：
+ *  - 限时链接：GET /api/shared-notes/{token}（无需登录；404=无效或已撤销，410=已过期，403=未审核）
+ *  - 指定用户：GET /api/notes/{note_id}/shares/{share_id}/view（必须用被邀请人自己的令牌）
+ * 页面展示的内容以服务端返回为准，不再使用本地快照。
+ */
+const client_1 = require("../api/client");
+function parseSharedRef(query) {
+    const token = query.get('token')?.trim();
+    if (token)
+        return { kind: 'link', token };
+    const noteId = query.get('note')?.trim();
+    const shareId = query.get('share')?.trim();
+    if (noteId && shareId)
+        return { kind: 'invite', noteId, shareId };
+    return null;
+}
+/** 服务端分享的访问地址：限时链接带明文令牌；指定用户只带 ID，访问者必须以本人身份登录 */
+function serverShareHash(input) {
+    if (input.mode === 'link') {
+        if (!input.token)
+            throw new Error('限时链接缺少令牌');
+        return `#/shared?token=${encodeURIComponent(input.token)}`;
+    }
+    return `#/shared?note=${encodeURIComponent(input.noteId)}&share=${encodeURIComponent(input.shareId)}`;
+}
+function toSharedNoteView(note) {
+    const c = note.content ?? {};
+    const sources = Array.isArray(c.sources) ? c.sources : [];
+    return {
+        title: typeof c.title === 'string' && c.title.trim() ? c.title : '（未命名笔记）',
+        summary: typeof c.summary === 'string' ? c.summary : '',
+        concepts: Array.isArray(c.concepts) ? c.concepts.filter((x) => typeof x === 'string') : [],
+        sources: sources
+            .filter((s) => s && Number.isInteger(s.page_no))
+            .map((s) => ({ page_no: s.page_no, quote: typeof s.quote === 'string' ? s.quote : '', start_ms: typeof s.start_ms === 'number' ? s.start_ms : null })),
+        version: note.version,
+        status: note.status,
+    };
+}
+/** 服务端拒绝 → 明确原因；网络/超时等其它错误 → 也归为 denied，但写清楚"未能核验"，不能显示内容 */
+function describeShareError(error, ref) {
+    if (error instanceof client_1.ApiError) {
+        switch (error.status) {
+            case 404:
+                return ref.kind === 'link'
+                    ? { code: 'NOT_FOUND', title: '这份分享无效或已经撤销', detail: '服务端没有找到有效的分享令牌。' }
+                    : { code: 'NOT_FOUND', title: '你不在邀请名单中，或邀请已撤销', detail: '服务端核验了当前登录身份，未找到发给你的有效邀请。' };
+            case 410:
+                return { code: 'GONE', title: '这份分享已经过期', detail: '请联系主人重新创建分享。' };
+            case 403:
+                return { code: 'FORBIDDEN', title: '这份笔记尚未通过主人审核', detail: '未审核的笔记不能被查看。' };
+            case 401:
+                return { code: error.code, title: '需要以被邀请人的身份登录', detail: '指定用户分享必须使用被邀请人自己的令牌访问。请在设置里填写你的令牌后重试。' };
+            default:
+                return { code: error.code, title: '暂时无法核验这份分享', detail: `${error.message}（未显示任何内容）` };
+        }
+    }
+    return { code: 'UNKNOWN', title: '暂时无法核验这份分享', detail: `${error?.message ?? error}（未显示任何内容）` };
+}
+async function loadSharedNote(api, ref) {
+    try {
+        const note = ref.kind === 'link' ? await api.getSharedNote(ref.token) : await api.getInvitedNote(ref.noteId, ref.shareId);
+        return { status: 'ok', note: toSharedNoteView(note) };
+    }
+    catch (error) {
+        return { status: 'denied', ...describeShareError(error, ref) };
+    }
+}
+
+},
 "main": function(require,module,exports){
 "use strict";
 var __importDefault = (this && this.__importDefault) || function (mod) {
@@ -4626,7 +5101,8 @@ exports.default = HistoryPage;
 const react_1 = require("react");
 const ui_1 = require("../components/ui");
 const InteractiveReaderPage_1 = require("./InteractiveReaderPage");
-function HistoryPage({ book, state, setState, navigate, notify, interactions, onSeek }) {
+function HistoryPage({ book, state, setState, navigate, notify, interactions, onSeek, onExportServer }) {
+    const [exporting, setExporting] = (0, react_1.useState)(false);
     const [filter, setFilter] = (0, react_1.useState)('all');
     const [query, setQuery] = (0, react_1.useState)('');
     const records = interactions.filter(item => item.book_id === book.id && (filter === 'all' || item.kind === filter) && `${item.question} ${item.answer} ${item.transcript}`.includes(query.trim()));
@@ -4667,6 +5143,9 @@ function HistoryPage({ book, state, setState, navigate, notify, interactions, on
                     book.title,
                     "\u300B \u00B7 \u56DE\u770B\u95EE\u9898\u3001\u753B\u9762\u4E0E\u56DE\u7B54\u4F9D\u636E\u3002")),
             React.createElement("div", { className: "history-actions" },
+                onExportServer && React.createElement(ui_1.Button, { variant: "secondary", disabled: exporting, onClick: () => { setExporting(true); void onExportServer().finally(() => setExporting(false)); } },
+                    React.createElement(ui_1.Icon, { name: "upload", size: 16 }),
+                    exporting ? '正在导出…' : '导出后端留痕与延迟统计'),
                 React.createElement(ui_1.Button, { variant: "secondary", onClick: download, disabled: !records.length || state !== 'success' },
                     React.createElement(ui_1.Icon, { name: "upload", size: 16 }),
                     "\u5BFC\u51FA\u8BB0\u5F55"),
@@ -5125,11 +5604,12 @@ const ui_1 = require("../components/ui");
 const VideoCoordinateMapper_1 = require("../features/interaction/VideoCoordinateMapper");
 const AudioRecorder_1 = require("../features/interaction/AudioRecorder");
 const TtsPlayerWidget_1 = require("../features/interaction/tts/TtsPlayerWidget");
+const frameCapture_1 = require("../features/interaction/frameCapture");
 function formatTime(ms) {
     const seconds = Math.max(0, Math.floor(ms / 1000));
     return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 }
-function InteractiveReaderPage({ book, state, setState, navigate, notify, interactions, onInteraction, seekTo, onSeekHandled, askQuestion, identifyTouch, appMode = 'live', }) {
+function InteractiveReaderPage({ book, state, setState, navigate, notify, interactions, onInteraction, seekTo, onSeekHandled, askQuestion, identifyTouch, appMode = 'live', videoState, onReloadVideo, }) {
     const [playing, setPlaying] = (0, react_1.useState)(false);
     const [timeMs, setTimeMs] = (0, react_1.useState)(0);
     const [durationMs, setDurationMs] = (0, react_1.useState)(36000);
@@ -5332,7 +5812,21 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
             return;
         }
         // 把映射算法的完整输出(原始像素 + 视口信息)原样透传，下游不得重算
-        void touch(calculation.touchPoint.norm_x, calculation.touchPoint.norm_y, { width: calculation.debugInfo.renderWidth, height: calculation.debugInfo.renderHeight }, { touch_point: calculation.touchPoint, viewport_info: calculation.viewport });
+        const touchPoint = calculation.touchPoint;
+        const viewport = calculation.viewport;
+        const box = { width: calculation.debugInfo.renderWidth, height: calculation.debugInfo.renderHeight };
+        const frameKind = element instanceof HTMLVideoElement ? 'video' : 'page_image';
+        // D8：点击瞬间截取当前画面（视频帧或书页图）；截图失败不阻断触控，只如实记录原因
+        void (0, frameCapture_1.captureFrame)(element).then((shot) => touch(touchPoint.norm_x, touchPoint.norm_y, box, {
+            touch_point: touchPoint,
+            viewport_info: viewport,
+            frame: {
+                kind: frameKind,
+                page_no: currentPage + 1,
+                snapshot: shot.ok ? shot.snapshot : null,
+                snapshot_error: shot.ok ? undefined : shot.reason,
+            },
+        }));
     }
     function handleRecording(blob, mimeType, transcript, meta) {
         const text = transcript.trim();
@@ -5405,7 +5899,22 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                 React.createElement(ui_1.Button, { variant: "secondary", onClick: () => navigate('history') },
                     "\u4F1A\u8BDD\u5386\u53F2",
                     React.createElement(ui_1.Icon, { name: "clock", size: 17 })))),
-        book.pages_only && (React.createElement("div", { className: "wf-warning", role: "status", style: { margin: '0 0 12px' } }, "\u5206\u6790\u4E0E\u89C6\u9891\u5C1A\u672A\u5B8C\u6210\uFF0C\u5F53\u524D\u53EA\u57FA\u4E8E\u4F60\u6821\u5BF9\u8FC7\u7684\u4E66\u9875\u6587\u5B57\u56DE\u7B54\uFF0C\u5185\u5BB9\u672A\u7ECF\u590D\u6838\uFF0C\u4E5F\u6CA1\u6709\u89C6\u9891\u3002")),
+        videoState && videoState.status !== 'ready' && (React.createElement("div", { className: "wf-warning", role: "status", "data-video-status": videoState.status, style: { margin: '0 0 12px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' } },
+            React.createElement("span", null, videoState.status === 'loading'
+                ? '正在向后端查询本次运行的视频…'
+                : videoState.status === 'none'
+                    ? `后端尚未登记本次运行的视频（已登记产物 ${videoState.assetCount} 个，无 video/mp4），当前显示静态书页。`
+                    : `读取视频失败：${videoState.error}。当前显示静态书页。`),
+            videoState.status !== 'loading' && onReloadVideo && (React.createElement(ui_1.Button, { variant: "secondary", onClick: onReloadVideo }, "\u91CD\u65B0\u68C0\u67E5\u89C6\u9891")))),
+        videoState?.status === 'ready' && (React.createElement("div", { className: "notes-origin", role: "status", "data-video-status": "ready", style: { margin: '0 0 12px' } },
+            React.createElement(ui_1.Icon, { name: "info", size: 17 }),
+            React.createElement("span", null,
+                "\u6B63\u5728\u64AD\u653E\u540E\u7AEF\u767B\u8BB0\u7684\u89C6\u9891\u4EA7\u7269\uFF08sha256 ",
+                videoState.sha256.slice(0, 12),
+                "\u2026\uFF0C",
+                (videoState.size_bytes / 1024).toFixed(0),
+                " KB\uFF09\u3002"))),
+        book.pages_only && (React.createElement("div", { className: "wf-warning", role: "status", style: { margin: '0 0 12px' } }, "\u540E\u7AEF\u5206\u6790\u5C1A\u672A\u5B8C\u6210\uFF0C\u5F53\u524D\u53EA\u57FA\u4E8E\u4F60\u6821\u5BF9\u8FC7\u7684\u4E66\u9875\u6587\u5B57\u56DE\u7B54\uFF0C\u5185\u5BB9\u672A\u7ECF\u590D\u6838\u3002")),
         React.createElement("div", { className: "reader-layout" },
             React.createElement("section", { className: "reader-workspace" },
                 React.createElement("div", { className: "reader-stage-heading" },
@@ -6260,11 +6769,18 @@ function SettingsPage({ navigate, onReset }) {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.default = ShareNotePage;
+const sharedNoteView_1 = require("../lib/sharedNoteView");
 const react_1 = require("react");
 const ui_1 = require("../components/ui");
 function dateText(value) { const date = new Date(value); return Number.isNaN(date.getTime()) ? '时间无效' : date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }); }
 function activeGrant(grant, now) { return grant.status === 'active' && new Date(grant.expires_at).getTime() > now; }
-function linkFor(grant) { return `${location.href.split('#')[0]}#/shared?token=${encodeURIComponent(grant.token)}`; }
+// 服务端分享：限时链接带服务端令牌；指定用户只带 note/share ID，访问者必须以本人令牌登录（E-029）
+function linkFor(grant) {
+    const base = location.href.split('#')[0];
+    if (grant.server && grant.server_note_id && grant.server_mode)
+        return base + (0, sharedNoteView_1.serverShareHash)({ mode: grant.server_mode, token: grant.token, noteId: grant.server_note_id, shareId: grant.id });
+    return `${base}#/shared?token=${encodeURIComponent(grant.token)}`;
+}
 function ShareNotePage({ book, note, grants, state, setState, navigate, notify, onCreate, onRevoke, onOpen, appMode = 'live' }) {
     const [mode, setMode] = (0, react_1.useState)('expiring_link');
     const [recipients, setRecipients] = (0, react_1.useState)('');
@@ -6423,7 +6939,7 @@ function ShareNotePage({ book, note, grants, state, setState, navigate, notify, 
                         React.createElement(ui_1.Button, { variant: "secondary", onClick: () => onOpen(selected) },
                             "\u6253\u5F00\u53EA\u8BFB\u9884\u89C8 ",
                             React.createElement(ui_1.Icon, { name: "arrow", size: 16 }))),
-                    React.createElement("small", null, selected.server ? '凭证已由后端发放并存储。有效期间任何持有令牌的访客均可安全只读访问；若被撤销，服务端立即拒绝后续访问。' : '链接依赖当前浏览器的本地演示记录。复制到其他设备不会同步笔记，未产生公网访问能力。'))),
+                    React.createElement("small", null, selected.server ? (selected.server_mode === 'invite_only' ? '指定用户分享：链接里不含令牌，被邀请人必须用自己的令牌登录后访问，服务端核验身份；撤销或过期后服务端立即拒绝。' : '凭证已由后端发放，服务端只存令牌哈希。有效期内持有链接的人可只读查看；撤销或过期后服务端立即拒绝。') : '链接依赖当前浏览器的本地演示记录。复制到其他设备不会同步笔记，未产生公网访问能力。'))),
             React.createElement("aside", { className: "notes-review-panel" },
                 React.createElement("div", { className: "notes-review-illustration" },
                     React.createElement("span", null, "\u2727"),
@@ -6469,7 +6985,82 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.default = SharedNotePage;
 const react_1 = require("react");
 const ui_1 = require("../components/ui");
-function SharedNotePage({ state, grant, recipient, setRecipient, navigate }) {
+/** Live：只展示服务端核验后返回的内容；拒绝/失败时不显示任何笔记内容 */
+function ServerSharedView({ view, navigate, onRetry }) {
+    const heading = React.createElement("div", { className: "page-heading" },
+        React.createElement("div", null,
+            React.createElement("p", { className: "eyebrow" }, "A DISCOVERY, SHARED WITH YOU"),
+            React.createElement("h1", null, "\u4E00\u4EFD\u6765\u81EA\u9605\u8BFB\u7684\u793C\u7269\u3002"),
+            React.createElement("p", { className: "page-description" }, "\u53EA\u8BFB\u67E5\u770B\u5DF2\u5BA1\u6838\u7684\u9605\u8BFB\u7B14\u8BB0\u3002")),
+        React.createElement(ui_1.Button, { variant: "ghost", onClick: () => navigate('home') },
+            "\u8FD4\u56DE\u9605\u8BFB\u7A7A\u95F4 ",
+            React.createElement(ui_1.Icon, { name: "arrow", size: 16 })));
+    const origin = React.createElement("div", { className: "notes-origin" },
+        React.createElement(ui_1.Icon, { name: "info", size: 17 }),
+        React.createElement("span", null, "\u771F\u5B9E\u5206\u4EAB\uFF08Live\uFF09\uFF1A\u8BBF\u95EE\u6743\u9650\u3001\u6709\u6548\u671F\u548C\u64A4\u9500\u72B6\u6001\u7531\u670D\u52A1\u7AEF\u6838\u9A8C\uFF0C\u4E0B\u65B9\u5185\u5BB9\u6765\u81EA\u670D\u52A1\u7AEF\uFF0C\u4E0D\u662F\u672C\u5730\u5FEB\u7167\u3002"));
+    let body;
+    if (view.status === 'loading')
+        body = React.createElement("div", { className: "notes-state", role: "status", "data-shared-status": "loading" },
+            React.createElement("span", { className: "notes-state-icon" },
+                React.createElement(ui_1.Icon, { name: "note", size: 28 })),
+            React.createElement("h2", null, "\u6B63\u5728\u5411\u670D\u52A1\u7AEF\u6838\u9A8C\u5206\u4EAB"),
+            React.createElement("p", null, "\u6838\u5BF9\u4EE4\u724C\u3001\u6709\u6548\u671F\u3001\u64A4\u9500\u72B6\u6001\u548C\u67E5\u770B\u8EAB\u4EFD\u3002"));
+    else if (view.status === 'missing')
+        body = React.createElement("div", { className: "notes-state shared-denied", role: "status", "data-shared-status": "missing" },
+            React.createElement("span", { className: "notes-state-icon" },
+                React.createElement(ui_1.Icon, { name: "lock", size: 28 })),
+            React.createElement("h2", null, "\u94FE\u63A5\u4E0D\u5B8C\u6574"),
+            React.createElement("p", null, "\u7F3A\u5C11\u5206\u4EAB\u4EE4\u724C\u6216\u9080\u8BF7\u7F16\u53F7\u3002"),
+            React.createElement(ui_1.Badge, { tone: "amber" }, "\u5185\u5BB9\u672A\u5C55\u793A"));
+    else if (view.status === 'denied')
+        body = React.createElement("div", { className: "notes-state shared-denied", role: "status", "data-shared-status": "denied", "data-shared-code": view.code },
+            React.createElement("span", { className: "notes-state-icon" },
+                React.createElement(ui_1.Icon, { name: "lock", size: 28 })),
+            React.createElement("h2", null, view.title),
+            React.createElement("p", null, view.detail),
+            React.createElement(ui_1.Badge, { tone: "amber" }, "\u5185\u5BB9\u672A\u5C55\u793A"),
+            onRetry && React.createElement(ui_1.Button, { variant: "secondary", onClick: onRetry }, "\u91CD\u65B0\u6838\u9A8C"));
+    else
+        body = React.createElement("article", { className: "shared-reading-card", "data-shared-status": "ok" },
+            React.createElement("header", null,
+                React.createElement("div", { className: "notes-badges" },
+                    React.createElement(ui_1.Badge, { tone: "green" }, "\u670D\u52A1\u7AEF\u5DF2\u6838\u9A8C"),
+                    React.createElement(ui_1.Badge, null, "\u53EA\u8BFB"),
+                    React.createElement("span", { className: "notes-revision" },
+                        "\u670D\u52A1\u7AEF\u7248\u672C ",
+                        view.note.version)),
+                React.createElement("h2", null, view.note.title)),
+            React.createElement("section", { className: "shared-summary" },
+                React.createElement("h3", null, "\u9605\u8BFB\u53D1\u73B0"),
+                React.createElement("p", null, view.note.summary || '（摘要为空）'),
+                React.createElement("div", { className: "notes-concept-list" }, view.note.concepts.map((concept, index) => React.createElement(ui_1.Badge, { key: `${concept}-${index}` }, concept)))),
+            React.createElement("section", { className: "notes-sources" },
+                React.createElement("div", { className: "notes-section-heading" },
+                    React.createElement("h2", null, "\u6765\u6E90\u5F15\u7528"),
+                    React.createElement("span", null,
+                        view.note.sources.length,
+                        " \u5904")),
+                view.note.sources.length ? view.note.sources.map((source, index) => React.createElement("blockquote", { className: "shared-source", key: `${source.page_no}-${index}` },
+                    source.quote || '未提供引用文字。',
+                    React.createElement("cite", null,
+                        "\u7B2C ",
+                        source.page_no,
+                        " \u9875",
+                        source.start_ms !== null ? ` · ${(source.start_ms / 1000).toFixed(1)} 秒` : ''))) : React.createElement("p", { className: "notes-inline-help" }, "\u6765\u6E90\u5F85\u8865\u5145\u3002")),
+            React.createElement("footer", null,
+                React.createElement(ui_1.Icon, { name: "lock", size: 16 }),
+                React.createElement("span", null, "\u53EA\u8BFB\u89C6\u56FE\uFF1A\u539F\u56FE\u3001\u97F3\u9891\u548C\u7F16\u8F91\u64CD\u4F5C\u4E0D\u4F1A\u968F\u672C\u9875\u63D0\u4F9B\u3002")));
+    return React.createElement("div", { className: "page-content notes-page shared-note-page" },
+        heading,
+        origin,
+        body);
+}
+function SharedNotePage({ state, grant, recipient, setRecipient, navigate, serverView, onRetryServer }) {
+    if (serverView)
+        return React.createElement(ServerSharedView, { view: serverView, navigate: navigate, onRetry: onRetryServer });
+    return React.createElement(LocalSharedNotePage, { state: state, grant: grant, recipient: recipient, setRecipient: setRecipient, navigate: navigate });
+}
+function LocalSharedNotePage({ state, grant, recipient, setRecipient, navigate }) {
     const [now, setNow] = (0, react_1.useState)(Date.now());
     (0, react_1.useEffect)(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
     const expiresAt = grant ? new Date(grant.expires_at).getTime() : 0;

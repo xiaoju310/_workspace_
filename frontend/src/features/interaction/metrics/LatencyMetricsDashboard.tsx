@@ -1,5 +1,6 @@
 import React from 'react';
 import type { Interaction } from '../../../app/types';
+import { latencyStats } from '../../../lib/latencyExport';
 
 /**
  * 交互延迟与样本看板（整改版，见 error-ledger E-022）。
@@ -24,6 +25,12 @@ export interface SampleStats {
   withEvidence: number;
   cacheHits: number;
   notPersisted: number;
+  /** 最近秩法分位数，只统计实测样本（D11/D13） */
+  p50Ms: number | null;
+  p95Ms: number | null;
+  /** 缓存未命中样本的平均延迟：命中样本会拉低均值，单独给出才能看出冷启动耗时 */
+  missAvgMs: number | null;
+  hitAvgMs: number | null;
 }
 
 export interface OriginStats {
@@ -40,6 +47,10 @@ function stats(items: Interaction[]): SampleStats {
     withEvidence: items.filter((i) => !i.uncertain && i.sources.length > 0).length,
     cacheHits: items.filter((i) => i.cached).length,
     notPersisted: items.filter((i) => i.persisted === false).length,
+    p50Ms: latencyStats(measured.map((i) => i.latency_ms)).p50,
+    p95Ms: latencyStats(measured.map((i) => i.latency_ms)).p95,
+    missAvgMs: latencyStats(measured.filter((i) => !i.cached).map((i) => i.latency_ms)).mean,
+    hitAvgMs: latencyStats(measured.filter((i) => i.cached).map((i) => i.latency_ms)).mean,
   };
 }
 
@@ -59,6 +70,13 @@ const label: React.CSSProperties = { fontSize: '11px', color: '#64748b' };
 const big: React.CSSProperties = { fontSize: '18px', fontWeight: 'bold' };
 const small: React.CSSProperties = { fontSize: '10px', color: '#94a3b8' };
 
+function ms(v: number | null) {
+  return v === null ? '—' : `${v} ms`;
+}
+function splitText(s: SampleStats) {
+  if (!s.measured) return '分位数：暂无实测样本';
+  return `P50 ${ms(s.p50Ms)} · P95 ${ms(s.p95Ms)} · 未命中均值 ${ms(s.missAvgMs)} · 命中均值 ${ms(s.hitAvgMs)}${s.measured < 20 ? ` · 样本仅 ${s.measured} 条，P95 不稳定` : ''}`;
+}
 function latencyText(s: SampleStats) {
   return s.avgLatencyMs === null ? '暂无实测数据' : `${s.avgLatencyMs} ms`;
 }
@@ -86,6 +104,7 @@ const Section: React.FC<{ title: string; tone: 'real' | 'mock'; s: OriginStats }
         <div style={small}>
           实测样本 {s.voice.measured}/{s.voice.total} · 仅含问答请求，不含 ASR/TTS
         </div>
+        <div style={small}>{splitText(s.voice)}</div>
       </div>
       <div style={card}>
         <div style={label}>问答有依据回答</div>
@@ -96,6 +115,7 @@ const Section: React.FC<{ title: string; tone: 'real' | 'mock'; s: OriginStats }
         <div style={label}>触控请求平均延迟</div>
         <div style={{ ...big, color: '#059669' }}>{latencyText(s.touch)}</div>
         <div style={small}>实测样本 {s.touch.measured}/{s.touch.total}</div>
+        <div style={small}>{splitText(s.touch)}</div>
       </div>
       <div style={card}>
         <div style={label}>触控真实识别</div>

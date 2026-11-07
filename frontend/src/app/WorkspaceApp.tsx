@@ -11,7 +11,7 @@ import ShareNotePage from '../pages/ShareNotePage'
 import SharedNotePage from '../pages/SharedNotePage'
 import SettingsPage from '../pages/SettingsPage'
 import { initialBooks, initialNotes, emptyJob, jobStages, originalPages } from '../mock/workspace'
-import type { ImportedBookInput, Interaction, JobState, Page, ReadingBook, ReadingNote, ShareGrant, Source, TouchDetail, VoiceCapture } from './types'
+import type { ImportedBookInput, Interaction, JobState, Page, ReadingBook, ReadingNote, ShareGrant, SharedProps, Source, TouchDetail, VoiceCapture } from './types'
 import type { PreviewState } from '../features/books/types'
 import type { AppMode } from '../types/interaction'
 import { Icon } from '../components/ui'
@@ -22,6 +22,12 @@ import { createShareOnServer, noteToServerContent, revokeShareOnServer, reviewOn
 import { registerServerBook, startServerAnalysis, summarizeRunJobs } from '../lib/liveBookFlow'
 import { pageImageBlob } from '../features/books/pageImage'
 import type { SegmentOut } from '../types/interaction'
+import { loadRunVideo } from '../lib/runVideo'
+import { buildInteractionCsv, summarizeRecords } from '../lib/latencyExport'
+import type { BackendInteractionRecord } from '../lib/latencyExport'
+import { loadSharedNote, parseSharedRef, serverShareHash } from '../lib/sharedNoteView'
+import type { SharedRef } from '../lib/sharedNoteView'
+import type { RunVideoState } from './types'
 
 /**
  * 会话按模式隔离（E-023）：旧实现 Live/Demo 共用一个 key，且切换模式时组件不重建，
@@ -69,12 +75,19 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   const [toast,setToast]=useState('')
   const [recipient,setRecipient]=useState('')
   const [shareToken,setShareToken]=useState(()=>route().query.get('token')??'')
+  const [sharedRef,setSharedRef]=useState<SharedRef|null>(()=>parseSharedRef(route().query))
+  const [sharedView,setSharedView]=useState<SharedProps['serverView']>(undefined)
+  const [sharedNonce,setSharedNonce]=useState(0)
   const [seekTo,setSeekTo]=useState<number|null>(null)
   const sessionWarned=useRef(false)
   const previousBookId=useRef(selectedId)
   const segmentsCacheRef=useRef<Map<string,SegmentOut[]>>(new Map())
   const warnedSegmentsRef=useRef<Set<string>>(new Set())
+  // 每个 run 的视频加载状态（blob: URL 只在内存中，不写入会话存储，刷新后重新下载）
+  const [videos,setVideos]=useState<Record<string,RunVideoState>>({})
+  const videoUrlsRef=useRef<Map<string,string>>(new Map())
   const book=books.find(item=>item.id===selectedId)??books[0]
+  const video=book.run_id?videos[book.run_id]:undefined
   const note=notes.find(item=>item.book_id===book.id)??null
   const grant=grants.find(item=>item.token===shareToken)??null
 
@@ -87,8 +100,34 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     location.hash=`#/${next==='home'?'':next}${query.size?'?'+query.toString():''}`
     window.scrollTo({top:0})
   },[])
-  useEffect(()=>{const changed=()=>{const current=route();setPage(current.page);setState('success');const id=current.query.get('book');if(id)setSelectedId(id);if(current.page==='shared')setShareToken(current.query.get('token')??'')};window.addEventListener('hashchange',changed);return()=>window.removeEventListener('hashchange',changed)},[])
+  useEffect(()=>{const changed=()=>{const current=route();setPage(current.page);setState('success');const id=current.query.get('book');if(id)setSelectedId(id);if(current.page==='shared'){setShareToken(current.query.get('token')??'');setSharedRef(parseSharedRef(current.query))}};window.addEventListener('hashchange',changed);return()=>window.removeEventListener('hashchange',changed)},[])
   useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(''),5000);return()=>clearTimeout(timer)},[toast])
+  // Live 只读分享：一律向 A 核验并展示服务端内容（E-029：旧实现只看本地快照，换浏览器打开即失效）
+  useEffect(()=>{
+    if(appMode!=='live'||page!=='shared')return
+    if(!sharedRef){setSharedView({status:'missing'});return}
+    let stale=false
+    setSharedView({status:'loading'})
+    void loadSharedNote(apiClient,sharedRef).then(result=>{if(!stale)setSharedView(result)})
+    return()=>{stale=true}
+  },[appMode,page,sharedRef,sharedNonce])
+  // Live：进入阅读页时向 A 查询该 run 是否已登记 B 生成的视频（E-028：旧实现从不查询，永远显示静态书页）
+  useEffect(()=>{
+    if(appMode!=='live'||page!=='reader'||!book.run_id||!book.server_book_id||videos[book.run_id])return
+    const runId=book.run_id
+    setVideos(current=>({...current,[runId]:{status:'loading'}}))
+    loadRunVideo(apiClient,runId).then(result=>{
+      if(result.status==='none'){setVideos(current=>({...current,[runId]:{status:'none',assetCount:result.assetCount}}));return}
+      const old=videoUrlsRef.current.get(runId);if(old)URL.revokeObjectURL(old)
+      videoUrlsRef.current.set(runId,result.url)
+      setVideos(current=>({...current,[runId]:{status:'ready',url:result.url,asset_id:result.asset.id,sha256:result.asset.sha256,size_bytes:result.sizeBytes}}))
+    }).catch((e:any)=>setVideos(current=>({...current,[runId]:{status:'error',error:String(e?.message??e)}})))
+  },[appMode,page,book.run_id,book.server_book_id,videos])
+  useEffect(()=>()=>{videoUrlsRef.current.forEach(url=>URL.revokeObjectURL(url));videoUrlsRef.current.clear()},[])
+  const reloadVideo=useCallback((runId:string)=>{
+    const old=videoUrlsRef.current.get(runId);if(old){URL.revokeObjectURL(old);videoUrlsRef.current.delete(runId)}
+    setVideos(current=>{const next={...current};delete next[runId];return next})
+  },[])
   useEffect(()=>{
     try {sessionStorage.setItem(sessionKeyFor(appMode),JSON.stringify({schema:1,books:books.map(item=>({...item,pages:item.pages.filter(p=>p.demo),page_count:item.pages.length})),notes,grants,interactions}))}
     catch { if(!sessionWarned.current){sessionWarned.current=true;notify('当前浏览器无法保存会话。刷新后将恢复初始演示数据。')} }
@@ -269,6 +308,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     let shareId=uid('share')
     let token:string=crypto.randomUUID()
     let server=false
+    let serverInfo:Pick<ShareGrant,'server_note_id'|'server_mode'>={}
     if(appMode==='live'){
       if(!note.server_id){notify(LOCAL_ONLY);return null}
       try{
@@ -276,13 +316,14 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
         shareId=created.id
         token=created.token??token
         server=true
+        serverInfo={server_note_id:note.server_id,server_mode:created.mode}
       }catch(e:any){
         notify(`服务端创建分享失败: ${e.message}`)
         return null
       }
     }
 
-    const next:ShareGrant={id:shareId,token,note_id:note.id,note_revision:note.revision,snapshot:JSON.parse(JSON.stringify(note)),mode:input.mode,recipients:input.recipients,expires_at:expiresAt,status:'active',created_at:timestamp(),server}
+    const next:ShareGrant={id:shareId,token,note_id:note.id,note_revision:note.revision,snapshot:JSON.parse(JSON.stringify(note)),mode:input.mode,recipients:input.recipients,expires_at:expiresAt,status:'active',created_at:timestamp(),server,...serverInfo}
     setGrants(current=>[next,...current])
     setNotes(current=>current.map(item=>item.id===note.id?{...item,visibility:'shared'}:item))
     return next
@@ -306,7 +347,12 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     notify('分享链接已成功撤销。')
   }
 
-  function openGrant(item:ShareGrant){setShareToken(item.token);setRecipient('');setPage('shared');setState('success');location.hash=`#/shared?token=${encodeURIComponent(item.token)}`;window.scrollTo({top:0})}
+  function openGrant(item:ShareGrant){
+    if(item.server&&item.server_note_id&&item.server_mode){
+      const hash=serverShareHash({mode:item.server_mode,token:item.token,noteId:item.server_note_id,shareId:item.id})
+      setSharedRef(parseSharedRef(new URLSearchParams(hash.split('?')[1])));setPage('shared');setState('success');location.hash=hash;window.scrollTo({top:0});return
+    }
+    setShareToken(item.token);setRecipient('');setPage('shared');setState('success');location.hash=`#/shared?token=${encodeURIComponent(item.token)}`;window.scrollTo({top:0})}
   function seek(source:Source){if(source.start_ms!==null){setSeekTo(source.start_ms);navigate('reader',book.id)}else{try{sessionStorage.setItem('paper-companion-focus-page',String(source.page_no))}catch{/* 页面仍可打开 */}navigate('review',book.id)}}
   async function generateNote(){
     if(book.server_book_id){
@@ -396,10 +442,11 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
       if(!book.run_id)throw new Error('这本书还没有生成运行任务(run_id)，暂时无法触控留痕。请先完成校对与生成。')
       if(!detail)throw new Error('缺少坐标映射结果(touch_point/viewport_info)，已拒绝上报，避免记录错误像素。')
       const segments=await loadSegments(book.run_id)
+      const frame=detail.frame
       const resp = await apiClient.recognizeTouch(
         {book_id: book.id, run_id: book.run_id, video_ms: videoMs, touch_point: detail.touch_point, viewport_info: detail.viewport_info},
         'live',
-        {segments}
+        {segments,frame:frame?{kind:frame.kind,page_no:frame.page_no,asset_id:frame.kind==='video'&&video?.status==='ready'?video.asset_id:null,asset_sha256:frame.kind==='video'&&video?.status==='ready'?video.sha256:null,snapshot:frame.snapshot?.blob??null,snapshot_width:frame.snapshot?.width,snapshot_height:frame.snapshot?.height,snapshot_error:frame.snapshot_error}:undefined}
       )
       if(resp.persisted===false)notify(`触控已处理，但未能写入后端：${resp.persist_error ?? '未知原因'}`)
       return {
@@ -432,7 +479,22 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     return{id:uid('touch'),book_id:book.id,run_id:book.run_id??'unstarted',kind:'touch',question:`画面位置 (${x.toFixed(2)}, ${y.toFixed(2)})`,transcript:'',answer:excerpt?`[演示模式] 已记录点击位置。当前展示第 ${pageNo} 页文字：“${excerpt.slice(0,180)}” 仅为示例逻辑。`:'[演示模式] 已记录点击位置；当前页缺少文字依据。',video_ms:videoMs,sources:excerpt?[{source:'original_page',page_no:pageNo,start_ms:null,end_ms:null,quote:excerpt}]:[],latency_ms:null,created_at:timestamp(),uncertain:true,origin:'mock',recognized:false,cached:false}
   }
 
+  // D13：导出 A 后端里的真实留痕（不是浏览器会话记录），附延迟 P50/P95 统计
+  async function exportServerLog(){
+    if(!book.run_id||!book.server_book_id){notify('这本书没有后端运行记录，无法导出后端留痕。');return}
+    try{
+      const records=(await apiClient.fetchRemoteInteractions(book.run_id)) as unknown as BackendInteractionRecord[]
+      if(!records.length){notify('后端还没有这次运行的交互留痕。');return}
+      const save=(content:string,type:string,name:string)=>{const url=URL.createObjectURL(new Blob([content],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+      const stamp=new Date().toISOString().replace(/[:.]/g,'-')
+      save(buildInteractionCsv(records),'text/csv;charset=utf-8',`interactions-${book.run_id}-${stamp}.csv`)
+      save(JSON.stringify(summarizeRecords(book.run_id,records),null,2),'application/json;charset=utf-8',`latency-summary-${book.run_id}-${stamp}.json`)
+      notify(`已从后端导出 ${records.length} 条留痕（CSV）和延迟统计（JSON）。`)
+    }catch(e:any){notify(`读取后端留痕失败：${e.message}`)}
+  }
   const context={book,state,setState,navigate,notify,appMode}
+  // 阅读页拿到的 book 带上已下载的视频地址；其它页面不受影响
+  const readerBook=video?.status==='ready'?{...book,video_url:video.url}:book
   const workflow={...context,updateBook,job,setJob,onGenerate:()=>{void generate()},onOpenPagesOnly:openPagesOnly}
   const missingPages=book.pages.length===0&&page!=='home'&&page!=='import'&&page!=='settings'&&page!=='shared'
 
@@ -453,11 +515,11 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
       {page==='home'&&<HomePage books={books} notes={notes} state={state} setState={setState} onImport={()=>navigate('import')} onBook={item=>navigate(item.status==='READY'?'reader':'review',item.id)} onNote={id=>{const target=notes.find(n=>n.id===id);navigate('notes',target?.book_id)}}/>}
       {page==='import'&&<ImportBookPage state={state} setState={setState} serverSync={appMode==='live'&&Boolean(apiClient.getToken())} onHome={()=>navigate('home')} onComplete={input=>{void completeImport(input).catch((e:any)=>notify(`导入未完成：${e.message}`))}}/>}
       {page==='review'&&<ReviewPage {...workflow}/>}{page==='classification'&&<ClassificationPage {...workflow}/>}{page==='progress'&&<ProgressPage {...workflow}/>}
-      {page==='reader'&&<><InteractiveReaderPage {...context} interactions={interactions.filter(i=>i.book_id===book.id)} onInteraction={item=>setInteractions(current=>[item,...current])} seekTo={seekTo} onSeekHandled={()=>setSeekTo(null)} askQuestion={question} identifyTouch={touch} appMode={appMode}/><div className="reader-next"><button className="button button-secondary" onClick={generateNote}>整理阅读笔记<Icon name="note" size={16}/></button><button className="button button-ghost" onClick={()=>navigate('history')}>查看阅读历史<Icon name="arrow" size={16}/></button></div></>}
-      {page==='history'&&<HistoryPage {...context} interactions={interactions.filter(i=>i.book_id===book.id)} onSeek={ms=>{setSeekTo(ms);navigate('reader')}}/>}
+      {page==='reader'&&<><InteractiveReaderPage {...context} book={readerBook} videoState={appMode==='live'&&book.run_id&&book.server_book_id?(video??{status:'loading'}):undefined} onReloadVideo={book.run_id?()=>reloadVideo(book.run_id!):undefined} interactions={interactions.filter(i=>i.book_id===book.id)} onInteraction={item=>setInteractions(current=>[item,...current])} seekTo={seekTo} onSeekHandled={()=>setSeekTo(null)} askQuestion={question} identifyTouch={touch} appMode={appMode}/><div className="reader-next"><button className="button button-secondary" onClick={generateNote}>整理阅读笔记<Icon name="note" size={16}/></button><button className="button button-ghost" onClick={()=>navigate('history')}>查看阅读历史<Icon name="arrow" size={16}/></button></div></>}
+      {page==='history'&&<HistoryPage {...context} interactions={interactions.filter(i=>i.book_id===book.id)} onSeek={ms=>{setSeekTo(ms);navigate('reader')}} onExportServer={appMode==='live'&&book.run_id&&book.server_book_id?exportServerLog:undefined}/>}
       {page==='notes'&&<NoteReviewPage {...context} note={note} onSave={saveNote} onReview={reviewNote} onSeek={seek}/>}
       {page==='sharing'&&<ShareNotePage {...context} note={note} grants={grants.filter(g=>g.note_id===note?.id)} onCreate={createShare} onRevoke={revoke} onOpen={openGrant}/>}
-      {page==='shared'&&<SharedNotePage state={state} grant={grant} recipient={recipient} setRecipient={setRecipient} navigate={navigate}/>}
+      {page==='shared'&&<SharedNotePage state={state} grant={grant} recipient={recipient} setRecipient={setRecipient} navigate={navigate} serverView={appMode==='live'?sharedView??{status:'loading'}:undefined} onRetryServer={()=>setSharedNonce(n=>n+1)}/>}
       {page==='settings'&&<SettingsPage navigate={navigate} onReset={()=>{books.forEach(item=>item.pages.forEach(p=>{if(!p.demo)URL.revokeObjectURL(p.image_url)}));setBooks(initialBooks());setNotes(initialNotes());setGrants([]);setInteractions([]);setSelectedId('demo-forest');setJob(emptyJob());navigate('home');notify('演示已重置。')}}/>}</>}
       {toast&&<div className="toast" role="status"><Icon name="info" size={17}/>{toast}<button aria-label="关闭提示" onClick={()=>setToast('')}><Icon name="close" size={16}/></button></div>}
     </WorkspaceShell>
