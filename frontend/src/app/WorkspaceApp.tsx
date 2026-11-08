@@ -86,6 +86,8 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   // 每个 run 的视频加载状态（blob: URL 只在内存中，不写入会话存储，刷新后重新下载）
   const [videos,setVideos]=useState<Record<string,RunVideoState>>({})
   const videoUrlsRef=useRef<Map<string,string>>(new Map())
+  // 每个 run 的加载代号：「重新检查视频」后，上一次还没返回的结果作废，不能覆盖新状态
+  const videoGenRef=useRef<Map<string,number>>(new Map())
   const book=books.find(item=>item.id===selectedId)??books[0]
   const video=book.run_id?videos[book.run_id]:undefined
   const note=notes.find(item=>item.book_id===book.id)??null
@@ -115,17 +117,22 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   useEffect(()=>{
     if(appMode!=='live'||page!=='reader'||!book.run_id||!book.server_book_id||videos[book.run_id])return
     const runId=book.run_id
+    const gen=(videoGenRef.current.get(runId)??0)+1
+    videoGenRef.current.set(runId,gen)
+    const current_=()=>videoGenRef.current.get(runId)===gen
     setVideos(current=>({...current,[runId]:{status:'loading'}}))
     loadRunVideo(apiClient,runId).then(result=>{
+      if(!current_()){if(result.status==='ready')URL.revokeObjectURL(result.url);return}
       if(result.status==='none'){setVideos(current=>({...current,[runId]:{status:'none',assetCount:result.assetCount}}));return}
       const old=videoUrlsRef.current.get(runId);if(old)URL.revokeObjectURL(old)
       videoUrlsRef.current.set(runId,result.url)
       setVideos(current=>({...current,[runId]:{status:'ready',url:result.url,asset_id:result.asset.id,sha256:result.asset.sha256,size_bytes:result.sizeBytes}}))
-    }).catch((e:any)=>setVideos(current=>({...current,[runId]:{status:'error',error:String(e?.message??e)}})))
+    }).catch((e:any)=>{if(current_())setVideos(current=>({...current,[runId]:{status:'error',error:String(e?.message??e)}}))})
   },[appMode,page,book.run_id,book.server_book_id,videos])
   useEffect(()=>()=>{videoUrlsRef.current.forEach(url=>URL.revokeObjectURL(url));videoUrlsRef.current.clear()},[])
   const reloadVideo=useCallback((runId:string)=>{
     const old=videoUrlsRef.current.get(runId);if(old){URL.revokeObjectURL(old);videoUrlsRef.current.delete(runId)}
+    videoGenRef.current.set(runId,(videoGenRef.current.get(runId)??0)+1)
     setVideos(current=>{const next={...current};delete next[runId];return next})
   },[])
   useEffect(()=>{
@@ -446,7 +453,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
       const resp = await apiClient.recognizeTouch(
         {book_id: book.id, run_id: book.run_id, video_ms: videoMs, touch_point: detail.touch_point, viewport_info: detail.viewport_info},
         'live',
-        {segments,frame:frame?{kind:frame.kind,page_no:frame.page_no,asset_id:frame.kind==='video'&&video?.status==='ready'?video.asset_id:null,asset_sha256:frame.kind==='video'&&video?.status==='ready'?video.sha256:null,snapshot:frame.snapshot?.blob??null,snapshot_width:frame.snapshot?.width,snapshot_height:frame.snapshot?.height,snapshot_error:frame.snapshot_error}:undefined}
+        {segments,frame:frame?{kind:frame.kind,page_no:frame.page_no,asset_id:frame.kind==='video'&&video?.status==='ready'?video.asset_id:null,asset_sha256:frame.kind==='video'&&video?.status==='ready'?video.sha256:null,snapshot:frame.snapshot?.blob??null,snapshot_width:frame.snapshot?.width,snapshot_height:frame.snapshot?.height,snapshot_error:frame.snapshot_error,clicked_at:frame.clicked_at,capture_ms:frame.capture_ms}:undefined}
       )
       if(resp.persisted===false)notify(`触控已处理，但未能写入后端：${resp.persist_error ?? '未知原因'}`)
       return {

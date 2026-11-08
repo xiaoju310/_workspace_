@@ -3,7 +3,10 @@
  * 直接用 A 后端里的交互留痕（GET /api/runs/{run_id}/interactions）生成 CSV 与统计摘要，交给 E 复核。
  *
  * 口径（写进导出文件，避免被误读）：
- *  - latency_ms 是前端从发起请求到拿到回答/识别结果的耗时，不含 ASR 录音时长，也不含 TTS 首音；
+ *  - 问答：latency_ms 是前端从发起请求到拿到回答的耗时，不含录音时长、ASR、TTS 首音；
+ *  - 触控：latency_origin=click 时从点击算起（含截图、读取时间轴），即任务书 D9 的「点击到首字」；
+ *    latency_origin=request（重试或旧记录）时从发起识别请求算起；
+ *  - TTS 首音未进后端留痕（A 的接口只接受 voice/touch 且只能追加），这里没有这一项；
  *  - P50/P95 用最近秩法(nearest-rank)，只统计 latency_ms 为非负数的样本，并给出样本数；
  *  - 缓存命中与未命中分开统计，避免命中样本把延迟拉低后被当成"热启动效果"；
  *  - 不计算正确率：正确率需要人工标准答案，这里没有。
@@ -77,7 +80,8 @@ export function summarizeRecords(runId: string, records: BackendInteractionRecor
     generated_at: now.toISOString(),
     total_records: records.length,
     definitions: {
-      latency_ms: '前端发起问答/触控请求到拿到结果的耗时（含写入留痕前的本地检索或模型服务调用），不含录音时长、ASR、TTS 首音',
+      latency_ms: '问答：前端发起请求到拿到回答（含本地检索或模型服务调用），不含录音时长、ASR、TTS 首音；触控：latency_origin=click 时从点击到拿到识别结果（含截图），=request 时从发起识别请求算起',
+      tts_first_audio: '未包含：TTS 首音只在阅读页显示，未写入后端留痕',
       percentile: '最近秩法；n 为有效延迟样本数',
       grouping: '按 类型_输入方式或画面来源_是否缓存命中 分组',
       accuracy: '未计算：需要人工标准答案',
@@ -90,7 +94,7 @@ const COLUMNS = [
   'created_at', 'interaction_id', 'run_id', 'type', 'input_method', 'frame_kind', 'query', 'video_ms',
   'norm_x', 'norm_y', 'status', 'answer_source', 'recognition', 'target', 'cache_hit', 'latency_ms',
   'evidence_pages', 'audio_sha256', 'audio_duration_ms', 'asr_transcript', 'asr_error', 'transcript_edited',
-  'frame_snapshot_sha256', 'video_asset_sha256',
+  'frame_snapshot_sha256', 'video_asset_sha256', 'capture_ms', 'latency_origin',
 ] as const;
 
 function cell(value: unknown): string {
@@ -130,6 +134,8 @@ export function recordToRow(r: BackendInteractionRecord): Record<(typeof COLUMNS
     transcript_edited: typeof i.transcript_edited === 'boolean' ? String(i.transcript_edited) : '',
     frame_snapshot_sha256: i.frame_snapshot?.sha256 ?? '',
     video_asset_sha256: i.frame_source?.asset_sha256 ?? '',
+    capture_ms: i.frame_snapshot?.capture_ms ?? '',
+    latency_origin: i.latency_origin ?? '',
   };
 }
 

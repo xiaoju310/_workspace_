@@ -130,12 +130,20 @@ export interface TouchContext {
     snapshot_width?: number;
     snapshot_height?: number;
     snapshot_error?: string;
+    /** 点击时刻 performance.now()：有则作为延迟起点，latency_ms 覆盖"点击 → 结果"（D9） */
+    clicked_at?: number;
+    capture_ms?: number;
   };
+}
+
+/** 点击时刻只接受有限、且不晚于现在的 performance.now() 值；否则视为没有（从请求开始计时） */
+export function validClickedAt(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= nowMs() ? value : null;
 }
 
 /** 构造写入留痕的画面来源字段：E 据此区分"点的是视频还是静态图"，并用截图指纹核对 */
 export async function buildFrameInput(frame: TouchContext['frame']) {
-  if (!frame) return { frame_source: { kind: 'unknown' } };
+  if (!frame) return { frame_source: { kind: 'unknown' }, latency_origin: 'request' };
   return {
     frame_source: {
       kind: frame.kind,
@@ -152,8 +160,10 @@ export async function buildFrameInput(frame: TouchContext['frame']) {
           sha256: await sha256Hex(frame.snapshot),
           // A 没有截图上传接口：截图只发给已配置的视觉模型服务，不进后端
           storage: 'browser_only',
+          capture_ms: frame.capture_ms ?? null,
         }
       : { captured: false, reason: frame.snapshot_error ?? '未截图' },
+    latency_origin: validClickedAt(frame.clicked_at) !== null ? 'click' : 'request',
   };
 }
 
@@ -271,7 +281,8 @@ export class ApiClient {
     mode: AppMode,
     ctx: TouchContext = {}
   ): Promise<TouchRecognitionResponse> {
-    const t0 = nowMs();
+    // 有点击时刻就从点击算起（含截图、读取时间轴）；只接受过去的、有限的时间戳
+    const t0 = validClickedAt(ctx.frame?.clicked_at) ?? nowMs();
     const tp = params.touch_point;
 
     const outside =

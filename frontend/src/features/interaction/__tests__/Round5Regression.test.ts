@@ -90,6 +90,45 @@ describe('D8 触控留痕：点的是视频还是静态书页、点击瞬间截�
   });
 });
 
+describe('D9 触控延迟从点击算起（第 5 轮复查）', () => {
+  const tp = { norm_x: 0.5, norm_y: 0.5, video_pixel_x: 320, video_pixel_y: 240, video_width: 640, video_height: 480 };
+  const vp = { container_width: 800, container_height: 450, render_width: 600, render_height: 450, offset_x: 100, offset_y: 0, is_letterbox: true };
+  const make = (calls: any[]) => {
+    const fetchImpl = (async (_url: string, init: any) => {
+      calls.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ id: 'i' }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+    }) as any;
+    return new ApiClient({ modelServiceUrl: '', client: createApiClient('http://localhost:8000', { getToken: () => 'tok', fetch: fetchImpl }) });
+  };
+  it('有点击时刻：latency_ms 覆盖点击→结果（含截图），并标 latency_origin=click、写截图耗时', async () => {
+    const calls: any[] = [];
+    const clickedAt = performance.now();
+    await new Promise((r) => setTimeout(r, 60)); // 模拟截图耗时
+    await make(calls).recognizeTouch({ book_id: 'b', run_id: 'r1', video_ms: 0, touch_point: tp, viewport_info: vp }, 'live',
+      { frame: { kind: 'video', page_no: 1, snapshot: new Blob([new Uint8Array([1])], { type: 'image/jpeg' }), clicked_at: clickedAt, capture_ms: 35 } });
+    expect(calls[0].latency_ms).toBeGreaterThanOrEqual(55);
+    expect(calls[0].input.latency_origin).toBe('click');
+    expect(calls[0].input.frame_snapshot.capture_ms).toBe(35);
+  });
+  it('没有/非法点击时刻（重试、未来时间、NaN）：从请求开始计，标 request', async () => {
+    for (const clicked_at of [undefined, performance.now() + 60_000, Number.NaN]) {
+      const calls: any[] = [];
+      await make(calls).recognizeTouch({ book_id: 'b', run_id: 'r1', video_ms: 0, touch_point: tp, viewport_info: vp }, 'live', { frame: { kind: 'page_image', page_no: 1, clicked_at } });
+      expect(calls[0].input.latency_origin).toBe('request');
+      expect(calls[0].latency_ms).toBeLessThan(1000);
+    }
+    expect((await buildFrameInput(undefined)).latency_origin).toBe('request');
+  });
+  it('CSV 带 capture_ms 与 latency_origin 两列', () => {
+    const csv = buildInteractionCsv([{ id: 'x', run_id: 'r', interaction_type: 'touch', input: { latency_origin: 'click', frame_snapshot: { capture_ms: 12 } }, output: {}, latency_ms: 80, created_at: 't' }]);
+    const [head, row] = csv.replace(/^\uFEFF/, '').trim().split('\r\n');
+    const cols = head.split(',');
+    const vals = row.split(',');
+    expect(vals[cols.indexOf('capture_ms')]).toBe('12');
+    expect(vals[cols.indexOf('latency_origin')]).toBe('click');
+  });
+});
+
 // ---------------- E-029 Live 只读分享走服务端核验 ----------------
 describe('E-029 Live 只读分享必须由服务端核验，不能看本地快照', () => {
   const note = { id: 'n1', book_id: 'b', owner_id: 'o', content: { title: 'T', summary: 'S', concepts: ['x', 3], sources: [{ page_no: 2, quote: 'q', start_ms: null }, { quote: 'no page' }] }, status: 'SHARED', version: 3, created_at: '', updated_at: '' } as any;

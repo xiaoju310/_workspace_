@@ -42,7 +42,7 @@ export default function InteractiveReaderPage({
   // 重试提问时 inputMethod 已被提交时重置，语音提问会被记成键盘输入
   const [lastAction, setLastAction] = useState<
     | { kind: 'question'; text: string; inputMethod: 'speech' | 'keyboard'; voice?: VoiceCapture }
-    | { kind: 'touch'; x: number; y: number; box: { width: number; height: number }; detail?: TouchDetail }
+    | { kind: 'touch'; x: number; y: number; box: { width: number; height: number }; detail?: TouchDetail; videoMs: number }
     | null
   >(null)
   const [metadataReady, setMetadataReady] = useState(false)
@@ -63,6 +63,8 @@ export default function InteractiveReaderPage({
   const requestVersion = useRef(0)
   const currentTime = useRef(0)
   currentTime.current = timeMs
+  // 点击后截图是异步的：busy 状态要等下一次渲染才生效，这期间的第二次点击会再发一次请求。用 ref 同步占位
+  const touchPending = useRef(false)
 
   const pageCount = Math.max(1, book.pages.length)
   const currentPage = Math.min(pageCount - 1, Math.floor(timeMs / Math.max(1, durationMs / pageCount)))
@@ -189,15 +191,17 @@ export default function InteractiveReaderPage({
     }
   }
 
-  async function touch(x: number, y: number, box: { width: number; height: number }, detail?: TouchDetail) {
+  async function touch(x: number, y: number, box: { width: number; height: number }, detail?: TouchDetail, videoMs = currentTime.current) {
     if (busy) return
     setBusy('touch')
     setError('')
     setTtsFirstAudioMs(null)
-    setLastAction({ kind: 'touch', x, y, box, detail })
+    // 重试是同一次点击：保留原视频时间与截图，但去掉点击时刻（否则重试的延迟会算上用户看错误提示的时间）
+    const retryDetail = detail?.frame ? { ...detail, frame: { ...detail.frame, clicked_at: undefined, capture_ms: undefined } } : detail
+    setLastAction({ kind: 'touch', x, y, box, detail: retryDetail, videoMs })
     const version = requestVersion.current
     try {
-      const item = await identifyTouch(x, y, currentTime.current, box, detail)
+      const item = await identifyTouch(x, y, videoMs, box, detail)
       if (mounted.current && requestVersion.current === version) {
         setResult(item)
         setTtsFirstAudioMs(null)
@@ -216,7 +220,7 @@ export default function InteractiveReaderPage({
 
   // 严格按队长 Review 意见：真实黑边过滤与归一化计算，通过 3/3 单元测试覆盖
   function clickFrame(event: MouseEvent<HTMLDivElement>) {
-    if (!touchMode || busy) return
+    if (!touchMode || busy || touchPending.current) return
     const element = videoRef.current ?? imageRef.current
     if (!element) return
     if (!isVideo && !page?.image_url) {
@@ -238,19 +242,37 @@ export default function InteractiveReaderPage({
     const viewport = calculation.viewport
     const box = { width: calculation.debugInfo.renderWidth, height: calculation.debugInfo.renderHeight }
     const frameKind = element instanceof HTMLVideoElement ? 'video' as const : 'page_image' as const
+    // 点击时刻的视频时间与页码：截图是异步的，等截图完成再读会偏后（视频在播放）
+    const clickedAt = performance.now()
+    const clickVideoMs = currentTime.current
+    const pageNo = currentPage + 1
+    touchPending.current = true
     // D8：点击瞬间截取当前画面（视频帧或书页图）；截图失败不阻断触控，只如实记录原因
-    void captureFrame(element).then((shot) =>
-      touch(touchPoint.norm_x, touchPoint.norm_y, box, {
-        touch_point: touchPoint,
-        viewport_info: viewport,
-        frame: {
-          kind: frameKind,
-          page_no: currentPage + 1,
-          snapshot: shot.ok ? shot.snapshot : null,
-          snapshot_error: shot.ok ? undefined : shot.reason,
-        },
+    // D9：clicked_at 交给下游作为延迟起点，latency_ms = 点击 → 拿到识别结果（含截图耗时）
+    void captureFrame(element)
+      .then((shot) =>
+        touch(
+          touchPoint.norm_x,
+          touchPoint.norm_y,
+          box,
+          {
+            touch_point: touchPoint,
+            viewport_info: viewport,
+            frame: {
+              kind: frameKind,
+              page_no: pageNo,
+              snapshot: shot.ok ? shot.snapshot : null,
+              snapshot_error: shot.ok ? undefined : shot.reason,
+              clicked_at: clickedAt,
+              capture_ms: Math.round(performance.now() - clickedAt),
+            },
+          },
+          clickVideoMs
+        )
+      )
+      .finally(() => {
+        touchPending.current = false
       })
-    )
   }
 
 
@@ -603,7 +625,7 @@ export default function InteractiveReaderPage({
                 <button
                   onClick={() => {
                     if (lastAction.kind === 'question') void ask(lastAction.text, lastAction.inputMethod, lastAction.voice)
-                    else void touch(lastAction.x, lastAction.y, lastAction.box, lastAction.detail)
+                    else void touch(lastAction.x, lastAction.y, lastAction.box, lastAction.detail, lastAction.videoMs)
                   }}
                   disabled={Boolean(busy)}
                 >

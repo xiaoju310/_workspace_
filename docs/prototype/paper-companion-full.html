@@ -713,6 +713,8 @@ function WorkspaceApp({ appMode = 'live' }) {
     // 每个 run 的视频加载状态（blob: URL 只在内存中，不写入会话存储，刷新后重新下载）
     const [videos, setVideos] = (0, react_1.useState)({});
     const videoUrlsRef = (0, react_1.useRef)(new Map());
+    // 每个 run 的加载代号：「重新检查视频」后，上一次还没返回的结果作废，不能覆盖新状态
+    const videoGenRef = (0, react_1.useRef)(new Map());
     const book = books.find(item => item.id === selectedId) ?? books[0];
     const video = book.run_id ? videos[book.run_id] : undefined;
     const note = notes.find(item => item.book_id === book.id) ?? null;
@@ -758,8 +760,16 @@ function WorkspaceApp({ appMode = 'live' }) {
         if (appMode !== 'live' || page !== 'reader' || !book.run_id || !book.server_book_id || videos[book.run_id])
             return;
         const runId = book.run_id;
+        const gen = (videoGenRef.current.get(runId) ?? 0) + 1;
+        videoGenRef.current.set(runId, gen);
+        const current_ = () => videoGenRef.current.get(runId) === gen;
         setVideos(current => ({ ...current, [runId]: { status: 'loading' } }));
         (0, runVideo_1.loadRunVideo)(api_1.apiClient, runId).then(result => {
+            if (!current_()) {
+                if (result.status === 'ready')
+                    URL.revokeObjectURL(result.url);
+                return;
+            }
             if (result.status === 'none') {
                 setVideos(current => ({ ...current, [runId]: { status: 'none', assetCount: result.assetCount } }));
                 return;
@@ -769,7 +779,8 @@ function WorkspaceApp({ appMode = 'live' }) {
                 URL.revokeObjectURL(old);
             videoUrlsRef.current.set(runId, result.url);
             setVideos(current => ({ ...current, [runId]: { status: 'ready', url: result.url, asset_id: result.asset.id, sha256: result.asset.sha256, size_bytes: result.sizeBytes } }));
-        }).catch((e) => setVideos(current => ({ ...current, [runId]: { status: 'error', error: String(e?.message ?? e) } })));
+        }).catch((e) => { if (current_())
+            setVideos(current => ({ ...current, [runId]: { status: 'error', error: String(e?.message ?? e) } })); });
     }, [appMode, page, book.run_id, book.server_book_id, videos]);
     (0, react_1.useEffect)(() => () => { videoUrlsRef.current.forEach(url => URL.revokeObjectURL(url)); videoUrlsRef.current.clear(); }, []);
     const reloadVideo = (0, react_1.useCallback)((runId) => {
@@ -778,6 +789,7 @@ function WorkspaceApp({ appMode = 'live' }) {
             URL.revokeObjectURL(old);
             videoUrlsRef.current.delete(runId);
         }
+        videoGenRef.current.set(runId, (videoGenRef.current.get(runId) ?? 0) + 1);
         setVideos(current => { const next = { ...current }; delete next[runId]; return next; });
     }, []);
     (0, react_1.useEffect)(() => {
@@ -1182,7 +1194,7 @@ function WorkspaceApp({ appMode = 'live' }) {
                 throw new Error('缺少坐标映射结果(touch_point/viewport_info)，已拒绝上报，避免记录错误像素。');
             const segments = await loadSegments(book.run_id);
             const frame = detail.frame;
-            const resp = await api_1.apiClient.recognizeTouch({ book_id: book.id, run_id: book.run_id, video_ms: videoMs, touch_point: detail.touch_point, viewport_info: detail.viewport_info }, 'live', { segments, frame: frame ? { kind: frame.kind, page_no: frame.page_no, asset_id: frame.kind === 'video' && video?.status === 'ready' ? video.asset_id : null, asset_sha256: frame.kind === 'video' && video?.status === 'ready' ? video.sha256 : null, snapshot: frame.snapshot?.blob ?? null, snapshot_width: frame.snapshot?.width, snapshot_height: frame.snapshot?.height, snapshot_error: frame.snapshot_error } : undefined });
+            const resp = await api_1.apiClient.recognizeTouch({ book_id: book.id, run_id: book.run_id, video_ms: videoMs, touch_point: detail.touch_point, viewport_info: detail.viewport_info }, 'live', { segments, frame: frame ? { kind: frame.kind, page_no: frame.page_no, asset_id: frame.kind === 'video' && video?.status === 'ready' ? video.asset_id : null, asset_sha256: frame.kind === 'video' && video?.status === 'ready' ? video.sha256 : null, snapshot: frame.snapshot?.blob ?? null, snapshot_width: frame.snapshot?.width, snapshot_height: frame.snapshot?.height, snapshot_error: frame.snapshot_error, clicked_at: frame.clicked_at, capture_ms: frame.capture_ms } : undefined });
             if (resp.persisted === false)
                 notify(`触控已处理，但未能写入后端：${resp.persist_error ?? '未知原因'}`);
             return {
@@ -4251,6 +4263,7 @@ exports.toBackendBookType = toBackendBookType;
 exports.fromBackendBookType = fromBackendBookType;
 exports.sha256Hex = sha256Hex;
 exports.buildVoiceInput = buildVoiceInput;
+exports.validClickedAt = validClickedAt;
 exports.buildFrameInput = buildFrameInput;
 const client_1 = require("../api/client");
 const TimeSliceIndexer_1 = require("../features/interaction/indexing/TimeSliceIndexer");
@@ -4341,10 +4354,14 @@ async function buildVoiceInput(audioBlob, voice, query) {
         transcript_edited: (voice?.transcript ?? '') !== query,
     };
 }
+/** 点击时刻只接受有限、且不晚于现在的 performance.now() 值；否则视为没有（从请求开始计时） */
+function validClickedAt(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= nowMs() ? value : null;
+}
 /** 构造写入留痕的画面来源字段：E 据此区分"点的是视频还是静态图"，并用截图指纹核对 */
 async function buildFrameInput(frame) {
     if (!frame)
-        return { frame_source: { kind: 'unknown' } };
+        return { frame_source: { kind: 'unknown' }, latency_origin: 'request' };
     return {
         frame_source: {
             kind: frame.kind,
@@ -4361,8 +4378,10 @@ async function buildFrameInput(frame) {
                 sha256: await sha256Hex(frame.snapshot),
                 // A 没有截图上传接口：截图只发给已配置的视觉模型服务，不进后端
                 storage: 'browser_only',
+                capture_ms: frame.capture_ms ?? null,
             }
             : { captured: false, reason: frame.snapshot_error ?? '未截图' },
+        latency_origin: validClickedAt(frame.clicked_at) !== null ? 'click' : 'request',
     };
 }
 function nowMs() {
@@ -4455,7 +4474,8 @@ class ApiClient {
     }
     // ==================== 2. 触控认物 ====================
     async recognizeTouch(params, mode, ctx = {}) {
-        const t0 = nowMs();
+        // 有点击时刻就从点击算起（含截图、读取时间轴）；只接受过去的、有限的时间戳
+        const t0 = validClickedAt(ctx.frame?.clicked_at) ?? nowMs();
         const tp = params.touch_point;
         const outside = !(tp.norm_x >= 0 && tp.norm_x <= 1 && tp.norm_y >= 0 && tp.norm_y <= 1) ||
             tp.video_pixel_x < 0 || tp.video_pixel_x >= tp.video_width ||
@@ -4665,7 +4685,10 @@ exports.apiClient = new ApiClient();
  * 直接用 A 后端里的交互留痕（GET /api/runs/{run_id}/interactions）生成 CSV 与统计摘要，交给 E 复核。
  *
  * 口径（写进导出文件，避免被误读）：
- *  - latency_ms 是前端从发起请求到拿到回答/识别结果的耗时，不含 ASR 录音时长，也不含 TTS 首音；
+ *  - 问答：latency_ms 是前端从发起请求到拿到回答的耗时，不含录音时长、ASR、TTS 首音；
+ *  - 触控：latency_origin=click 时从点击算起（含截图、读取时间轴），即任务书 D9 的「点击到首字」；
+ *    latency_origin=request（重试或旧记录）时从发起识别请求算起；
+ *  - TTS 首音未进后端留痕（A 的接口只接受 voice/touch 且只能追加），这里没有这一项；
  *  - P50/P95 用最近秩法(nearest-rank)，只统计 latency_ms 为非负数的样本，并给出样本数；
  *  - 缓存命中与未命中分开统计，避免命中样本把延迟拉低后被当成"热启动效果"；
  *  - 不计算正确率：正确率需要人工标准答案，这里没有。
@@ -4719,7 +4742,8 @@ function summarizeRecords(runId, records, now = new Date()) {
         generated_at: now.toISOString(),
         total_records: records.length,
         definitions: {
-            latency_ms: '前端发起问答/触控请求到拿到结果的耗时（含写入留痕前的本地检索或模型服务调用），不含录音时长、ASR、TTS 首音',
+            latency_ms: '问答：前端发起请求到拿到回答（含本地检索或模型服务调用），不含录音时长、ASR、TTS 首音；触控：latency_origin=click 时从点击到拿到识别结果（含截图），=request 时从发起识别请求算起',
+            tts_first_audio: '未包含：TTS 首音只在阅读页显示，未写入后端留痕',
             percentile: '最近秩法；n 为有效延迟样本数',
             grouping: '按 类型_输入方式或画面来源_是否缓存命中 分组',
             accuracy: '未计算：需要人工标准答案',
@@ -4731,7 +4755,7 @@ const COLUMNS = [
     'created_at', 'interaction_id', 'run_id', 'type', 'input_method', 'frame_kind', 'query', 'video_ms',
     'norm_x', 'norm_y', 'status', 'answer_source', 'recognition', 'target', 'cache_hit', 'latency_ms',
     'evidence_pages', 'audio_sha256', 'audio_duration_ms', 'asr_transcript', 'asr_error', 'transcript_edited',
-    'frame_snapshot_sha256', 'video_asset_sha256',
+    'frame_snapshot_sha256', 'video_asset_sha256', 'capture_ms', 'latency_origin',
 ];
 function cell(value) {
     if (value === null || value === undefined)
@@ -4770,6 +4794,8 @@ function recordToRow(r) {
         transcript_edited: typeof i.transcript_edited === 'boolean' ? String(i.transcript_edited) : '',
         frame_snapshot_sha256: i.frame_snapshot?.sha256 ?? '',
         video_asset_sha256: i.frame_source?.asset_sha256 ?? '',
+        capture_ms: i.frame_snapshot?.capture_ms ?? '',
+        latency_origin: i.latency_origin ?? '',
     };
 }
 function buildInteractionCsv(records) {
@@ -5638,6 +5664,8 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
     const requestVersion = (0, react_1.useRef)(0);
     const currentTime = (0, react_1.useRef)(0);
     currentTime.current = timeMs;
+    // 点击后截图是异步的：busy 状态要等下一次渲染才生效，这期间的第二次点击会再发一次请求。用 ref 同步占位
+    const touchPending = (0, react_1.useRef)(false);
     const pageCount = Math.max(1, book.pages.length);
     const currentPage = Math.min(pageCount - 1, Math.floor(timeMs / Math.max(1, durationMs / pageCount)));
     const page = book.pages[currentPage];
@@ -5765,16 +5793,18 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
             }
         }
     }
-    async function touch(x, y, box, detail) {
+    async function touch(x, y, box, detail, videoMs = currentTime.current) {
         if (busy)
             return;
         setBusy('touch');
         setError('');
         setTtsFirstAudioMs(null);
-        setLastAction({ kind: 'touch', x, y, box, detail });
+        // 重试是同一次点击：保留原视频时间与截图，但去掉点击时刻（否则重试的延迟会算上用户看错误提示的时间）
+        const retryDetail = detail?.frame ? { ...detail, frame: { ...detail.frame, clicked_at: undefined, capture_ms: undefined } } : detail;
+        setLastAction({ kind: 'touch', x, y, box, detail: retryDetail, videoMs });
         const version = requestVersion.current;
         try {
-            const item = await identifyTouch(x, y, currentTime.current, box, detail);
+            const item = await identifyTouch(x, y, videoMs, box, detail);
             if (mounted.current && requestVersion.current === version) {
                 setResult(item);
                 setTtsFirstAudioMs(null);
@@ -5794,7 +5824,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
     }
     // 严格按队长 Review 意见：真实黑边过滤与归一化计算，通过 3/3 单元测试覆盖
     function clickFrame(event) {
-        if (!touchMode || busy)
+        if (!touchMode || busy || touchPending.current)
             return;
         const element = videoRef.current ?? imageRef.current;
         if (!element)
@@ -5816,17 +5846,29 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
         const viewport = calculation.viewport;
         const box = { width: calculation.debugInfo.renderWidth, height: calculation.debugInfo.renderHeight };
         const frameKind = element instanceof HTMLVideoElement ? 'video' : 'page_image';
+        // 点击时刻的视频时间与页码：截图是异步的，等截图完成再读会偏后（视频在播放）
+        const clickedAt = performance.now();
+        const clickVideoMs = currentTime.current;
+        const pageNo = currentPage + 1;
+        touchPending.current = true;
         // D8：点击瞬间截取当前画面（视频帧或书页图）；截图失败不阻断触控，只如实记录原因
-        void (0, frameCapture_1.captureFrame)(element).then((shot) => touch(touchPoint.norm_x, touchPoint.norm_y, box, {
+        // D9：clicked_at 交给下游作为延迟起点，latency_ms = 点击 → 拿到识别结果（含截图耗时）
+        void (0, frameCapture_1.captureFrame)(element)
+            .then((shot) => touch(touchPoint.norm_x, touchPoint.norm_y, box, {
             touch_point: touchPoint,
             viewport_info: viewport,
             frame: {
                 kind: frameKind,
-                page_no: currentPage + 1,
+                page_no: pageNo,
                 snapshot: shot.ok ? shot.snapshot : null,
                 snapshot_error: shot.ok ? undefined : shot.reason,
+                clicked_at: clickedAt,
+                capture_ms: Math.round(performance.now() - clickedAt),
             },
-        }));
+        }, clickVideoMs))
+            .finally(() => {
+            touchPending.current = false;
+        });
     }
     function handleRecording(blob, mimeType, transcript, meta) {
         const text = transcript.trim();
@@ -6037,7 +6079,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                             if (lastAction.kind === 'question')
                                 void ask(lastAction.text, lastAction.inputMethod, lastAction.voice);
                             else
-                                void touch(lastAction.x, lastAction.y, lastAction.box, lastAction.detail);
+                                void touch(lastAction.x, lastAction.y, lastAction.box, lastAction.detail, lastAction.videoMs);
                         }, disabled: Boolean(busy) }, "\u91CD\u8BD5\u8FD9\u6B21\u64CD\u4F5C")))),
                 latest ? (React.createElement("section", { className: "answer-card", "aria-live": "polite" },
                     React.createElement("div", { className: "answer-heading" },

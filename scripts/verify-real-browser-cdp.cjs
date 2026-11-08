@@ -725,7 +725,9 @@ async function run() {
     }
     log('✓ [PASS] 视频黑边点击被拦截，没有上报后端');
 
-    // 点击视频画面里橙色圆的中心（原始坐标 320,240）
+    // 快速连点两次视频画面里橙色圆的中心（原始坐标 320,240）：
+    // 第一次点击后要先异步截图，这段时间里第二次点击不能再发一次请求（只应写入 1 条留痕）
+    await cdp.click(vrect.left + vrect.width / 2, vrect.top + vrect.height / 2);
     await cdp.click(vrect.left + vrect.width / 2, vrect.top + vrect.height / 2);
     let vtouch = null;
     for (let i = 0; i < 20; i += 1) {
@@ -734,6 +736,17 @@ async function run() {
       if (list.length > before) { vtouch = list[list.length - 1]; break; }
     }
     if (!vtouch) throw new Error('[门禁失败] 视频画面点击没有写入后端');
+    await new Promise((r) => setTimeout(r, 1500));
+    const afterDouble = (await fetchInteractions(runId)).filter((r) => r.interaction_type === 'touch').length;
+    if (afterDouble !== before + 1) throw new Error(`[门禁失败] 连点两次写入了 ${afterDouble - before} 条触控留痕（应为 1 条，截图期间重复提交）`);
+    log('✓ [PASS] 截图期间的第二次点击被忽略，只写入 1 条触控留痕');
+    if (vtouch.input.latency_origin !== 'click' || typeof vtouch.input.frame_snapshot?.capture_ms !== 'number' ||
+        !(vtouch.latency_ms >= vtouch.input.frame_snapshot.capture_ms)) {
+      throw new Error(`[门禁失败] 触控延迟没有从点击算起（D9）: origin=${vtouch.input.latency_origin}, capture_ms=${vtouch.input.frame_snapshot?.capture_ms}, latency_ms=${vtouch.latency_ms}`);
+    }
+    // 注：无头 Chrome + CDP 合成点击下 capture_ms 实测约 740 ms，单独测绘制+编码只有 1~2 ms；
+    // 非无头浏览器真实点击实测 toBlob 3~8 ms。这里只检查口径（延迟含截图），不把无头数值当真机延迟。
+    log(`✓ [PASS] 触控延迟从点击算起：latency_ms=${vtouch.latency_ms}（其中截图 ${vtouch.input.frame_snapshot.capture_ms} ms）`);
     const vi2 = vtouch.input;
     log(`视频触控留痕 input: ${JSON.stringify({ norm: [vi2.norm_x, vi2.norm_y], px: [vi2.pixel_x, vi2.pixel_y], wh: [vi2.video_width, vi2.video_height], frame_source: vi2.frame_source, frame_snapshot: vi2.frame_snapshot })}`);
     if (vi2.frame_source?.kind !== 'video' || vi2.frame_source.asset_sha256 !== asset.sha256 || vi2.frame_source.asset_id !== asset.id ||
