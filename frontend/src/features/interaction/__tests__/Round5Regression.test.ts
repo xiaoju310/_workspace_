@@ -1,6 +1,6 @@
 /**
  * 第 5 轮（D8~D14）回归测试。每组对应 error-ledger 的一个新条目（E-028 ~ E-030）或一个新交付物，
- * 关键用例做过变异自检（撤回修复后变红），见 claude_review/12_CLAUDE_ROUND5_D8-D14_DELIVERY.md。
+ * 关键用例做过变异自检（撤回修复后变红），见 docs/C-两周交付说明-D1-D14.md。
  */
 import { describe, it, expect } from 'vitest';
 import { pickVideoAsset, loadRunVideo } from '../../../lib/runVideo';
@@ -118,6 +118,15 @@ describe('D9 触控延迟从点击算起（第 5 轮复查）', () => {
       expect(calls[0].latency_ms).toBeLessThan(1000);
     }
     expect((await buildFrameInput(undefined)).latency_origin).toBe('request');
+  });
+  it('截图帧时间与点击锁定画面一起留痕；静态书页不写帧时间', async () => {
+    const shot = new Blob([new Uint8Array([7])], { type: 'image/jpeg' });
+    const v = await buildFrameInput({ kind: 'video', page_no: 1, snapshot: shot, frame_time_ms: 1640, paused_on_click: true });
+    expect((v.frame_snapshot as any).frame_time_ms).toBe(1640);
+    expect(v.paused_on_click).toBe(true);
+    const img = await buildFrameInput({ kind: 'page_image', page_no: 1, snapshot: shot, frame_time_ms: 99 });
+    expect((img.frame_snapshot as any).frame_time_ms).toBeNull();
+    expect(img.paused_on_click).toBe(false);
   });
   it('CSV 带 capture_ms 与 latency_origin 两列', () => {
     const csv = buildInteractionCsv([{ id: 'x', run_id: 'r', interaction_type: 'touch', input: { latency_origin: 'click', frame_snapshot: { capture_ms: 12 } }, output: {}, latency_ms: 80, created_at: 't' }]);

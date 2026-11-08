@@ -672,7 +672,7 @@ async function run() {
     const regRes = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/runs/${encodeURIComponent(runId)}/assets`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ asset_type: 'video', file_path: videoPath, mime_type: 'video/mp4', duration_ms: 3000, metadata: { producer: 'cdp_gate_synthetic_fixture' } }),
+      body: JSON.stringify({ asset_type: 'video', file_path: videoPath, mime_type: 'video/mp4', duration_ms: 6000, metadata: { producer: 'cdp_gate_synthetic_fixture' } }),
     });
     if (regRes.status !== 201) throw new Error(`[门禁失败] 登记视频产物失败 HTTP ${regRes.status}: ${await regRes.text()}`);
     const asset = await regRes.json();
@@ -698,8 +698,8 @@ async function run() {
     if (vstate.banner !== 'ready' || !vstate.src.startsWith('blob:') || vstate.readyState < 2 || vstate.w !== 640 || vstate.h !== 480 || vstate.img) {
       throw new Error(`[门禁失败] 阅读页没有播放后端登记的视频: ${JSON.stringify(vstate)}`);
     }
-    if (!(Math.abs(vstate.duration - 3) < 0.5)) throw new Error(`[门禁失败] 视频时长不对: ${vstate.duration}`);
-    log('✓ [PASS] 阅读页带令牌下载视频并播放（blob: URL，640×480，约 3 秒），静态书页已替换');
+    if (!(Math.abs(vstate.duration - 6) < 0.5)) throw new Error(`[门禁失败] 视频时长不对: ${vstate.duration}`);
+    log('✓ [PASS] 阅读页带令牌下载视频并播放（blob: URL，640×480，约 6 秒），静态书页已替换');
 
     await cdp.clickButtonByText('点击认物');
     await new Promise((r) => setTimeout(r, 400));
@@ -725,6 +725,13 @@ async function run() {
     }
     log('✓ [PASS] 视频黑边点击被拦截，没有上报后端');
 
+    // 播放中点击（队长 PR 审查第 1 条）：让视频从 1 秒处播放，停在两次 timeupdate 之间再点
+    const playState = await cdp.evaluate(`(async () => {
+      const v = document.querySelector('video[aria-label="互动阅读视频"]');
+      v.currentTime = 1; await v.play(); await new Promise((r) => setTimeout(r, 620));
+      return { paused: v.paused, t: v.currentTime };
+    })()`);
+    if (playState.paused || !(playState.t > 1.2)) throw new Error(`[门禁失败] 测试视频没有在播放: ${JSON.stringify(playState)}`);
     // 快速连点两次视频画面里橙色圆的中心（原始坐标 320,240）：
     // 第一次点击后要先异步截图，这段时间里第二次点击不能再发一次请求（只应写入 1 条留痕）
     await cdp.click(vrect.left + vrect.width / 2, vrect.top + vrect.height / 2);
@@ -746,6 +753,23 @@ async function run() {
     }
     // 注：无头 Chrome + CDP 合成点击下 capture_ms 实测约 740 ms，单独测绘制+编码只有 1~2 ms；
     // 非无头浏览器真实点击实测 toBlob 3~8 ms。这里只检查口径（延迟含截图），不把无头数值当真机延迟。
+    // 截图与点击是同一帧：video_ms 取自点击时的 currentTime（不是约 250ms 一次的 timeupdate），点击即暂停锁定画面，
+    // 截图帧时间必须等于 video_ms；再把暂停后的画面按同样参数重截一次，指纹必须与留痕一致（测试视频每帧都不同）
+    const fi = vtouch.input;
+    const after = await cdp.evaluate(`(async () => {
+      const v = document.querySelector('video[aria-label="互动阅读视频"]');
+      const c = document.createElement('canvas'); c.width = 640; c.height = 480;
+      c.getContext('2d').drawImage(v, 0, 0, 640, 480);
+      const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.85));
+      const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))).map((b) => b.toString(16).padStart(2, '0')).join('');
+      return { paused: v.paused, ms: Math.round(v.currentTime * 1000), hash };
+    })()`);
+    log(`播放中点击：video_ms=${fi.video_ms}，截图帧时间=${fi.frame_snapshot?.frame_time_ms}，点击后视频 paused=${after.paused} @${after.ms}ms`);
+    if (fi.paused_on_click !== true || !after.paused || !(fi.video_ms > 1000) || fi.frame_snapshot?.frame_time_ms !== fi.video_ms || Math.abs(after.ms - fi.video_ms) > 1) {
+      throw new Error(`[门禁失败] 播放中点击：截图帧时间与 video_ms 不一致或没有锁定画面: ${JSON.stringify({ video_ms: fi.video_ms, frame_time_ms: fi.frame_snapshot?.frame_time_ms, paused_on_click: fi.paused_on_click, after })}`);
+    }
+    if (after.hash !== fi.frame_snapshot.sha256) throw new Error(`[门禁失败] 留痕截图不是点击时的画面：重截 ${after.hash.slice(0, 12)}… ≠ 留痕 ${fi.frame_snapshot.sha256.slice(0, 12)}…`);
+    log('✓ [PASS] 播放中点击：画面已锁定，截图帧时间 = video_ms，重截同一帧指纹与留痕一致');
     log(`✓ [PASS] 触控延迟从点击算起：latency_ms=${vtouch.latency_ms}（其中截图 ${vtouch.input.frame_snapshot.capture_ms} ms）`);
     const vi2 = vtouch.input;
     log(`视频触控留痕 input: ${JSON.stringify({ norm: [vi2.norm_x, vi2.norm_y], px: [vi2.pixel_x, vi2.pixel_y], wh: [vi2.video_width, vi2.video_height], frame_source: vi2.frame_source, frame_snapshot: vi2.frame_snapshot })}`);

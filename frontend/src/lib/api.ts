@@ -133,6 +133,9 @@ export interface TouchContext {
     /** 点击时刻 performance.now()：有则作为延迟起点，latency_ms 覆盖"点击 → 结果"（D9） */
     clicked_at?: number;
     capture_ms?: number;
+    /** 截图那一帧的视频时间；与请求里的 video_ms 一起留痕 */
+    frame_time_ms?: number | null;
+    paused_on_click?: boolean;
   };
 }
 
@@ -161,9 +164,11 @@ export async function buildFrameInput(frame: TouchContext['frame']) {
           // A 没有截图上传接口：截图只发给已配置的视觉模型服务，不进后端
           storage: 'browser_only',
           capture_ms: frame.capture_ms ?? null,
+          frame_time_ms: frame.kind === 'video' ? frame.frame_time_ms ?? null : null,
         }
       : { captured: false, reason: frame.snapshot_error ?? '未截图' },
     latency_origin: validClickedAt(frame.clicked_at) !== null ? 'click' : 'request',
+    paused_on_click: frame.paused_on_click === true,
   };
 }
 

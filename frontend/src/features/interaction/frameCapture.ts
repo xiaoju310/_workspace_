@@ -12,6 +12,8 @@ export interface FrameSnapshot {
   width: number;
   height: number;
   mimeType: 'image/jpeg';
+  /** 视频：drawImage 那一刻的 currentTime（毫秒，取整）。与点击时记录的 video_ms 一起留痕，便于核对是同一帧 */
+  frameTimeMs: number | null;
 }
 
 export type CaptureResult = { ok: true; snapshot: FrameSnapshot } | { ok: false; reason: string };
@@ -29,6 +31,8 @@ export async function captureFrame(element: HTMLVideoElement | HTMLImageElement,
   const srcH = isVideo ? (element as HTMLVideoElement).videoHeight : (element as HTMLImageElement).naturalHeight;
   if (isVideo && (element as HTMLVideoElement).readyState < 2) return { ok: false, reason: '视频当前帧尚未解码' };
   const size = fitWithin(srcW, srcH, maxSide);
+  // 绘制是同步的：与调用方读取 currentTime 处在同一个任务里，画面不会在两者之间换帧；之后只有 JPEG 编码是异步的
+  const frameTimeMs = isVideo ? Math.round((element as HTMLVideoElement).currentTime * 1000) : null;
   if (!size.width) return { ok: false, reason: '画面尺寸未知' };
   try {
     const canvas = document.createElement('canvas');
@@ -39,7 +43,7 @@ export async function captureFrame(element: HTMLVideoElement | HTMLImageElement,
     ctx.drawImage(element, 0, 0, size.width, size.height);
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
     if (!blob) return { ok: false, reason: '截图编码失败' };
-    return { ok: true, snapshot: { blob, width: size.width, height: size.height, mimeType: 'image/jpeg' } };
+    return { ok: true, snapshot: { blob, width: size.width, height: size.height, mimeType: 'image/jpeg', frameTimeMs } };
   } catch (e: any) {
     // 典型原因：跨域资源污染 canvas（SecurityError）
     return { ok: false, reason: `截图失败：${e?.name ?? ''} ${e?.message ?? e}`.trim() };

@@ -1194,7 +1194,7 @@ function WorkspaceApp({ appMode = 'live' }) {
                 throw new Error('缺少坐标映射结果(touch_point/viewport_info)，已拒绝上报，避免记录错误像素。');
             const segments = await loadSegments(book.run_id);
             const frame = detail.frame;
-            const resp = await api_1.apiClient.recognizeTouch({ book_id: book.id, run_id: book.run_id, video_ms: videoMs, touch_point: detail.touch_point, viewport_info: detail.viewport_info }, 'live', { segments, frame: frame ? { kind: frame.kind, page_no: frame.page_no, asset_id: frame.kind === 'video' && video?.status === 'ready' ? video.asset_id : null, asset_sha256: frame.kind === 'video' && video?.status === 'ready' ? video.sha256 : null, snapshot: frame.snapshot?.blob ?? null, snapshot_width: frame.snapshot?.width, snapshot_height: frame.snapshot?.height, snapshot_error: frame.snapshot_error, clicked_at: frame.clicked_at, capture_ms: frame.capture_ms } : undefined });
+            const resp = await api_1.apiClient.recognizeTouch({ book_id: book.id, run_id: book.run_id, video_ms: videoMs, touch_point: detail.touch_point, viewport_info: detail.viewport_info }, 'live', { segments, frame: frame ? { kind: frame.kind, page_no: frame.page_no, asset_id: frame.kind === 'video' && video?.status === 'ready' ? video.asset_id : null, asset_sha256: frame.kind === 'video' && video?.status === 'ready' ? video.sha256 : null, snapshot: frame.snapshot?.blob ?? null, snapshot_width: frame.snapshot?.width, snapshot_height: frame.snapshot?.height, snapshot_error: frame.snapshot_error, clicked_at: frame.clicked_at, capture_ms: frame.capture_ms, frame_time_ms: frame.frame_time_ms ?? null, paused_on_click: frame.paused_on_click ?? false } : undefined });
             if (resp.persisted === false)
                 notify(`触控已处理，但未能写入后端：${resp.persist_error ?? '未知原因'}`);
             return {
@@ -3298,6 +3298,8 @@ async function captureFrame(element, maxSide = 640) {
     if (isVideo && element.readyState < 2)
         return { ok: false, reason: '视频当前帧尚未解码' };
     const size = fitWithin(srcW, srcH, maxSide);
+    // 绘制是同步的：与调用方读取 currentTime 处在同一个任务里，画面不会在两者之间换帧；之后只有 JPEG 编码是异步的
+    const frameTimeMs = isVideo ? Math.round(element.currentTime * 1000) : null;
     if (!size.width)
         return { ok: false, reason: '画面尺寸未知' };
     try {
@@ -3311,7 +3313,7 @@ async function captureFrame(element, maxSide = 640) {
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
         if (!blob)
             return { ok: false, reason: '截图编码失败' };
-        return { ok: true, snapshot: { blob, width: size.width, height: size.height, mimeType: 'image/jpeg' } };
+        return { ok: true, snapshot: { blob, width: size.width, height: size.height, mimeType: 'image/jpeg', frameTimeMs } };
     }
     catch (e) {
         // 典型原因：跨域资源污染 canvas（SecurityError）
@@ -4379,9 +4381,11 @@ async function buildFrameInput(frame) {
                 // A 没有截图上传接口：截图只发给已配置的视觉模型服务，不进后端
                 storage: 'browser_only',
                 capture_ms: frame.capture_ms ?? null,
+                frame_time_ms: frame.kind === 'video' ? frame.frame_time_ms ?? null : null,
             }
             : { captured: false, reason: frame.snapshot_error ?? '未截图' },
         latency_origin: validClickedAt(frame.clicked_at) !== null ? 'click' : 'request',
+        paused_on_click: frame.paused_on_click === true,
     };
 }
 function nowMs() {
@@ -4755,7 +4759,7 @@ const COLUMNS = [
     'created_at', 'interaction_id', 'run_id', 'type', 'input_method', 'frame_kind', 'query', 'video_ms',
     'norm_x', 'norm_y', 'status', 'answer_source', 'recognition', 'target', 'cache_hit', 'latency_ms',
     'evidence_pages', 'audio_sha256', 'audio_duration_ms', 'asr_transcript', 'asr_error', 'transcript_edited',
-    'frame_snapshot_sha256', 'video_asset_sha256', 'capture_ms', 'latency_origin',
+    'frame_snapshot_sha256', 'video_asset_sha256', 'capture_ms', 'latency_origin', 'frame_time_ms', 'paused_on_click',
 ];
 function cell(value) {
     if (value === null || value === undefined)
@@ -4796,6 +4800,8 @@ function recordToRow(r) {
         video_asset_sha256: i.frame_source?.asset_sha256 ?? '',
         capture_ms: i.frame_snapshot?.capture_ms ?? '',
         latency_origin: i.latency_origin ?? '',
+        frame_time_ms: i.frame_snapshot?.frame_time_ms ?? '',
+        paused_on_click: typeof i.paused_on_click === 'boolean' ? String(i.paused_on_click) : '',
     };
 }
 function buildInteractionCsv(records) {
@@ -5848,7 +5854,18 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
         const frameKind = element instanceof HTMLVideoElement ? 'video' : 'page_image';
         // 点击时刻的视频时间与页码：截图是异步的，等截图完成再读会偏后（视频在播放）
         const clickedAt = performance.now();
-        const clickVideoMs = currentTime.current;
+        // 视频：先暂停锁住画面，再直接读元素的 currentTime。
+        // 不能用 timeMs 状态：它来自 timeupdate 事件（约 250ms 一次），播放中会比真实画面落后最多约 250ms（队长 PR 审查第 1 条）
+        let clickVideoMs = currentTime.current;
+        let pausedOnClick = false;
+        if (element instanceof HTMLVideoElement) {
+            if (!element.paused) {
+                element.pause();
+                pausedOnClick = true;
+            }
+            clickVideoMs = Math.round(element.currentTime * 1000);
+            setTimeMs(clickVideoMs);
+        }
         const pageNo = currentPage + 1;
         touchPending.current = true;
         // D8：点击瞬间截取当前画面（视频帧或书页图）；截图失败不阻断触控，只如实记录原因
@@ -5864,6 +5881,8 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                 snapshot_error: shot.ok ? undefined : shot.reason,
                 clicked_at: clickedAt,
                 capture_ms: Math.round(performance.now() - clickedAt),
+                frame_time_ms: shot.ok ? shot.snapshot.frameTimeMs : null,
+                paused_on_click: pausedOnClick,
             },
         }, clickVideoMs))
             .finally(() => {

@@ -1,9 +1,9 @@
 # 忽略本地开发生成物，避免提交依赖、数据库、虚拟环境和密钥。
+node_modules/
+dist/
 backend/.venv/
 backend/**/__pycache__/
 backend/.pytest_cache/
-node_modules/
-dist/
 .env
 .env.*
 !.env.example

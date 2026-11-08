@@ -453,7 +453,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
       const resp = await apiClient.recognizeTouch(
         {book_id: book.id, run_id: book.run_id, video_ms: videoMs, touch_point: detail.touch_point, viewport_info: detail.viewport_info},
         'live',
-        {segments,frame:frame?{kind:frame.kind,page_no:frame.page_no,asset_id:frame.kind==='video'&&video?.status==='ready'?video.asset_id:null,asset_sha256:frame.kind==='video'&&video?.status==='ready'?video.sha256:null,snapshot:frame.snapshot?.blob??null,snapshot_width:frame.snapshot?.width,snapshot_height:frame.snapshot?.height,snapshot_error:frame.snapshot_error,clicked_at:frame.clicked_at,capture_ms:frame.capture_ms}:undefined}
+        {segments,frame:frame?{kind:frame.kind,page_no:frame.page_no,asset_id:frame.kind==='video'&&video?.status==='ready'?video.asset_id:null,asset_sha256:frame.kind==='video'&&video?.status==='ready'?video.sha256:null,snapshot:frame.snapshot?.blob??null,snapshot_width:frame.snapshot?.width,snapshot_height:frame.snapshot?.height,snapshot_error:frame.snapshot_error,clicked_at:frame.clicked_at,capture_ms:frame.capture_ms,frame_time_ms:frame.frame_time_ms??null,paused_on_click:frame.paused_on_click??false}:undefined}
       )
       if(resp.persisted===false)notify(`触控已处理，但未能写入后端：${resp.persist_error ?? '未知原因'}`)
       return {

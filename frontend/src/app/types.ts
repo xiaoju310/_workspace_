@@ -76,11 +76,15 @@ export interface VoiceCapture {
 }
 /** 坐标映射算法的完整输出，原样透传到 A，不得在下游重算 */
 /** 点击时画面上显示的是什么（视频帧 / 静态书页图），以及点击瞬间的截图（D8） */
-export interface TouchFrame { kind: 'video' | 'page_image'; page_no: number; snapshot?: { blob: Blob; width: number; height: number; mimeType: string } | null; snapshot_error?: string
+export interface TouchFrame { kind: 'video' | 'page_image'; page_no: number; snapshot?: { blob: Blob; width: number; height: number; mimeType: string; frameTimeMs?: number | null } | null; snapshot_error?: string
   /** 点击时刻 performance.now()，作为触控延迟起点（重试时为空，从重试开始计） */
   clicked_at?: number
   /** 截图耗时（毫秒） */
-  capture_ms?: number }
+  capture_ms?: number
+  /** 截图那一帧的视频时间（毫秒）；与 video_ms 相等说明截的就是点击时的画面 */
+  frame_time_ms?: number | null
+  /** 点击时视频在播放，已自动暂停锁定画面 */
+  paused_on_click?: boolean }
 export interface TouchDetail { touch_point: TouchPoint; viewport_info: ViewportInfo; frame?: TouchFrame }
 /** Live 下当前 run 的视频状态（来自 A 登记的 B 产物） */
 export type RunVideoState =

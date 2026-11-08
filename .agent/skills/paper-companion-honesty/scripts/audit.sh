@@ -47,6 +47,9 @@ done <<<"$RULES"
 echo "--- 类型检查 / 单测 / 构建 ---"
 ( cd frontend && npx tsc -b && npx vitest run 2>&1 | tail -5 && npm run build >/dev/null 2>&1 && echo "build ok" ) || { echo "✗ 类型检查/单测/构建失败"; fail=1; }
 
+echo "--- 真人语音测试打分脚本自检 ---"
+node scripts/score-voice-run.cjs --self-test || { echo "✗ 语音打分脚本自检失败"; fail=1; }
+
 echo "--- 离线原型：真实浏览器打开并确认渲染 ---"
 ( cd frontend && npm run --silent prototype 2>&1 | tail -3 ) ; [ "${PIPESTATUS[0]}" -eq 0 ] || fail=1
 ( cd frontend && node scripts/verify-prototype.cjs >/dev/null 2>&1 ) || { echo "✗ 离线原型未通过"; fail=1; }
@@ -56,7 +59,7 @@ bash scripts/check-live-flow.sh 2>&1 | grep -E "Tests |未验证|后端未能启
 [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "✗ 真实后端联调未通过"; fail=1; }
 
 echo "--- 真实浏览器 CDP 门禁：真实 Chrome 鼠标事件走完主流程与黑边拦截 ---"
-node scripts/verify-real-browser-cdp.cjs >/dev/null 2>&1 && echo "真实浏览器 CDP 门禁通过（Google Chrome：全流程+黑边拦截+虚拟麦克风录音+视频产物播放与视频触控+服务端只读分享核验+后端留痕直查）" || { echo "✗ 真实浏览器 CDP 门禁未通过"; fail=1; }
+node scripts/verify-real-browser-cdp.cjs >/dev/null 2>&1 && echo "真实浏览器 CDP 门禁通过（Google Chrome：全流程+黑边拦截+虚拟麦克风录音+视频产物播放与视频触控（含播放中点击同帧核对）+服务端只读分享核验+后端留痕直查）" || { echo "✗ 真实浏览器 CDP 门禁未通过"; fail=1; }
 
 [ "$fail" -eq 0 ] && echo "审计通过" || echo "审计未通过"
 exit $fail

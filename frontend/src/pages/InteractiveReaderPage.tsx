@@ -244,7 +244,18 @@ export default function InteractiveReaderPage({
     const frameKind = element instanceof HTMLVideoElement ? 'video' as const : 'page_image' as const
     // 点击时刻的视频时间与页码：截图是异步的，等截图完成再读会偏后（视频在播放）
     const clickedAt = performance.now()
-    const clickVideoMs = currentTime.current
+    // 视频：先暂停锁住画面，再直接读元素的 currentTime。
+    // 不能用 timeMs 状态：它来自 timeupdate 事件（约 250ms 一次），播放中会比真实画面落后最多约 250ms（队长 PR 审查第 1 条）
+    let clickVideoMs = currentTime.current
+    let pausedOnClick = false
+    if (element instanceof HTMLVideoElement) {
+      if (!element.paused) {
+        element.pause()
+        pausedOnClick = true
+      }
+      clickVideoMs = Math.round(element.currentTime * 1000)
+      setTimeMs(clickVideoMs)
+    }
     const pageNo = currentPage + 1
     touchPending.current = true
     // D8：点击瞬间截取当前画面（视频帧或书页图）；截图失败不阻断触控，只如实记录原因
@@ -265,6 +276,8 @@ export default function InteractiveReaderPage({
               snapshot_error: shot.ok ? undefined : shot.reason,
               clicked_at: clickedAt,
               capture_ms: Math.round(performance.now() - clickedAt),
+              frame_time_ms: shot.ok ? shot.snapshot.frameTimeMs : null,
+              paused_on_click: pausedOnClick,
             },
           },
           clickVideoMs
