@@ -1,0 +1,493 @@
+﻿{
+  "task_date": "2026-11-09",
+  "mode": "local_text_engine_on_synthetic_reference",
+  "audio_to_asr_executed": false,
+  "timeline": "无真实视频；0为接口占位，不是视频时间证据",
+  "records": [
+    {
+      "case_id": "D6-01",
+      "question": "小禾穿着什么颜色的上衣？",
+      "expected_page": 1,
+      "keywords": [
+        "蓝色"
+      ],
+      "asr_status": "未测",
+      "asr_actual": null,
+      "audio_ref": null,
+      "retrieval_status": "通过",
+      "answer_status": "通过",
+      "error_category": "无（仅文本链路）",
+      "duration_ms": 1.7291999999999916,
+      "actual": {
+        "run_id": "D6-01",
+        "question": "小禾穿着什么颜色的上衣？",
+        "cache_hit": false,
+        "answer": "原书第 1 页写道：“小禾穿着蓝色上衣。桌上有2个红苹果。”",
+        "status": "success",
+        "confidence": 0.83,
+        "evidence": [
+          {
+            "page_no": 1,
+            "video_start_ms": 0,
+            "video_end_ms": 0,
+            "evidence_type": "page",
+            "confidence": 0.83,
+            "snippet": "小禾穿着蓝色上衣。桌上有2个红苹果。",
+            "source_quote": "小禾穿着蓝色上衣。桌上有2个红苹果。",
+            "details": {
+              "page": {
+                "page_no": 1,
+                "ocr_text": "小禾穿着蓝色上衣。桌上有2个红苹果。",
+                "key_entities": []
+              },
+              "script": {
+                "page_no": 1,
+                "storyline": "",
+                "scene_description": ""
+              }
+            }
+          }
+        ],
+        "audio_url": null,
+        "latency": {
+          "asr_ms": null,
+          "retrieval_ms": 1,
+          "llm_first_token_ms": null,
+          "llm_total_ms": null,
+          "tts_first_audio_ms": null,
+          "tts_total_ms": null,
+          "total_roundtrip_ms": 2
+        }
+      }
+    },
+    {
+      "case_id": "D6-02",
+      "question": "桌上有几个红苹果？",
+      "expected_page": 1,
+      "keywords": [
+        "2个"
+      ],
+      "asr_status": "未测",
+      "asr_actual": null,
+      "audio_ref": null,
+      "retrieval_status": "通过",
+      "answer_status": "通过",
+      "error_category": "无（仅文本链路）",
+      "duration_ms": 1.738599999999991,
+      "actual": {
+        "run_id": "D6-02",
+        "question": "桌上有几个红苹果？",
+        "cache_hit": false,
+        "answer": "原书第 1 页写道：“小禾穿着蓝色上衣。桌上有2个红苹果。”",
+        "status": "success",
+        "confidence": 0.95,
+        "evidence": [
+          {
+            "page_no": 1,
+            "video_start_ms": 0,
+            "video_end_ms": 0,
+            "evidence_type": "page",
+            "confidence": 0.95,
+            "snippet": "小禾穿着蓝色上衣。桌上有2个红苹果。",
+            "source_quote": "小禾穿着蓝色上衣。桌上有2个红苹果。",
+            "details": {
+              "page": {
+                "page_no": 1,
+                "ocr_text": "小禾穿着蓝色上衣。桌上有2个红苹果。",
+                "key_entities": []
+              },
+              "script": {
+                "page_no": 1,
+                "storyline": "",
+                "scene_description": ""
+              }
+            }
+          }
+        ],
+        "audio_url": null,
+        "latency": {
+          "asr_ms": null,
+          "retrieval_ms": 0,
+          "llm_first_token_ms": null,
+          "llm_total_ms": null,
+          "tts_first_audio_ms": null,
+          "tts_total_ms": null,
+          "total_roundtrip_ms": 2
+        }
+      }
+    },
+    {
+      "case_id": "D6-03",
+      "question": "红苹果放在哪里？",
+      "expected_page": 1,
+      "keywords": [
+        "桌上"
+      ],
+      "asr_status": "未测",
+      "asr_actual": null,
+      "audio_ref": null,
+      "retrieval_status": "通过",
+      "answer_status": "通过",
+      "error_category": "无（仅文本链路）",
+      "duration_ms": 0.06399999999999295,
+      "actual": {
+        "run_id": "D6-03",
+        "question": "红苹果放在哪里？",
+        "cache_hit": false,
+        "answer": "原书第 1 页写道：“小禾穿着蓝色上衣。桌上有2个红苹果。”",
+        "status": "success",
+        "confidence": 0.65,
+        "evidence": [
+          {
+            "page_no": 1,
+            "video_start_ms": 0,
+            "video_end_ms": 0,
+            "evidence_type": "page",
+            "confidence": 0.65,
+            "snippet": "小禾穿着蓝色上衣。桌上有2个红苹果。",
+            "source_quote": "小禾穿着蓝色上衣。桌上有2个红苹果。",
+            "details": {
+              "page": {
+                "page_no": 1,
+                "ocr_text": "小禾穿着蓝色上衣。桌上有2个红苹果。",
+                "key_entities": []
+              },
+              "script": {
+                "page_no": 1,
+                "storyline": "",
+                "scene_description": ""
+              }
+            }
+          }
+        ],
+        "audio_url": null,
+        "latency": {
+          "asr_ms": null,
+          "retrieval_ms": 0,
+          "llm_first_token_ms": null,
+          "llm_total_ms": null,
+          "tts_first_audio_ms": null,
+          "tts_total_ms": null,
+          "total_roundtrip_ms": 0
+        }
+      }
+    },
+    {
+      "case_id": "D6-04",
+      "question": "小禾拿起了什么？",
+      "expected_page": 2,
+      "keywords": [
+        "书"
+      ],
+      "asr_status": "未测",
+      "asr_actual": null,
+      "audio_ref": null,
+      "retrieval_status": "通过",
+      "answer_status": "通过",
+      "error_category": "无（仅文本链路）",
+      "duration_ms": 0.039400000000000546,
+      "actual": {
+        "run_id": "D6-04",
+        "question": "小禾拿起了什么？",
+        "cache_hit": false,
+        "answer": "原书第 2 页写道：“小禾拿起一本绿色的书。书名：《森林日记》。”",
+        "status": "success",
+        "confidence": 0.95,
+        "evidence": [
+          {
+            "page_no": 2,
+            "video_start_ms": 0,
+            "video_end_ms": 0,
+            "evidence_type": "page",
+            "confidence": 0.95,
+            "snippet": "小禾拿起一本绿色的书。书名：《森林日记》。",
+            "source_quote": "小禾拿起一本绿色的书。书名：《森林日记》。",
+            "details": {
+              "page": {
+                "page_no": 2,
+                "ocr_text": "小禾拿起一本绿色的书。书名：《森林日记》。",
+                "key_entities": []
+              },
+              "script": {
+                "page_no": 2,
+                "storyline": "",
+                "scene_description": ""
+              }
+            }
+          }
+        ],
+        "audio_url": null,
+        "latency": {
+          "asr_ms": null,
+          "retrieval_ms": 0,
+          "llm_first_token_ms": null,
+          "llm_total_ms": null,
+          "tts_first_audio_ms": null,
+          "tts_total_ms": null,
+          "total_roundtrip_ms": 0
+        }
+      }
+    },
+    {
+      "case_id": "D6-05",
+      "question": "书是什么颜色？",
+      "expected_page": 2,
+      "keywords": [
+        "绿色"
+      ],
+      "asr_status": "未测",
+      "asr_actual": null,
+      "audio_ref": null,
+      "retrieval_status": "失败",
+      "answer_status": "失败",
+      "error_category": "检索",
+      "duration_ms": 0.05319999999997549,
+      "actual": {
+        "run_id": "D6-05",
+        "question": "书是什么颜色？",
+        "cache_hit": false,
+        "answer": "原书这段内容里没有找到相关依据，请结合书页观察，或换个问法。",
+        "status": "no_evidence",
+        "confidence": 0,
+        "evidence": [],
+        "latency": {
+          "asr_ms": null,
+          "retrieval_ms": 0,
+          "llm_first_token_ms": null,
+          "llm_total_ms": null,
+          "tts_first_audio_ms": null,
+          "tts_total_ms": null,
+          "total_roundtrip_ms": 0
+        }
+      }
+    },
+    {
+      "case_id": "D6-06",
+      "question": "书名是什么？",
+      "expected_page": 2,
+      "keywords": [
+        "森林日记"
+      ],
+      "asr_status": "未测",
+      "asr_actual": null,
+      "audio_ref": null,
+      "retrieval_status": "通过",
+      "answer_status": "通过",
+      "error_category": "无（仅文本链路）",
+      "duration_ms": 0.07119999999997617,
+      "actual": {
+        "run_id": "D6-06",
+        "question": "书名是什么？",
+        "cache_hit": false,
+        "answer": "原书第 2 页写道：“小禾拿起一本绿色的书。书名：《森林日记》。”",
+        "status": "success",
+        "confidence": 0.95,
+        "evidence": [
+          {
+            "page_no": 2,
+            "video_start_ms": 0,
+            "video_end_ms": 0,
+            "evidence_type": "page",
+            "confidence": 0.95,
+            "snippet": "小禾拿起一本绿色的书。书名：《森林日记》。",
+            "source_quote": "小禾拿起一本绿色的书。书名：《森林日记》。",
+            "details": {
+              "page": {
+                "page_no": 2,
+                "ocr_text": "小禾拿起一本绿色的书。书名：《森林日记》。",
+                "key_entities": []
+              },
+              "script": {
+                "page_no": 2,
+                "storyline": "",
+                "scene_description": ""
+              }
+            }
+          }
+        ],
+        "audio_url": null,
+        "latency": {
+          "asr_ms": null,
+          "retrieval_ms": 0,
+          "llm_first_token_ms": null,
+          "llm_total_ms": null,
+          "tts_first_audio_ms": null,
+          "tts_total_ms": null,
+          "total_roundtrip_ms": 0
+        }
+      }
+    },
+    {
+      "case_id": "D6-07",
+      "question": "书名是森林日记吗？",
+      "expected_page": 2,
+      "keywords": [
+        "森林日记"
+      ],
+      "asr_status": "未测",
+      "asr_actual": null,
+      "audio_ref": null,
+      "retrieval_status": "通过",
+      "answer_status": "通过",
+      "error_category": "无（仅文本链路）",
+      "duration_ms": 0.2539999999999907,
+      "actual": {
+        "run_id": "D6-07",
+        "question": "书名是森林日记吗？",
+        "cache_hit": false,
+        "answer": "原书第 2 页写道：“小禾拿起一本绿色的书。书名：《森林日记》。”",
+        "status": "success",
+        "confidence": 0.95,
+        "evidence": [
+          {
+            "page_no": 2,
+            "video_start_ms": 0,
+            "video_end_ms": 0,
+            "evidence_type": "page",
+            "confidence": 0.95,
+            "snippet": "小禾拿起一本绿色的书。书名：《森林日记》。",
+            "source_quote": "小禾拿起一本绿色的书。书名：《森林日记》。",
+            "details": {
+              "page": {
+                "page_no": 2,
+                "ocr_text": "小禾拿起一本绿色的书。书名：《森林日记》。",
+                "key_entities": []
+              },
+              "script": {
+                "page_no": 2,
+                "storyline": "",
+                "scene_description": ""
+              }
+            }
+          }
+        ],
+        "audio_url": null,
+        "latency": {
+          "asr_ms": null,
+          "retrieval_ms": 0,
+          "llm_first_token_ms": null,
+          "llm_total_ms": null,
+          "tts_first_audio_ms": null,
+          "tts_total_ms": null,
+          "total_roundtrip_ms": 0
+        }
+      }
+    },
+    {
+      "case_id": "D6-08",
+      "question": "小禾几岁？",
+      "expected_page": null,
+      "keywords": [],
+      "asr_status": "未测",
+      "asr_actual": null,
+      "audio_ref": null,
+      "retrieval_status": "通过",
+      "answer_status": "通过",
+      "error_category": "无（仅文本链路）",
+      "duration_ms": 0.06150000000002365,
+      "actual": {
+        "run_id": "D6-08",
+        "question": "小禾几岁？",
+        "cache_hit": false,
+        "answer": "原书这段内容里没有找到相关依据，请结合书页观察，或换个问法。",
+        "status": "no_evidence",
+        "confidence": 0,
+        "evidence": [],
+        "latency": {
+          "asr_ms": null,
+          "retrieval_ms": 0,
+          "llm_first_token_ms": null,
+          "llm_total_ms": null,
+          "tts_first_audio_ms": null,
+          "tts_total_ms": null,
+          "total_roundtrip_ms": 0
+        }
+      }
+    },
+    {
+      "case_id": "D6-09",
+      "question": "小禾为什么拿起书？",
+      "expected_page": null,
+      "keywords": [],
+      "asr_status": "未测",
+      "asr_actual": null,
+      "audio_ref": null,
+      "retrieval_status": "失败",
+      "answer_status": "失败",
+      "error_category": "检索",
+      "duration_ms": 0.08779999999998722,
+      "actual": {
+        "run_id": "D6-09",
+        "question": "小禾为什么拿起书？",
+        "cache_hit": false,
+        "answer": "原书第 2 页写道：“小禾拿起一本绿色的书。书名：《森林日记》。”",
+        "status": "success",
+        "confidence": 0.75,
+        "evidence": [
+          {
+            "page_no": 2,
+            "video_start_ms": 0,
+            "video_end_ms": 0,
+            "evidence_type": "page",
+            "confidence": 0.75,
+            "snippet": "小禾拿起一本绿色的书。书名：《森林日记》。",
+            "source_quote": "小禾拿起一本绿色的书。书名：《森林日记》。",
+            "details": {
+              "page": {
+                "page_no": 2,
+                "ocr_text": "小禾拿起一本绿色的书。书名：《森林日记》。",
+                "key_entities": []
+              },
+              "script": {
+                "page_no": 2,
+                "storyline": "",
+                "scene_description": ""
+              }
+            }
+          }
+        ],
+        "audio_url": null,
+        "latency": {
+          "asr_ms": null,
+          "retrieval_ms": 0,
+          "llm_first_token_ms": null,
+          "llm_total_ms": null,
+          "tts_first_audio_ms": null,
+          "tts_total_ms": null,
+          "total_roundtrip_ms": 0
+        }
+      }
+    },
+    {
+      "case_id": "D6-10",
+      "question": "书里有恐龙吗？",
+      "expected_page": null,
+      "keywords": [],
+      "asr_status": "未测",
+      "asr_actual": null,
+      "audio_ref": null,
+      "retrieval_status": "通过",
+      "answer_status": "通过",
+      "error_category": "无（仅文本链路）",
+      "duration_ms": 0.07800000000000296,
+      "actual": {
+        "run_id": "D6-10",
+        "question": "书里有恐龙吗？",
+        "cache_hit": false,
+        "answer": "原书这段内容里没有找到相关依据，请结合书页观察，或换个问法。",
+        "status": "no_evidence",
+        "confidence": 0,
+        "evidence": [],
+        "latency": {
+          "asr_ms": null,
+          "retrieval_ms": 0,
+          "llm_first_token_ms": null,
+          "llm_total_ms": null,
+          "tts_first_audio_ms": null,
+          "tts_total_ms": null,
+          "total_roundtrip_ms": 0
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+[
+  {
+    "case_id": "D6-01",
+    "question": "小禾穿着什么颜色的上衣？",
+    "expected_page": 1,
+    "keywords": [
+      "蓝色"
+    ]
+  },
+  {
+    "case_id": "D6-02",
+    "question": "桌上有几个红苹果？",
+    "expected_page": 1,
+    "keywords": [
+      "2个"
+    ]
+  },
+  {
+    "case_id": "D6-03",
+    "question": "红苹果放在哪里？",
+    "expected_page": 1,
+    "keywords": [
+      "桌上"
+    ]
+  },
+  {
+    "case_id": "D6-04",
+    "question": "小禾拿起了什么？",
+    "expected_page": 2,
+    "keywords": [
+      "书"
+    ]
+  },
+  {
+    "case_id": "D6-05",
+    "question": "书是什么颜色？",
+    "expected_page": 2,
+    "keywords": [
+      "绿色"
+    ]
+  },
+  {
+    "case_id": "D6-06",
+    "question": "书名是什么？",
+    "expected_page": 2,
+    "keywords": [
+      "森林日记"
+    ]
+  },
+  {
+    "case_id": "D6-07",
+    "question": "书名是森林日记吗？",
+    "expected_page": 2,
+    "keywords": [
+      "森林日记"
+    ]
+  },
+  {
+    "case_id": "D6-08",
+    "question": "小禾几岁？",
+    "expected_page": null,
+    "keywords": []
+  },
+  {
+    "case_id": "D6-09",
+    "question": "小禾为什么拿起书？",
+    "expected_page": null,
+    "keywords": []
+  },
+  {
+    "case_id": "D6-10",
+    "question": "书里有恐龙吗？",
+    "expected_page": null,
+    "keywords": []
+  }
+]
