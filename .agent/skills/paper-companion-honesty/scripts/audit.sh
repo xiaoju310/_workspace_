@@ -44,6 +44,23 @@ while IFS=$'\t' read -r id desc pat ex sample; do
   fi
 done <<<"$RULES"
 
+echo "--- 依赖锁文件：package.json 与 package-lock.json 一致，本机装的就是锁定版本（E-034）---"
+( cd frontend && node -e '
+const pkg=require("./package.json"), lock=require("./package-lock.json"), root=lock.packages[""]||{};
+const bad=[];
+for (const f of ["dependencies","devDependencies"]) {
+  const a=pkg[f]||{}, b=root[f]||{};
+  for (const k of new Set([...Object.keys(a),...Object.keys(b)])) if (a[k]!==b[k]) bad.push(`${f}.${k}: package.json=${a[k]} lock=${b[k]}`);
+  for (const k of Object.keys(a)) {
+    const want=lock.packages["node_modules/"+k]?.version; let have;
+    try { have=require("./node_modules/"+k+"/package.json").version } catch { have="未安装" }
+    if (want!==have) bad.push(`${k}: 锁定 ${want}，本机 ${have}（请在 frontend 下 npm ci）`);
+  }
+}
+if (bad.length) { console.error(bad.join("\n")); process.exit(1) }
+console.log("锁文件一致，本机依赖与锁定版本相同");
+' ) || { echo "✗ 依赖锁文件不一致：干净目录 npm ci 会失败，或本机门禁跑的不是锁定版本"; fail=1; }
+
 echo "--- 类型检查 / 单测 / 构建 ---"
 ( cd frontend && npx tsc -b && npx vitest run 2>&1 | tail -5 && npm run build >/dev/null 2>&1 && echo "build ok" ) || { echo "✗ 类型检查/单测/构建失败"; fail=1; }
 

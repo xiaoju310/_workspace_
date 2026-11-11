@@ -253,6 +253,13 @@
 - 回归：CDP 步骤 H 播放中点击，检查帧时间 = video_ms、视频停在该时刻、重截同帧指纹一致（撤掉修复后变红）；`Round5Regression` D9 组新增用例。
 - 遗留/依赖他人：B 的真实视频到位后，需人工确认"点击即暂停"的交互是否符合演示预期。
 
+### E-034 干净目录 npm ci 失败：package.json 与锁文件不一致（队长第二次审查）
+- 现象：队长在该提交的干净目录里运行 `frontend` 的 `npm ci` 失败。本分支 `package.json` 把 main 锁定的 vite 7.1.7、@vitejs/plugin-react 5.0.4、typescript 5.9.3 等改回 `^5.4.11`/`^4.3.4` 等旧范围，并新增 vitest，锁文件却仍是 main 的版本。
+- 根因：合并 main 时 `package.json` 保留了本分支的旧版本；本机 `node_modules` 是旧的 vite 5，`npm run build`/`vitest` 都能跑，门禁只用本机已装的依赖，从未从锁文件重新安装，所以一直没发现。之前所有"审计通过"都是在 vite 5 上跑的，不是 main 的依赖。
+- 修复：恢复 main 的精确版本，只新增 `vitest` 3.2.4（vite 7 兼容），重新生成锁文件（只新增条目，下载地址统一为 registry.npmjs.org）。
+- 回归：干净工作目录 `npm ci --registry=https://registry.npmjs.org` + vitest 181/2 + 构建通过；本机按锁定版本重装后全量审计通过。`audit.sh` 新增检查：package.json 与锁文件根依赖必须一致，且本机安装版本必须等于锁定版本（变异：vite 改回 `^5.4.11` → 变红）。
+- 遗留/依赖他人：无。
+
 ---
 
 ## 新条目模板
