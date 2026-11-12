@@ -1,5 +1,30 @@
 # B: AI understanding and video module
 
+## v2 bookpack and quality checks
+
+The v2 plan adds a validated machine-readable bookpack contract in `app.ai.bookpack`.
+Each page has `pages/NN.png` and matching `pages/NN.json`; the root `manifest.json`
+contains the same page records, their source/license, motion instructions, audio
+instructions, age range, and status. Drafts may contain fewer than 12 pages;
+`candidate` and `frozen` require all 12. Validation checks contiguous page numbers,
+matching metadata, source references, and decodable PNGs. It does not certify
+image quality, copyright, or child safety.
+
+```powershell
+$env:PYTHONPATH = "$PWD\backend"
+.venv\Scripts\python.exe -m app.ai.cli validate-bookpack --root assets\bookpack_pb001 --repro-out assets\repro_pb001\manifest.json
+.venv\Scripts\python.exe -m app.ai.cli qc-video --video assets\film_pb001\pb001_p03_L2_v1.mp4 --expected-duration 6 --out assets\film_pb001\qc_p03.json
+```
+
+The repro manifest records SHA-256 for bookpack files and the supplied model
+manifest. Add exact model versions, prompt hashes, license records, seed, and
+failure logs before calling a run reproducible. `qc-video` checks duration,
+frame rate, sampled brightness, SSIM, and optical flow. A green result is a
+technical precheck only; identity, text fidelity, motion artifacts, and child
+safety require visual review. Motion flow is measured between roughly two
+sampled frames per second, so it is not directly comparable to the v2 plan's
+per-frame 2–8 px threshold.
+
 This branch provides the first runnable AI/video module for B's work. Real local PaddleOCR and SmolVLM were verified on one self-created test image. The optional AnimateDiff-Lightning provider is a local text-to-video experiment; see the experiment log for its measured status. I2V and TTS remain unavailable.
 
 ## Setup and checks (PowerShell)

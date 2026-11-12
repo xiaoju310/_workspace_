@@ -7,6 +7,8 @@ from pathlib import Path
 from . import analyze_page, build_book_graph, draft_story
 from .analyzers import analyze_text
 from .video import AnimateDiffProvider, UnavailableVideoProvider
+from .bookpack import validate_bookpack, write_repro_manifest
+from .qc_video import qc_video
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -40,7 +42,27 @@ def main(argv: list[str] | None = None) -> int:
     video_run.add_argument("--model-path", type=Path, required=True)
     video_run.add_argument("--motion-checkpoint", type=Path, required=True)
     video_run.add_argument("--out", type=Path, required=True)
+    bookpack = sub.add_parser("validate-bookpack", help="Validate a v2 bookpack and optionally write repro manifest")
+    bookpack.add_argument("--root", type=Path, required=True)
+    bookpack.add_argument("--repro-out", type=Path)
+    qc = sub.add_parser("qc-video", help="Run lightweight media checks and write JSON")
+    qc.add_argument("--video", type=Path, required=True)
+    qc.add_argument("--expected-duration", type=float)
+    qc.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.command == "validate-bookpack":
+        manifest = validate_bookpack(args.root)
+        payload = {"status": "ok", "book_id": manifest.book_id, "page_count": len(manifest.pages)}
+        if args.repro_out:
+            payload["repro_manifest"] = str(write_repro_manifest(args.root, args.repro_out, model_manifest={"schema": "bookpack-v1"}))
+        print(json.dumps(payload, ensure_ascii=False))
+        return 0
+    if args.command == "qc-video":
+        payload = qc_video(args.video, expected_duration_s=args.expected_duration)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(args.out)
+        return 0 if payload["status"] == "ok" else 1
     if args.command in {"page", "ocr"}:
         if not args.image.is_file():
             parser.error("image does not exist")

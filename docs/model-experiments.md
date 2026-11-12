@@ -18,6 +18,7 @@
 | 2026-11-04 | SmolVLM 256M | self-created PNG | CPU model loaded; short-object prompt returned `Synthetic Page` in 9.92 s after initialization | real on synthetic input |
 | 2026-11-04 | OCR + VLM pipeline | same self-created PNG | OCR `SYNTHETIC PAGE` (0.9999807); VLM object `Synthetic Page`; page status `ok`; 88.73 s pipeline time on CPU | real on synthetic input |
 | 2026-11-04 | regression tests after VLM install | local `.venv` | plain pytest: 13 passed, 1 failed on Windows torch `shm.dll` load via ModelScope; preloading torch before pytest: 14 passed | environment workaround |
+| 2026-11-12 | v2 bookpack/QC code | local fresh `.venv`; no book pages | Bookpack validator, repro hash manifest, and technical video QC added. 17 targeted tests passed before optical-flow addition; full follow-up result recorded in current run. No new model-generated page or film. | code only |
 
 ## Reproduction
 
