@@ -325,7 +325,21 @@ async function run() {
       }
     });
 
-    // 先写入 Token 到 localStorage，并触发刷新保证所有模块加载时读取到 Token
+    // 先写入 Token 到 localStorage，并触发刷新保证所有模块加载时读取到 Token。
+    // 新版 Chrome 下 CDP 附着时页面可能还停在 about:blank，在那里写 localStorage 不属于应用源，
+    // 刷新后应用读不到令牌、不会在后端建档（本机 Chrome 157 复现：步骤 D 报"这本书没有在后端建档"）。
+    // 所以必须先确认已在应用源上，否则主动导航过去再写。
+    const appUrl = `http://127.0.0.1:${FRONTEND_PORT}/#/import`;
+    if (!(await cdp.evaluate('location.origin')).startsWith(`http://127.0.0.1:${FRONTEND_PORT}`)) {
+      await cdp.send('Page.enable');
+      await cdp.send('Page.navigate', { url: appUrl });
+      for (let i = 0; i < 40; i += 1) {
+        await new Promise((r) => setTimeout(r, 250));
+        if ((await cdp.evaluate('location.origin + "|" + document.readyState')) === `http://127.0.0.1:${FRONTEND_PORT}|complete`) break;
+      }
+    }
+    const originNow = await cdp.evaluate('location.origin');
+    if (originNow !== `http://127.0.0.1:${FRONTEND_PORT}`) throw new Error(`[门禁失败] 页面不在应用源上，无法写入令牌: ${originNow}`);
     await cdp.evaluate(`(() => {
       localStorage.setItem('AUTH_BEARER_TOKEN', '${TOKEN}');
       location.hash = '#/import';
@@ -678,6 +692,19 @@ async function run() {
     const asset = await regRes.json();
     log(`已登记合成测试视频: asset=${asset.id}, sha256=${asset.sha256.slice(0, 12)}…`);
 
+    // 评审 P0：页码必须来自后端时间轴，不能按"总时长 ÷ 页数"平均切。
+    // 3 页书、6 秒视频：平均切每页 2 秒；这里登记成不等长（第 2 页占 1~5 秒），1.2~2 秒处平均法会判成第 1 页，时间轴应判成第 2 页。
+    // 时间轴是在登记视频之后、重新检查视频之前登记的：页面必须随「重新检查视频」一起重读时间轴。
+    for (const [pageNo, start, end] of [[1, 0, 1000], [2, 1000, 5000], [3, 5000, 6000]]) {
+      const segRes = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/runs/${encodeURIComponent(runId)}/segments`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ page_no: pageNo, start_ms: start, end_ms: end, caption: `门禁时间轴第${pageNo}页`, source: { producer: 'cdp_gate_unequal_timeline' } }),
+      });
+      if (segRes.status !== 201) throw new Error(`[门禁失败] 登记时间轴失败 HTTP ${segRes.status}: ${await segRes.text()}`);
+    }
+    log('已登记不等长时间轴: 第1页 0~1s、第2页 1~5s、第3页 5~6s');
+
     // 进入阅读页时已查过一次（当时没有视频），页面必须如实显示"尚未登记"，并提供重新检查
     const noVideoBanner = await cdp.evaluate(`document.querySelector('[data-video-status]')?.getAttribute('data-video-status') || ''`);
     if (noVideoBanner !== 'none') throw new Error(`[门禁失败] 登记前页面没有如实显示"尚无视频": ${noVideoBanner}`);
@@ -780,6 +807,16 @@ async function run() {
       throw new Error(`[门禁失败] 视频触控留痕不符合预期: ${JSON.stringify(vtouch)}`);
     }
     log(`✓ [PASS] 视频触控留痕：frame_source=video（产物 sha256 一致）、原始像素≈(320,240)/640×480、截图指纹 ${vi2.frame_snapshot.sha256.slice(0, 12)}…；未接视觉模型如实记为 not_connected`);
+
+    // 页码来自后端时间轴：点击发生在约 1.2~2 秒，落在登记的第 2 页(1~5s)；平均切页会得到第 1 页
+    if (vi2.frame_source.page_no !== 2 || vi2.frame_source.page_basis !== 'timeline') {
+      throw new Error(`[门禁失败] 视频触控页码没有按后端时间轴: ${JSON.stringify({ frame_source: vi2.frame_source, video_ms: vi2.video_ms })}`);
+    }
+    const pageUi = await cdp.evaluate(`(() => { const el = document.querySelector('[data-page-basis]'); return { basis: el ? el.getAttribute('data-page-basis') : '', text: el ? el.textContent : '' }; })()`);
+    if (pageUi.basis !== 'timeline' || !pageUi.text.includes('第 2 / 3 页') || pageUi.text.includes('估算')) {
+      throw new Error(`[门禁失败] 阅读页页码没有按后端时间轴显示: ${JSON.stringify(pageUi)}`);
+    }
+    log(`✓ [PASS] 不等长时间轴：video_ms=${vi2.video_ms} 记为第 2 页（basis=timeline），界面显示「${pageUi.text.trim()}」；平均切页会错记成第 1 页`);
 
     // ----------------------------------------------------
     // 步骤 I: Live 只读分享由服务端核验（E-029）：有效链接 / 撤销 / 过期 / 指定用户身份

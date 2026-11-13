@@ -69,7 +69,7 @@ describe('D8 触控留痕：点的是视频还是静态书页、点击瞬间截�
   it('视频帧：带视频产物 sha256 与截图 sha256；静态图不带产物信息；没截到图写明原因', async () => {
     const shot = new Blob([new Uint8Array([9, 9, 9])], { type: 'image/jpeg' });
     const video = await buildFrameInput({ kind: 'video', page_no: 2, asset_id: 'a1', asset_sha256: 'vsha', snapshot: shot, snapshot_width: 640, snapshot_height: 480 });
-    expect(video.frame_source).toEqual({ kind: 'video', page_no: 2, asset_id: 'a1', asset_sha256: 'vsha' });
+    expect(video.frame_source).toEqual({ kind: 'video', page_no: 2, page_basis: 'unknown', asset_id: 'a1', asset_sha256: 'vsha' });
     expect(video.frame_snapshot).toMatchObject({ mime_type: 'image/jpeg', width: 640, height: 480, size_bytes: 3, storage: 'browser_only' });
     expect((video.frame_snapshot as any).sha256).toMatch(/^[0-9a-f]{64}$/);
     const page = await buildFrameInput({ kind: 'page_image', page_no: 1, asset_id: 'should-drop', snapshot: null, snapshot_error: '画面尺寸未知' });
@@ -85,7 +85,7 @@ describe('D8 触控留痕：点的是视频还是静态书页、点击瞬间截�
     }) as any;
     const api = new ApiClient({ modelServiceUrl: '', client: createApiClient('http://localhost:8000', { getToken: () => 'tok', fetch: fetchImpl }) });
     await api.recognizeTouch({ book_id: 'b', run_id: 'r1', video_ms: 1200, touch_point: tp, viewport_info: vp }, 'live', { frame: { kind: 'video', page_no: 1, asset_id: 'a1', asset_sha256: 'vsha' } });
-    expect(calls[0].input.frame_source).toEqual({ kind: 'video', page_no: 1, asset_id: 'a1', asset_sha256: 'vsha' });
+    expect(calls[0].input.frame_source).toEqual({ kind: 'video', page_no: 1, page_basis: 'unknown', asset_id: 'a1', asset_sha256: 'vsha' });
     expect(calls[0].output).toMatchObject({ target: '', recognition: 'not_connected' });
   });
 });

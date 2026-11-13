@@ -94,7 +94,7 @@ const COLUMNS = [
   'created_at', 'interaction_id', 'run_id', 'type', 'input_method', 'frame_kind', 'query', 'video_ms',
   'norm_x', 'norm_y', 'status', 'answer_source', 'recognition', 'target', 'cache_hit', 'latency_ms',
   'evidence_pages', 'audio_sha256', 'audio_duration_ms', 'asr_transcript', 'asr_error', 'transcript_edited',
-  'frame_snapshot_sha256', 'video_asset_sha256', 'capture_ms', 'latency_origin', 'frame_time_ms', 'paused_on_click',
+  'frame_page_no', 'frame_page_basis', 'frame_snapshot_sha256', 'video_asset_sha256', 'capture_ms', 'latency_origin', 'frame_time_ms', 'paused_on_click',
 ] as const;
 
 function cell(value: unknown): string {
@@ -132,6 +132,8 @@ export function recordToRow(r: BackendInteractionRecord): Record<(typeof COLUMNS
     asr_transcript: i.asr_transcript ?? '',
     asr_error: i.asr_error ?? '',
     transcript_edited: typeof i.transcript_edited === 'boolean' ? String(i.transcript_edited) : '',
+    frame_page_no: i.frame_source?.page_no ?? '',
+    frame_page_basis: i.frame_source?.page_basis ?? '',
     frame_snapshot_sha256: i.frame_snapshot?.sha256 ?? '',
     video_asset_sha256: i.frame_source?.asset_sha256 ?? '',
     capture_ms: i.frame_snapshot?.capture_ms ?? '',

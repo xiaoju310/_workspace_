@@ -709,6 +709,9 @@ function WorkspaceApp({ appMode = 'live' }) {
     const sessionWarned = (0, react_1.useRef)(false);
     const previousBookId = (0, react_1.useRef)(selectedId);
     const segmentsCacheRef = (0, react_1.useRef)(new Map());
+    // 阅读页用时间轴把视频时间换算成页码：进入阅读页/重新检查视频时向 A 取，没有登记则为空数组（页码只能估算）
+    const [segmentsByRun, setSegmentsByRun] = (0, react_1.useState)({});
+    const [segmentsNonce, setSegmentsNonce] = (0, react_1.useState)(0);
     const warnedSegmentsRef = (0, react_1.useRef)(new Set());
     // 每个 run 的视频加载状态（blob: URL 只在内存中，不写入会话存储，刷新后重新下载）
     const [videos, setVideos] = (0, react_1.useState)({});
@@ -783,12 +786,25 @@ function WorkspaceApp({ appMode = 'live' }) {
             setVideos(current => ({ ...current, [runId]: { status: 'error', error: String(e?.message ?? e) } })); });
     }, [appMode, page, book.run_id, book.server_book_id, videos]);
     (0, react_1.useEffect)(() => () => { videoUrlsRef.current.forEach(url => URL.revokeObjectURL(url)); videoUrlsRef.current.clear(); }, []);
+    (0, react_1.useEffect)(() => {
+        if (appMode !== 'live' || page !== 'reader' || !book.run_id || !book.server_book_id)
+            return;
+        const runId = book.run_id;
+        let stale = false;
+        void loadSegments(runId).then(segs => { if (!stale)
+            setSegmentsByRun(current => ({ ...current, [runId]: segs })); });
+        return () => { stale = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [appMode, page, book.run_id, book.server_book_id, segmentsNonce]);
     const reloadVideo = (0, react_1.useCallback)((runId) => {
         const old = videoUrlsRef.current.get(runId);
         if (old) {
             URL.revokeObjectURL(old);
             videoUrlsRef.current.delete(runId);
         }
+        // 重新检查视频时一并重读时间轴（B 可能刚登记）
+        segmentsCacheRef.current.delete(runId);
+        setSegmentsNonce(n => n + 1);
         videoGenRef.current.set(runId, (videoGenRef.current.get(runId) ?? 0) + 1);
         setVideos(current => { const next = { ...current }; delete next[runId]; return next; });
     }, []);
@@ -1194,7 +1210,7 @@ function WorkspaceApp({ appMode = 'live' }) {
                 throw new Error('缺少坐标映射结果(touch_point/viewport_info)，已拒绝上报，避免记录错误像素。');
             const segments = await loadSegments(book.run_id);
             const frame = detail.frame;
-            const resp = await api_1.apiClient.recognizeTouch({ book_id: book.id, run_id: book.run_id, video_ms: videoMs, touch_point: detail.touch_point, viewport_info: detail.viewport_info }, 'live', { segments, frame: frame ? { kind: frame.kind, page_no: frame.page_no, asset_id: frame.kind === 'video' && video?.status === 'ready' ? video.asset_id : null, asset_sha256: frame.kind === 'video' && video?.status === 'ready' ? video.sha256 : null, snapshot: frame.snapshot?.blob ?? null, snapshot_width: frame.snapshot?.width, snapshot_height: frame.snapshot?.height, snapshot_error: frame.snapshot_error, clicked_at: frame.clicked_at, capture_ms: frame.capture_ms, frame_time_ms: frame.frame_time_ms ?? null, paused_on_click: frame.paused_on_click ?? false } : undefined });
+            const resp = await api_1.apiClient.recognizeTouch({ book_id: book.id, run_id: book.run_id, video_ms: videoMs, touch_point: detail.touch_point, viewport_info: detail.viewport_info }, 'live', { segments, frame: frame ? { kind: frame.kind, page_no: frame.page_no, page_basis: frame.page_basis, asset_id: frame.kind === 'video' && video?.status === 'ready' ? video.asset_id : null, asset_sha256: frame.kind === 'video' && video?.status === 'ready' ? video.sha256 : null, snapshot: frame.snapshot?.blob ?? null, snapshot_width: frame.snapshot?.width, snapshot_height: frame.snapshot?.height, snapshot_error: frame.snapshot_error, clicked_at: frame.clicked_at, capture_ms: frame.capture_ms, frame_time_ms: frame.frame_time_ms ?? null, paused_on_click: frame.paused_on_click ?? false } : undefined });
             if (resp.persisted === false)
                 notify(`触控已处理，但未能写入后端：${resp.persist_error ?? '未知原因'}`);
             return {
@@ -1271,7 +1287,7 @@ function WorkspaceApp({ appMode = 'live' }) {
             page === 'classification' && React.createElement(ReviewPages_1.ClassificationPage, { ...workflow }),
             page === 'progress' && React.createElement(ProgressPage_1.default, { ...workflow }),
             page === 'reader' && React.createElement(React.Fragment, null,
-                React.createElement(InteractiveReaderPage_1.default, { ...context, book: readerBook, videoState: appMode === 'live' && book.run_id && book.server_book_id ? (video ?? { status: 'loading' }) : undefined, onReloadVideo: book.run_id ? () => reloadVideo(book.run_id) : undefined, interactions: interactions.filter(i => i.book_id === book.id), onInteraction: item => setInteractions(current => [item, ...current]), seekTo: seekTo, onSeekHandled: () => setSeekTo(null), askQuestion: question, identifyTouch: touch, appMode: appMode }),
+                React.createElement(InteractiveReaderPage_1.default, { ...context, book: readerBook, videoState: appMode === 'live' && book.run_id && book.server_book_id ? (video ?? { status: 'loading' }) : undefined, onReloadVideo: book.run_id ? () => reloadVideo(book.run_id) : undefined, segments: book.run_id ? segmentsByRun[book.run_id] : undefined, interactions: interactions.filter(i => i.book_id === book.id), onInteraction: item => setInteractions(current => [item, ...current]), seekTo: seekTo, onSeekHandled: () => setSeekTo(null), askQuestion: question, identifyTouch: touch, appMode: appMode }),
                 React.createElement("div", { className: "reader-next" },
                     React.createElement("button", { className: "button button-secondary", onClick: generateNote },
                         "\u6574\u7406\u9605\u8BFB\u7B14\u8BB0",
@@ -3842,6 +3858,76 @@ const LatencyMetricsDashboard = ({ interactions, sourceLabel, loadError }) => {
 exports.LatencyMetricsDashboard = LatencyMetricsDashboard;
 
 },
+"features/interaction/pageTimeline": function(require,module,exports){
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.pageNoOf = pageNoOf;
+exports.resolvePageAtTime = resolvePageAtTime;
+exports.pageStartMs = pageStartMs;
+exports.pageBasisLabel = pageBasisLabel;
+/** 页码口径与 buildSlicesFromBook 一致：服务端页码优先，否则为全书位置(1 起) */
+function pageNoOf(page, index) {
+    return page.server_page_no && page.server_page_no > 0 ? page.server_page_no : index + 1;
+}
+/** 可用于定位的区间：数值有效、区间非空、页码属于这本书 */
+function usableSegments(pages, segments) {
+    if (!segments?.length)
+        return [];
+    const known = new Set(pages.map((page, index) => pageNoOf(page, index)));
+    return segments.filter((s) => Number.isFinite(s.start_ms) && Number.isFinite(s.end_ms) && s.start_ms >= 0 && s.end_ms > s.start_ms &&
+        typeof s.page_no === 'number' && known.has(s.page_no));
+}
+function indexOfPageNo(pages, pageNo) {
+    const found = pages.findIndex((page, index) => pageNoOf(page, index) === pageNo);
+    return found >= 0 ? found : 0;
+}
+function evenSplitIndex(timeMs, pageCount, durationMs) {
+    const n = Math.max(1, pageCount);
+    return Math.min(n - 1, Math.max(0, Math.floor(timeMs / Math.max(1, durationMs / n))));
+}
+function resolvePageAtTime(timeMs, pages, segments, durationMs) {
+    const usable = usableSegments(pages, segments);
+    if (!usable.length) {
+        const index = evenSplitIndex(timeMs, pages.length, durationMs);
+        return { index, pageNo: pages.length ? pageNoOf(pages[index], index) : index + 1, basis: 'estimated', exact: false };
+    }
+    const t = Number.isFinite(timeMs) ? Math.max(0, timeMs) : 0;
+    const lastEnd = Math.max(...usable.map((s) => s.end_ms));
+    // 区间 [start, end)；视频最后一帧(t === 全部区间的最大 end)归最后一段
+    const containing = usable.filter((s) => s.start_ms <= t && (t < s.end_ms || (t === s.end_ms && s.end_ms === lastEnd)));
+    if (containing.length) {
+        // 区间重叠时取开始得最晚的那段（画面已经切到它）
+        const hit = containing.reduce((best, s) => (s.start_ms > best.start_ms ? s : best));
+        return { index: indexOfPageNo(pages, hit.page_no), pageNo: hit.page_no, basis: 'timeline', exact: true };
+    }
+    const ended = usable.filter((s) => s.end_ms <= t);
+    const near = ended.length
+        ? ended.reduce((best, s) => (s.end_ms > best.end_ms ? s : best))
+        : usable.reduce((best, s) => (s.start_ms < best.start_ms ? s : best));
+    return { index: indexOfPageNo(pages, near.page_no), pageNo: near.page_no, basis: 'timeline_gap', exact: false };
+}
+/** 跳到某一页的起点：有该页的时间轴取其最早开始；否则平均估算（exact=false） */
+function pageStartMs(index, pages, segments, durationMs) {
+    const pageNo = pages[index] ? pageNoOf(pages[index], index) : index + 1;
+    const own = usableSegments(pages, segments).filter((s) => s.page_no === pageNo);
+    if (own.length)
+        return { ms: Math.min(...own.map((s) => s.start_ms)), exact: true };
+    return { ms: (index / Math.max(1, pages.length)) * durationMs, exact: false };
+}
+function pageBasisLabel(basis) {
+    switch (basis) {
+        case 'timeline':
+            return '依据后端时间轴';
+        case 'timeline_gap':
+            return '此刻不在时间轴区间内，取最近一段的页码，仅供参考';
+        case 'estimated':
+            return '后端未登记时间轴，按视频时长平均估算，仅供浏览，点击留痕不记确定页码';
+        default:
+            return '静态书页';
+    }
+}
+
+},
 "features/interaction/qa/PictureBookRagEngine": function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
@@ -4368,6 +4454,7 @@ async function buildFrameInput(frame) {
         frame_source: {
             kind: frame.kind,
             page_no: frame.page_no,
+            page_basis: frame.page_basis ?? 'unknown',
             asset_id: frame.kind === 'video' ? frame.asset_id ?? null : null,
             asset_sha256: frame.kind === 'video' ? frame.asset_sha256 ?? null : null,
         },
@@ -4759,7 +4846,7 @@ const COLUMNS = [
     'created_at', 'interaction_id', 'run_id', 'type', 'input_method', 'frame_kind', 'query', 'video_ms',
     'norm_x', 'norm_y', 'status', 'answer_source', 'recognition', 'target', 'cache_hit', 'latency_ms',
     'evidence_pages', 'audio_sha256', 'audio_duration_ms', 'asr_transcript', 'asr_error', 'transcript_edited',
-    'frame_snapshot_sha256', 'video_asset_sha256', 'capture_ms', 'latency_origin', 'frame_time_ms', 'paused_on_click',
+    'frame_page_no', 'frame_page_basis', 'frame_snapshot_sha256', 'video_asset_sha256', 'capture_ms', 'latency_origin', 'frame_time_ms', 'paused_on_click',
 ];
 function cell(value) {
     if (value === null || value === undefined)
@@ -4796,6 +4883,8 @@ function recordToRow(r) {
         asr_transcript: i.asr_transcript ?? '',
         asr_error: i.asr_error ?? '',
         transcript_edited: typeof i.transcript_edited === 'boolean' ? String(i.transcript_edited) : '',
+        frame_page_no: i.frame_source?.page_no ?? '',
+        frame_page_basis: i.frame_source?.page_basis ?? '',
         frame_snapshot_sha256: i.frame_snapshot?.sha256 ?? '',
         video_asset_sha256: i.frame_source?.asset_sha256 ?? '',
         capture_ms: i.frame_snapshot?.capture_ms ?? '',
@@ -5637,11 +5726,12 @@ const VideoCoordinateMapper_1 = require("../features/interaction/VideoCoordinate
 const AudioRecorder_1 = require("../features/interaction/AudioRecorder");
 const TtsPlayerWidget_1 = require("../features/interaction/tts/TtsPlayerWidget");
 const frameCapture_1 = require("../features/interaction/frameCapture");
+const pageTimeline_1 = require("../features/interaction/pageTimeline");
 function formatTime(ms) {
     const seconds = Math.max(0, Math.floor(ms / 1000));
     return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 }
-function InteractiveReaderPage({ book, state, setState, navigate, notify, interactions, onInteraction, seekTo, onSeekHandled, askQuestion, identifyTouch, appMode = 'live', videoState, onReloadVideo, }) {
+function InteractiveReaderPage({ book, state, setState, navigate, notify, interactions, onInteraction, seekTo, onSeekHandled, askQuestion, identifyTouch, appMode = 'live', videoState, onReloadVideo, segments, }) {
     const [playing, setPlaying] = (0, react_1.useState)(false);
     const [timeMs, setTimeMs] = (0, react_1.useState)(0);
     const [durationMs, setDurationMs] = (0, react_1.useState)(36000);
@@ -5673,9 +5763,15 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
     // 点击后截图是异步的：busy 状态要等下一次渲染才生效，这期间的第二次点击会再发一次请求。用 ref 同步占位
     const touchPending = (0, react_1.useRef)(false);
     const pageCount = Math.max(1, book.pages.length);
-    const currentPage = Math.min(pageCount - 1, Math.floor(timeMs / Math.max(1, durationMs / pageCount)));
-    const page = book.pages[currentPage];
     const isVideo = Boolean(book.video_url);
+    // 视频：页码以后端登记的时间轴(segments)为准，B 生成的每页视频未必等长；没有时间轴只能估算，且不当作证据。
+    // 静态书页没有视频时间轴，按阅读页自带的模拟进度条平均切页（画面本身就是该页）。
+    const pageAt = isVideo ? (0, pageTimeline_1.resolvePageAtTime)(timeMs, book.pages, segments, durationMs) : null;
+    const currentPage = pageAt
+        ? pageAt.index
+        : Math.min(pageCount - 1, Math.floor(timeMs / Math.max(1, durationMs / pageCount)));
+    const pageBasis = pageAt ? pageAt.basis : 'page_image';
+    const page = book.pages[currentPage];
     const currentInteractions = interactions.filter((item) => item.book_id === book.id && (!book.run_id || item.run_id === book.run_id));
     const latest = result ?? currentInteractions[0];
     (0, react_1.useEffect)(() => {
@@ -5866,7 +5962,11 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
             clickVideoMs = Math.round(element.currentTime * 1000);
             setTimeMs(clickVideoMs);
         }
-        const pageNo = currentPage + 1;
+        // 页码用点击那一刻的视频时间换算（clickVideoMs），不能用渲染状态里的 currentPage：它来自约 250ms 一次的 timeupdate，且在没有时间轴时只是估算。
+        // 只有后端时间轴命中（或静态书页）才记确定页码；否则记 null 并写明依据，不声称知道点的是哪一页。
+        const clicked = element instanceof HTMLVideoElement ? (0, pageTimeline_1.resolvePageAtTime)(clickVideoMs, book.pages, segments, durationMs) : null;
+        const clickedBasis = clicked ? clicked.basis : 'page_image';
+        const pageNo = clicked ? (clicked.exact ? clicked.pageNo : null) : (0, pageTimeline_1.pageNoOf)(book.pages[currentPage] ?? {}, currentPage);
         touchPending.current = true;
         // D8：点击瞬间截取当前画面（视频帧或书页图）；截图失败不阻断触控，只如实记录原因
         // D9：clicked_at 交给下游作为延迟起点，latency_ms = 点击 → 拿到识别结果（含截图耗时）
@@ -5877,6 +5977,7 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
             frame: {
                 kind: frameKind,
                 page_no: pageNo,
+                page_basis: clickedBasis,
                 snapshot: shot.ok ? shot.snapshot : null,
                 snapshot_error: shot.ok ? undefined : shot.reason,
                 clicked_at: clickedAt,
@@ -5916,9 +6017,12 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
             navigate('review', book.id);
             return;
         }
-        const target = source.start_ms ?? ((source.page_no - 1) / pageCount) * durationMs;
+        const fallback = (0, pageTimeline_1.pageStartMs)(source.page_no - 1, book.pages, segments, durationMs);
+        const target = source.start_ms ?? fallback.ms;
         seek(target);
-        notify(`已定位到第 ${source.page_no} 页 · ${formatTime(target)}`);
+        notify(source.start_ms === null && !fallback.exact
+            ? `按时长估算跳到第 ${source.page_no} 页附近 · ${formatTime(target)}（后端没有这一页的时间轴，位置可能不准）`
+            : `已定位到第 ${source.page_no} 页 · ${formatTime(target)}`);
     }
     if (state !== 'success') {
         return (React.createElement("div", { className: "page-content reader-page" },
@@ -5980,12 +6084,13 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
             React.createElement("section", { className: "reader-workspace" },
                 React.createElement("div", { className: "reader-stage-heading" },
                     React.createElement(ui_1.Badge, { tone: appMode === 'live' ? 'green' : 'amber' }, appMode === 'live' ? '后端交互模式 (Live)' : '演示模式 (本地模拟)'),
-                    React.createElement("span", null,
+                    React.createElement("span", { "data-page-basis": pageBasis, title: (0, pageTimeline_1.pageBasisLabel)(pageBasis) },
                         "\u7B2C ",
                         currentPage + 1,
                         " / ",
                         pageCount,
-                        " \u9875")),
+                        " \u9875",
+                        pageBasis === 'estimated' || pageBasis === 'timeline_gap' ? '（估算）' : '')),
                 React.createElement("div", { className: `reader-frame ${touchMode ? 'touch-active' : ''}`, onClick: clickFrame, "aria-label": "\u9605\u8BFB\u753B\u9762", style: { position: 'relative', cursor: touchMode ? 'crosshair' : 'default' } },
                     React.createElement("div", { className: "reader-film-grain" }),
                     isVideo ? (React.createElement("video", { ref: videoRef, src: book.video_url, playsInline: true, preload: "metadata", onLoadedMetadata: (event) => {
@@ -6037,11 +6142,12 @@ function InteractiveReaderPage({ book, state, setState, navigate, notify, intera
                         React.createElement(ui_1.Icon, { name: "book", size: 16 }),
                         "\u6765\u6E90\uFF1A\u7B2C ",
                         currentPage + 1,
-                        " \u9875"),
+                        " \u9875",
+                        pageBasis === 'estimated' || pageBasis === 'timeline_gap' ? '（估算，非时间轴）' : ''),
                     React.createElement("button", { onClick: () => navigate('review') },
                         "\u67E5\u770B\u4E66\u9875\u4E0E\u6821\u5BF9",
                         React.createElement(ui_1.Icon, { name: "chevron", size: 15 }))),
-                React.createElement("div", { className: "reader-page-strip", "aria-label": "\u9875\u7801\u5BFC\u822A" }, book.pages.map((item, index) => (React.createElement("button", { key: item.id, className: index === currentPage ? 'selected' : '', onClick: () => seek((index / pageCount) * durationMs), "aria-current": index === currentPage ? 'true' : undefined },
+                React.createElement("div", { className: "reader-page-strip", "aria-label": "\u9875\u7801\u5BFC\u822A" }, book.pages.map((item, index) => (React.createElement("button", { key: item.id, className: index === currentPage ? 'selected' : '', onClick: () => seek((0, pageTimeline_1.pageStartMs)(index, book.pages, segments, durationMs).ms), "aria-current": index === currentPage ? 'true' : undefined },
                     React.createElement("img", { src: item.image_url || 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2MDAiIGhlaWdodD0iODAwIiB2aWV3Qm94PSIwIDAgNjAwIDgwMCIgZmlsbD0ibm9uZSI+CiAgPHJlY3Qgd2lkdGg9IjYwMCIgaGVpZ2h0PSI4MDAiIGZpbGw9IiNmYmY3ZTkiLz48cmVjdCB4PSIyOCIgeT0iMjgiIHdpZHRoPSI1NDQiIGhlaWdodD0iNzQ0IiBzdHJva2U9IiNlNmRmYzkiLz4KICA8cGF0aCBkPSJNNTggMzQ4Yy01LTExOSA0NC0yMzAgMTUwLTI0NSAxNDAtMjAgMjYwIDMyIDMyMyAxMzIgMjkgNDYgMjEgMTAwLTggMTUwLTU1IDk1LTE3NSAxMjMtMjgwIDkxQzEyMiA0MzkgNjUgNDMxIDU4IDM0OFoiIGZpbGw9IiNlNGU5Y2EiLz4KICA8Y2lyY2xlIGN4PSI0MjEiIGN5PSIxNzYiIHI9IjQyIiBmaWxsPSIjZTNjNDdjIi8+CiAgPHBhdGggZD0iTTYyIDM1OGM3NC01MyAxNDgtNDUgMjEyLTE4czE2NSAxNyAyNjUtMjJ2OTljLTU5IDU2LTE0NyA4Ni0yMzkgNTctMTIxLTM4LTE4Mi00Ni0yMzgtODBaIiBmaWxsPSIjYjBjMThjIi8+CiAgPHBhdGggZD0iTTg4IDM5OWM3NC0zMyAxMzItOSAxOTAgMTUgODYgMzQgMTU0IDEgMjI5LTI2LTQzIDc1LTEyMiAxMTItMjA3IDg2LTk2LTMwLTE1Mi00MS0yMTItNzVaIiBmaWxsPSIjOGNhNDc3Ii8+CiAgPHBhdGggZD0iTTE1NyAzODlWMTg3bTI5NCAyMDFWMjIzIiBzdHJva2U9IiM4ZjgwNWMiIHN0cm9rZS13aWR0aD0iNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPHBhdGggZD0ibTE1NSAxNDQtNTYgMTIyaDExNFptMCA3NC02NyAxMjJoMTM3WiIgZmlsbD0iIzMxNWE0OCIvPjxwYXRoIGQ9Im00NTIgMTg0LTQ1IDExMmg5MVptMCA2OS01NiAxMDloMTE1WiIgZmlsbD0iIzRjNzQ1NiIvPgogIDxwYXRoIGQ9Ik0zNjcgMzU3di05OGg0NnY5OFoiIGZpbGw9IiNlNGNjYjAiLz48cGF0aCBkPSJtMzU4IDI2MSAzMi0yNiAzMiAyNloiIGZpbGw9IiM5YjcxNTgiLz48cmVjdCB4PSIzNzUiIHk9IjI3MyIgd2lkdGg9IjMwIiBoZWlnaHQ9IjciIHJ4PSIzIiBmaWxsPSIjMjQ0ZDNmIi8+PHBhdGggZD0ibTM4NiAyOTcgMjcgOXYyMmwtMjktN1oiIGZpbGw9IiNmNmVkZGIiLz48cGF0aCBkPSJtMzg2IDI5NyAxMSAxNSAxNi02IiBzdHJva2U9IiNiYWE0N2QiLz4KICA8cGF0aCBkPSJNMjM5IDQwMmMtMTAtMjUtMTQtNDQtNy02NmwxNyAxOCAyMC0yMCAxMSAyNGMxNSAxNiAxNSAzNy0yIDQ4WiIgZmlsbD0iI2NmOTU2NyIvPjxwYXRoIGQ9Ik0yMzIgMzY1YzE1IDEgMjIgMTEgMjcgMjIgNS0xMyAxMy0yMSAyNi0yMy0xIDI2LTEzIDQwLTI2IDQwLTE0LTItMjUtMTctMjctMzlaIiBmaWxsPSIjZjVlN2NjIi8+PGNpcmNsZSBjeD0iMjQ2IiBjeT0iMzY1IiByPSIyLjciIGZpbGw9IiMyNDRkM2YiLz48Y2lyY2xlIGN4PSIyNzQiIGN5PSIzNjQiIHI9IjIuNyIgZmlsbD0iIzI0NGQzZiIvPjxwYXRoIGQ9Im0yNTUgMzc2IDcgMS00IDRaIiBmaWxsPSIjMjQ0ZDNmIi8+CiAgPHBhdGggZD0iTTI3OSAzOTljMzUgMTAgNTEtMiA0MC0xNS0xMC0xMS0yMi01LTIzIDQiIHN0cm9rZT0iI2NmOTU2NyIgc3Ryb2tlLXdpZHRoPSIxNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PHBhdGggZD0iTTMxNiAzODBjMTQgNSAxNyAyMC0xIDI0bC0xMC0xM1oiIGZpbGw9IiNmNWU3Y2MiLz4KICA8cGF0aCBkPSJtMjI5IDM5NSAzMiAxMSAzNC0xMy0yIDI1LTMzIDExLTI5LTEyWiIgZmlsbD0iI2Y0ZWFkMyIgc3Ryb2tlPSIjNDc2ODRjIiBzdHJva2Utd2lkdGg9IjEuNSIvPjxwYXRoIGQ9Im0yNjAgNDA2djIzIiBzdHJva2U9IiM0NzY4NGMiIHN0cm9rZS13aWR0aD0iMS41Ii8+CiAgPHBhdGggZD0iTTM0NSA0MTJ2LTI0bTAgMTNjLTEzLTEtMTgtMTEtMTgtMTEgMTItMyAxOCAxMSAxOCAxMVptMSA1YzE0LTEgMTktMTMgMTktMTMtMTQtMi0xOSAxMy0xOSAxM1oiIGZpbGw9IiNkMmQ5YTkiIHN0cm9rZT0iIzVhN2M1NSIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPHBhdGggZD0iTTI2MSAxOThjMTAtNiAxOC02IDI2IDBtNyAxMmMxMS02IDE5LTUgMjYgMSIgc3Ryb2tlPSIjOGJhMTdhIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGcgZmlsbD0iIzMxNWE0OCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ik1pY3Jvc29mdCBZYUhlaSwgUGluZ0ZhbmcgU0MsIHNhbnMtc2VyaWYiPgogICAgPHRleHQgeD0iMzAwIiB5PSI1NTciIGZvbnQtc2l6ZT0iMjkiIGZvbnQtd2VpZ2h0PSI2MDAiIGxldHRlci1zcGFjaW5nPSI1Ij7mo67mnpfph4znmoTmnaXkv6E8L3RleHQ+CiAgICA8dGV4dCB4PSIzMDAiIHk9IjYxMCIgZm9udC1zaXplPSIxOCIgbGV0dGVyLXNwYWNpbmc9IjIiPua4heaZqO+8jOWwj+eLkOeLuOWcqOagkeS4i+WPkeeOsOS6huS4gOWwgeS/oeOAgjwvdGV4dD4KICAgIDx0ZXh0IHg9IjMwMCIgeT0iNjQ2IiBmb250LXNpemU9IjE4IiBsZXR0ZXItc3BhY2luZz0iMiI+5a6D6L276L275omT5byA77yM6K+75Yiw5LqG5pil5aSp55qE5raI5oGv44CCPC90ZXh0PgogICAgPHRleHQgeD0iMzAwIiB5PSI2ODIiIGZvbnQtc2l6ZT0iMTgiIGxldHRlci1zcGFjaW5nPSIyIj7igJzorqnmiJHku6zkuIDotbfvvIzljrvnnIvnnIvmlrDnlJ/nmoTlj7blrZDlkKfjgILigJ08L3RleHQ+CiAgICA8dGV4dCB4PSIzMDAiIHk9Ijc0MCIgZm9udC1zaXplPSIxMiIgZmlsbD0iIzhjOTM3YyI+MDEgwrcg5Y6f5Yib5ryU56S66aG1PC90ZXh0PgogIDwvZz4KPC9zdmc+Cg==', alt: "" }),
                     React.createElement("span", null,
                         "\u7B2C ",

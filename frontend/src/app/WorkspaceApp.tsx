@@ -82,6 +82,9 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
   const sessionWarned=useRef(false)
   const previousBookId=useRef(selectedId)
   const segmentsCacheRef=useRef<Map<string,SegmentOut[]>>(new Map())
+  // 阅读页用时间轴把视频时间换算成页码：进入阅读页/重新检查视频时向 A 取，没有登记则为空数组（页码只能估算）
+  const [segmentsByRun,setSegmentsByRun]=useState<Record<string,SegmentOut[]>>({})
+  const [segmentsNonce,setSegmentsNonce]=useState(0)
   const warnedSegmentsRef=useRef<Set<string>>(new Set())
   // 每个 run 的视频加载状态（blob: URL 只在内存中，不写入会话存储，刷新后重新下载）
   const [videos,setVideos]=useState<Record<string,RunVideoState>>({})
@@ -130,8 +133,19 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
     }).catch((e:any)=>{if(current_())setVideos(current=>({...current,[runId]:{status:'error',error:String(e?.message??e)}}))})
   },[appMode,page,book.run_id,book.server_book_id,videos])
   useEffect(()=>()=>{videoUrlsRef.current.forEach(url=>URL.revokeObjectURL(url));videoUrlsRef.current.clear()},[])
+  useEffect(()=>{
+    if(appMode!=='live'||page!=='reader'||!book.run_id||!book.server_book_id)return
+    const runId=book.run_id
+    let stale=false
+    void loadSegments(runId).then(segs=>{if(!stale)setSegmentsByRun(current=>({...current,[runId]:segs}))})
+    return()=>{stale=true}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[appMode,page,book.run_id,book.server_book_id,segmentsNonce])
   const reloadVideo=useCallback((runId:string)=>{
     const old=videoUrlsRef.current.get(runId);if(old){URL.revokeObjectURL(old);videoUrlsRef.current.delete(runId)}
+    // 重新检查视频时一并重读时间轴（B 可能刚登记）
+    segmentsCacheRef.current.delete(runId)
+    setSegmentsNonce(n=>n+1)
     videoGenRef.current.set(runId,(videoGenRef.current.get(runId)??0)+1)
     setVideos(current=>{const next={...current};delete next[runId];return next})
   },[])
@@ -453,7 +467,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
       const resp = await apiClient.recognizeTouch(
         {book_id: book.id, run_id: book.run_id, video_ms: videoMs, touch_point: detail.touch_point, viewport_info: detail.viewport_info},
         'live',
-        {segments,frame:frame?{kind:frame.kind,page_no:frame.page_no,asset_id:frame.kind==='video'&&video?.status==='ready'?video.asset_id:null,asset_sha256:frame.kind==='video'&&video?.status==='ready'?video.sha256:null,snapshot:frame.snapshot?.blob??null,snapshot_width:frame.snapshot?.width,snapshot_height:frame.snapshot?.height,snapshot_error:frame.snapshot_error,clicked_at:frame.clicked_at,capture_ms:frame.capture_ms,frame_time_ms:frame.frame_time_ms??null,paused_on_click:frame.paused_on_click??false}:undefined}
+        {segments,frame:frame?{kind:frame.kind,page_no:frame.page_no,page_basis:frame.page_basis,asset_id:frame.kind==='video'&&video?.status==='ready'?video.asset_id:null,asset_sha256:frame.kind==='video'&&video?.status==='ready'?video.sha256:null,snapshot:frame.snapshot?.blob??null,snapshot_width:frame.snapshot?.width,snapshot_height:frame.snapshot?.height,snapshot_error:frame.snapshot_error,clicked_at:frame.clicked_at,capture_ms:frame.capture_ms,frame_time_ms:frame.frame_time_ms??null,paused_on_click:frame.paused_on_click??false}:undefined}
       )
       if(resp.persisted===false)notify(`触控已处理，但未能写入后端：${resp.persist_error ?? '未知原因'}`)
       return {
@@ -522,7 +536,7 @@ export default function WorkspaceApp({ appMode = 'live' }: { appMode?: AppMode }
       {page==='home'&&<HomePage books={books} notes={notes} state={state} setState={setState} onImport={()=>navigate('import')} onBook={item=>navigate(item.status==='READY'?'reader':'review',item.id)} onNote={id=>{const target=notes.find(n=>n.id===id);navigate('notes',target?.book_id)}}/>}
       {page==='import'&&<ImportBookPage state={state} setState={setState} serverSync={appMode==='live'&&Boolean(apiClient.getToken())} onHome={()=>navigate('home')} onComplete={input=>{void completeImport(input).catch((e:any)=>notify(`导入未完成：${e.message}`))}}/>}
       {page==='review'&&<ReviewPage {...workflow}/>}{page==='classification'&&<ClassificationPage {...workflow}/>}{page==='progress'&&<ProgressPage {...workflow}/>}
-      {page==='reader'&&<><InteractiveReaderPage {...context} book={readerBook} videoState={appMode==='live'&&book.run_id&&book.server_book_id?(video??{status:'loading'}):undefined} onReloadVideo={book.run_id?()=>reloadVideo(book.run_id!):undefined} interactions={interactions.filter(i=>i.book_id===book.id)} onInteraction={item=>setInteractions(current=>[item,...current])} seekTo={seekTo} onSeekHandled={()=>setSeekTo(null)} askQuestion={question} identifyTouch={touch} appMode={appMode}/><div className="reader-next"><button className="button button-secondary" onClick={generateNote}>整理阅读笔记<Icon name="note" size={16}/></button><button className="button button-ghost" onClick={()=>navigate('history')}>查看阅读历史<Icon name="arrow" size={16}/></button></div></>}
+      {page==='reader'&&<><InteractiveReaderPage {...context} book={readerBook} videoState={appMode==='live'&&book.run_id&&book.server_book_id?(video??{status:'loading'}):undefined} onReloadVideo={book.run_id?()=>reloadVideo(book.run_id!):undefined} segments={book.run_id?segmentsByRun[book.run_id]:undefined} interactions={interactions.filter(i=>i.book_id===book.id)} onInteraction={item=>setInteractions(current=>[item,...current])} seekTo={seekTo} onSeekHandled={()=>setSeekTo(null)} askQuestion={question} identifyTouch={touch} appMode={appMode}/><div className="reader-next"><button className="button button-secondary" onClick={generateNote}>整理阅读笔记<Icon name="note" size={16}/></button><button className="button button-ghost" onClick={()=>navigate('history')}>查看阅读历史<Icon name="arrow" size={16}/></button></div></>}
       {page==='history'&&<HistoryPage {...context} interactions={interactions.filter(i=>i.book_id===book.id)} onSeek={ms=>{setSeekTo(ms);navigate('reader')}} onExportServer={appMode==='live'&&book.run_id&&book.server_book_id?exportServerLog:undefined}/>}
       {page==='notes'&&<NoteReviewPage {...context} note={note} onSave={saveNote} onReview={reviewNote} onSeek={seek}/>}
       {page==='sharing'&&<ShareNotePage {...context} note={note} grants={grants.filter(g=>g.note_id===note?.id)} onCreate={createShare} onRevoke={revoke} onOpen={openGrant}/>}

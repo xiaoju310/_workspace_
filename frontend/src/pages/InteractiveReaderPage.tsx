@@ -7,6 +7,8 @@ import { AudioRecorder } from '../features/interaction/AudioRecorder'
 import type { RecordingMeta } from '../features/interaction/AudioRecorder'
 import { TtsPlayerWidget } from '../features/interaction/tts/TtsPlayerWidget'
 import { captureFrame } from '../features/interaction/frameCapture'
+import { pageBasisLabel, pageNoOf, pageStartMs, resolvePageAtTime } from '../features/interaction/pageTimeline'
+import type { PageBasis } from '../features/interaction/pageTimeline'
 
 export function formatTime(ms: number) {
   const seconds = Math.max(0, Math.floor(ms / 1000))
@@ -28,6 +30,7 @@ export default function InteractiveReaderPage({
   appMode = 'live',
   videoState,
   onReloadVideo,
+  segments,
 }: ReaderProps) {
   const [playing, setPlaying] = useState(false)
   const [timeMs, setTimeMs] = useState(0)
@@ -67,9 +70,15 @@ export default function InteractiveReaderPage({
   const touchPending = useRef(false)
 
   const pageCount = Math.max(1, book.pages.length)
-  const currentPage = Math.min(pageCount - 1, Math.floor(timeMs / Math.max(1, durationMs / pageCount)))
-  const page = book.pages[currentPage]
   const isVideo = Boolean(book.video_url)
+  // 视频：页码以后端登记的时间轴(segments)为准，B 生成的每页视频未必等长；没有时间轴只能估算，且不当作证据。
+  // 静态书页没有视频时间轴，按阅读页自带的模拟进度条平均切页（画面本身就是该页）。
+  const pageAt = isVideo ? resolvePageAtTime(timeMs, book.pages, segments, durationMs) : null
+  const currentPage = pageAt
+    ? pageAt.index
+    : Math.min(pageCount - 1, Math.floor(timeMs / Math.max(1, durationMs / pageCount)))
+  const pageBasis: PageBasis = pageAt ? pageAt.basis : 'page_image'
+  const page = book.pages[currentPage]
   const currentInteractions = interactions.filter((item) => item.book_id === book.id && (!book.run_id || item.run_id === book.run_id))
   const latest = result ?? currentInteractions[0]
 
@@ -256,7 +265,11 @@ export default function InteractiveReaderPage({
       clickVideoMs = Math.round(element.currentTime * 1000)
       setTimeMs(clickVideoMs)
     }
-    const pageNo = currentPage + 1
+    // 页码用点击那一刻的视频时间换算（clickVideoMs），不能用渲染状态里的 currentPage：它来自约 250ms 一次的 timeupdate，且在没有时间轴时只是估算。
+    // 只有后端时间轴命中（或静态书页）才记确定页码；否则记 null 并写明依据，不声称知道点的是哪一页。
+    const clicked = element instanceof HTMLVideoElement ? resolvePageAtTime(clickVideoMs, book.pages, segments, durationMs) : null
+    const clickedBasis: PageBasis = clicked ? clicked.basis : 'page_image'
+    const pageNo = clicked ? (clicked.exact ? clicked.pageNo : null) : pageNoOf(book.pages[currentPage] ?? {}, currentPage)
     touchPending.current = true
     // D8：点击瞬间截取当前画面（视频帧或书页图）；截图失败不阻断触控，只如实记录原因
     // D9：clicked_at 交给下游作为延迟起点，latency_ms = 点击 → 拿到识别结果（含截图耗时）
@@ -272,6 +285,7 @@ export default function InteractiveReaderPage({
             frame: {
               kind: frameKind,
               page_no: pageNo,
+              page_basis: clickedBasis,
               snapshot: shot.ok ? shot.snapshot : null,
               snapshot_error: shot.ok ? undefined : shot.reason,
               clicked_at: clickedAt,
@@ -318,9 +332,12 @@ export default function InteractiveReaderPage({
       navigate('review', book.id)
       return
     }
-    const target = source.start_ms ?? ((source.page_no - 1) / pageCount) * durationMs
+    const fallback = pageStartMs(source.page_no - 1, book.pages, segments, durationMs)
+    const target = source.start_ms ?? fallback.ms
     seek(target)
-    notify(`已定位到第 ${source.page_no} 页 · ${formatTime(target)}`)
+    notify(source.start_ms === null && !fallback.exact
+      ? `按时长估算跳到第 ${source.page_no} 页附近 · ${formatTime(target)}（后端没有这一页的时间轴，位置可能不准）`
+      : `已定位到第 ${source.page_no} 页 · ${formatTime(target)}`)
   }
 
   if (state !== 'success') {
@@ -416,8 +433,8 @@ export default function InteractiveReaderPage({
             <Badge tone={appMode === 'live' ? 'green' : 'amber'}>
               {appMode === 'live' ? '后端交互模式 (Live)' : '演示模式 (本地模拟)'}
             </Badge>
-            <span>
-              第 {currentPage + 1} / {pageCount} 页
+            <span data-page-basis={pageBasis} title={pageBasisLabel(pageBasis)}>
+              第 {currentPage + 1} / {pageCount} 页{pageBasis === 'estimated' || pageBasis === 'timeline_gap' ? '（估算）' : ''}
             </span>
           </div>
 
@@ -535,7 +552,7 @@ export default function InteractiveReaderPage({
           <div className="reader-source-bar">
             <span>
               <Icon name="book" size={16} />
-              来源：第 {currentPage + 1} 页
+              来源：第 {currentPage + 1} 页{pageBasis === 'estimated' || pageBasis === 'timeline_gap' ? '（估算，非时间轴）' : ''}
             </span>
             <button onClick={() => navigate('review')}>
               查看书页与校对<Icon name="chevron" size={15} />
@@ -547,7 +564,7 @@ export default function InteractiveReaderPage({
               <button
                 key={item.id}
                 className={index === currentPage ? 'selected' : ''}
-                onClick={() => seek((index / pageCount) * durationMs)}
+                onClick={() => seek(pageStartMs(index, book.pages, segments, durationMs).ms)}
                 aria-current={index === currentPage ? 'true' : undefined}
               >
                 <img src={item.image_url || '/art/page-forest.svg'} alt="" />

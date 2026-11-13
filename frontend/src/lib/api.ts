@@ -123,7 +123,10 @@ export interface TouchContext {
   /** 点击时显示的画面：视频（带登记产物的 id/sha256）或静态书页图；以及点击瞬间截图 */
   frame?: {
     kind: 'video' | 'page_image';
-    page_no: number;
+    /** 点击时画面对应的页码；视频没有后端时间轴时为 null */
+    page_no: number | null;
+    /** 页码依据（timeline / timeline_gap / estimated / page_image），写入留痕供 E 区分"确定"与"估算" */
+    page_basis?: string;
     asset_id?: string | null;
     asset_sha256?: string | null;
     snapshot?: Blob | null;
@@ -151,6 +154,7 @@ export async function buildFrameInput(frame: TouchContext['frame']) {
     frame_source: {
       kind: frame.kind,
       page_no: frame.page_no,
+      page_basis: frame.page_basis ?? 'unknown',
       asset_id: frame.kind === 'video' ? frame.asset_id ?? null : null,
       asset_sha256: frame.kind === 'video' ? frame.asset_sha256 ?? null : null,
     },

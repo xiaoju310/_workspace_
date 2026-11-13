@@ -1,5 +1,6 @@
 import type { Book, BookType, PreviewState } from '../features/books/types'
-import type { TouchPoint, ViewportInfo } from '../types/interaction'
+import type { SegmentOut, TouchPoint, ViewportInfo } from '../types/interaction'
+import type { PageBasis } from '../features/interaction/pageTimeline'
 import type { SharedLoadResult } from '../lib/sharedNoteView'
 
 export type Page = 'home' | 'import' | 'review' | 'classification' | 'progress' | 'reader' | 'history' | 'notes' | 'sharing' | 'shared' | 'settings'
@@ -76,7 +77,11 @@ export interface VoiceCapture {
 }
 /** 坐标映射算法的完整输出，原样透传到 A，不得在下游重算 */
 /** 点击时画面上显示的是什么（视频帧 / 静态书页图），以及点击瞬间的截图（D8） */
-export interface TouchFrame { kind: 'video' | 'page_image'; page_no: number; snapshot?: { blob: Blob; width: number; height: number; mimeType: string; frameTimeMs?: number | null } | null; snapshot_error?: string
+export interface TouchFrame { kind: 'video' | 'page_image'
+  /** 点击时画面对应的页码；视频只有被后端时间轴命中才有确定页码，否则为 null（不声称知道是哪一页） */
+  page_no: number | null
+  /** 页码的依据：timeline=后端时间轴 / timeline_gap=区间之外取最近段 / estimated=按时长平均估算 / page_image=静态书页 */
+  page_basis?: PageBasis; snapshot?: { blob: Blob; width: number; height: number; mimeType: string; frameTimeMs?: number | null } | null; snapshot_error?: string
   /** 点击时刻 performance.now()，作为触控延迟起点（重试时为空，从重试开始计） */
   clicked_at?: number
   /** 截图耗时（毫秒） */
@@ -96,6 +101,8 @@ export interface ReaderProps extends PageContext {
   /** Live 才有；Demo 不查询后端视频 */
   videoState?: RunVideoState
   onReloadVideo?: () => void
+  /** Live：当前 run 在 A 登记的时间轴(segments)；阅读页据此把视频时间换算成页码 */
+  segments?: SegmentOut[]
   interactions: Interaction[]
   onInteraction: (item: Interaction) => void
   seekTo: number | null
