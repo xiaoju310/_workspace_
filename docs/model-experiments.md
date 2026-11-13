@@ -19,6 +19,7 @@
 | 2026-11-04 | OCR + VLM pipeline | same self-created PNG | OCR `SYNTHETIC PAGE` (0.9999807); VLM object `Synthetic Page`; page status `ok`; 88.73 s pipeline time on CPU | real on synthetic input |
 | 2026-11-04 | regression tests after VLM install | local `.venv` | plain pytest: 13 passed, 1 failed on Windows torch `shm.dll` load via ModelScope; preloading torch before pytest: 14 passed | environment workaround |
 | 2026-11-12 | v2 bookpack/QC code | local fresh `.venv`; no book pages | Bookpack validator, repro hash manifest, and technical video QC added. 17 targeted tests passed before optical-flow addition; full follow-up result recorded in current run. No new model-generated page or film. | code only |
+| 2026-11-13 | LTX I2V adapter + self-authored page 01 | `data/synthetic/bookpack_demo/pages/01.png`, pinned LTX 2B FP8, 8 steps, seed 1 | Real provider path completed in 25.47 s, 6,307 MiB peak allocated VRAM; 256×256, 9 frames, 8 fps, 1.125 s MP4. Subject remained recognizable and sampled SSIM was 0.955, but the background warped in later frames; no audio; technical QC status `review` because duration/fps/audio are below the story-page target. | generated but not approved |
 
 ## Reproduction
 

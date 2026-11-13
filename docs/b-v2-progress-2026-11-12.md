@@ -9,6 +9,7 @@ file records evidence, not a claim that planned dates were met.
 | A/B/C video feasibility | Local AnimateDiff T2V and LTX I2V tests in experiment log; no cloud API or 2.5D six-second comparison | Partial; D3 gate unmet |
 | 12-page bookpack, character/style sheets | `app.ai.bookpack` schema and validation CLI | Contract implemented; art and human review pending |
 | L2 six-second clips and full film | One 256×256, nine-frame butterfly feasibility clip outside Git | Pending; prototype quality failed visual review |
+| LTX I2V adapter and self-authored page gate | `app.ai.video_ltx.LTXVideoProvider`, 12-page `pb-demo-001` fixture, page 01 MP4 and QC evidence outside Git | Provider integrated; page generated but rejected for 1.125 s/no audio/background warp |
 | Automated video QC | `app.ai.qc_video` and CLI | Technical precheck implemented; identity and artifact review pending |
 | Narration, subtitles, timeline, repro pack | Existing basic concat/timeline; new hash manifest | Partial; no final TTS, SRT, synchronized film, or full rerun |
 

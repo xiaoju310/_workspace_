@@ -2,6 +2,25 @@
 
 ## v2 bookpack and quality checks
 
+For a copyright-safe local gate, generate the self-authored fixture first:
+
+```powershell
+$env:PYTHONPATH = "$PWD\backend"
+.venv\Scripts\python.exe scripts\create_demo_bookpack.py
+.venv\Scripts\python.exe -m app.ai.cli validate-bookpack --root data\synthetic\bookpack_demo
+```
+
+The fixture is a 12-page synthetic story (`pb-demo-001`, `source.type=synthetic`),
+not an authorized competition book. It is suitable for exercising the provider,
+media and reproducibility paths. Replace it with a page set whose license allows
+the intended processing before claiming an authorized-book result.
+
+The LTX adapter accepts `--python` so the CUDA video environment is explicit.
+The first self-authored page run completed technically, but its QC report was
+`review`: 1.125 seconds, 8 fps, no audio, and visible background warping. Keep
+that result as a rejected gate; do not loop it or add silent audio and call it a
+six-second L2 page.
+
 The v2 plan adds a validated machine-readable bookpack contract in `app.ai.bookpack`.
 Each page has `pages/NN.png` and matching `pages/NN.json`; the root `manifest.json`
 contains the same page records, their source/license, motion instructions, audio
@@ -14,6 +33,16 @@ image quality, copyright, or child safety.
 $env:PYTHONPATH = "$PWD\backend"
 .venv\Scripts\python.exe -m app.ai.cli validate-bookpack --root assets\bookpack_pb001 --repro-out assets\repro_pb001\manifest.json
 .venv\Scripts\python.exe -m app.ai.cli qc-video --video assets\film_pb001\pb001_p03_L2_v1.mp4 --expected-duration 6 --out assets\film_pb001\qc_p03.json
+```
+
+To exercise the real local LTX adapter on one page, first encode a prompt with
+the pinned helper in `C:\Users\17498\.codex\skills\local-visual-video\scripts`,
+then run:
+
+```powershell
+.venv\Scripts\python.exe C:\Users\17498\.codex\skills\local-visual-video\scripts\encode_ltx_prompt.py --prompt "watercolor children's book illustration, a friendly moon gently breathing, preserve the composition, no text" --out D:\天工\model-cache\ltx-demo-prompt.pt
+$env:PYTHONPATH = "$PWD\backend"
+.venv\Scripts\python.exe -m app.ai.cli video-i2v --python D:\天工\b-ai-video-source\_workspace_-team-b-ai-video\.venv\Scripts\python.exe --page-no 1 --image data\synthetic\bookpack_demo\pages\01.png --prompt "watercolor children's book illustration, a friendly moon gently breathing, preserve the composition, no text" --checkpoint D:\天工\model-cache\ltx-video-2b\ltxv-2b-0.9.8-distilled-fp8.complete.safetensors --embeddings D:\天工\model-cache\ltx-demo-prompt.pt --runner C:\Users\17498\.codex\skills\local-visual-video\scripts\run_ltx_i2v.py --out data\synthetic\bookpack_demo\page-01.raw.mp4
 ```
 
 The repro manifest records SHA-256 for bookpack files and the supplied model

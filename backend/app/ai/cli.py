@@ -7,6 +7,7 @@ from pathlib import Path
 from . import analyze_page, build_book_graph, draft_story
 from .analyzers import analyze_text
 from .video import AnimateDiffProvider, UnavailableVideoProvider
+from .video_ltx import LTXVideoProvider
 from .bookpack import validate_bookpack, write_repro_manifest
 from .qc_video import qc_video
 
@@ -42,6 +43,15 @@ def main(argv: list[str] | None = None) -> int:
     video_run.add_argument("--model-path", type=Path, required=True)
     video_run.add_argument("--motion-checkpoint", type=Path, required=True)
     video_run.add_argument("--out", type=Path, required=True)
+    ltx = sub.add_parser("video-i2v", help="Generate one local LTX I2V clip from a page image")
+    ltx.add_argument("--page-no", type=int, required=True)
+    ltx.add_argument("--image", type=Path, required=True)
+    ltx.add_argument("--prompt", required=True)
+    ltx.add_argument("--checkpoint", type=Path, required=True)
+    ltx.add_argument("--embeddings", type=Path, required=True)
+    ltx.add_argument("--runner", type=Path, required=True)
+    ltx.add_argument("--python", default="python", help="Python executable containing CUDA video dependencies")
+    ltx.add_argument("--out", type=Path, required=True)
     bookpack = sub.add_parser("validate-bookpack", help="Validate a v2 bookpack and optionally write repro manifest")
     bookpack.add_argument("--root", type=Path, required=True)
     bookpack.add_argument("--repro-out", type=Path)
@@ -103,12 +113,20 @@ def main(argv: list[str] | None = None) -> int:
         result_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(result_path)
         return 0 if video_result.status == "ok" else 1
+    elif args.command == "video-i2v":
+        provider = LTXVideoProvider(args.checkpoint, args.embeddings, args.runner, python=args.python)
+        video_result = provider.generate(args.page_no, args.image, args.prompt, args.out)
+        result_path = args.out.with_suffix(".generation.json")
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(video_result.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        print(result_path)
+        return 0 if video_result.status == "ok" else 1
     else:
         payload = UnavailableVideoProvider().generate(args.page_no, None, args.prompt, args.out).model_dump()
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(args.out)
-    return 0
+    return 0 if payload.get("status") != "failed" else 1
 
 
 if __name__ == "__main__":
