@@ -14,6 +14,7 @@ from app.main import app
 @pytest.fixture()
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("APP_USER_TOKENS", '{"owner-local":"test-secret","other":"other-secret"}')
+    monkeypatch.delenv("AI_PROVIDER", raising=False)  # 普通用例不依赖本机是否安装模型
     database = tmp_path / "test.db"
     monkeypatch.setattr(db, "DATABASE_PATH", database)
     monkeypatch.setattr("app.main.DATA_ROOT", tmp_path / "data")
@@ -265,3 +266,170 @@ def test_page_upload_rejects_invalid_signature_and_foreign_book(client: TestClie
     other = client.post(f"/api/books/{book_id}/pages?page_no=2", content=image_bytes(),
                         headers={"content-type": "image/png", "authorization": "Bearer other-secret"})
     assert other.status_code == 404
+
+def test_real_provider_success_persists_results_and_generates_note(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """P0：provider 成功时必须保存结果、结束运行并允许生成笔记。"""
+    from types import SimpleNamespace
+
+    book_id = create_confirmed_book(client)
+    page = {
+        "book_id": book_id,
+        "page_no": 1,
+        "book_type": "picture_book",
+        "type_confidence": 0.9,
+        "text": "小狐狸走进森林。",
+        "text_confidence": 0.95,
+        "boxes": [],
+        "entities": [{
+            "name": "小狐狸", "kind": "character", "confidence": 0.9,
+            "source": {"page_no": 1, "location": "page:1"},
+        }],
+        "events": [],
+        "model_version": "fake-ocr+fake-vlm",
+        "ocr_version": "fake-ocr/1",
+        "vision_version": "fake-vlm/1",
+        "status": "ok",
+        "source": {"page_no": 1, "location": "page:1"},
+        "error_code": None,
+    }
+    fake_result = SimpleNamespace(
+        pages=[page],
+        graph={"book_id": book_id, "book_type": "picture_book", "pages": [page],
+               "entities": page["entities"], "events": [],
+               "model_manifest": {"ocr": "fake-ocr/1", "vlm": "fake-vlm/1"}, "status": "ok"},
+        note={"summary": "小狐狸走进森林。", "sources": [{"page_no": 1}], "is_placeholder": False},
+        model_manifest={"provider": "fake-provider", "status": "ok", "ocr": "fake-ocr/1", "vlm": "fake-vlm/1"},
+    )
+
+    class FakeProvider:
+        def analyze(self, book_id: str, book_type: str, pages: list[object]):
+            assert book_type == "picture_book"
+            assert len(pages) == 1
+            return fake_result
+
+    monkeypatch.setattr("app.main.build_analysis_provider", lambda: FakeProvider())
+    job = client.post(f"/api/books/{book_id}/analyze", json={})
+    assert job.status_code == 202
+    payload = job.json()
+    assert client.get(f"/api/jobs/{payload['job_id']}").json()["status"] == "SUCCEEDED"
+    run = client.get(f"/api/runs/{payload['run_id']}").json()
+    assert run["status"] == "SUCCEEDED"
+    assert run["model_manifest"]["provider"] == "fake-provider"
+    book = client.get(f"/api/books/{book_id}").json()
+    assert book["status"] == "ANALYZED"
+    pages = client.get(f"/api/books/{book_id}/pages").json()
+    assert pages[0]["page_no"] == 1
+    import json
+    with db.get_connection() as connection:
+        saved = connection.execute("SELECT ocr_json,vision_json FROM pages WHERE book_id=?", (book_id,)).fetchone()
+        assert json.loads(saved["ocr_json"])["source"]["page_no"] == 1
+        assert json.loads(saved["vision_json"])["entities"][0]["name"] == "小狐狸"
+        entity = connection.execute("SELECT source_json,attributes_json FROM book_entities WHERE book_id=?", (book_id,)).fetchone()
+        assert json.loads(entity["source_json"])["page_no"] == 1
+        assert json.loads(entity["attributes_json"])["analysis_run_id"] == payload["run_id"]
+
+    note = client.post(f"/api/books/{book_id}/notes/generate", json={})
+    assert note.status_code == 201
+    assert note.json()["content"]["summary"] == "小狐狸走进森林。"
+    assert note.json()["content"]["sources"] == [{"page_no": 1}]
+
+
+def test_provider_failure_then_retry_succeeds(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """未配置模型必须失败；修好配置后重试，不能留下错误状态。"""
+    from app.services.analysis import AnalysisProviderError, AnalysisResult
+
+    book_id = create_confirmed_book(client)
+    monkeypatch.setattr("app.main.build_analysis_provider", lambda: (_ for _ in ()).throw(
+        AnalysisProviderError("PROVIDER_NOT_CONFIGURED", "请配置模型")))
+    created = client.post(f"/api/books/{book_id}/analyze", json={}).json()
+    job_id, run_id = created["job_id"], created["run_id"]
+    with db.get_connection() as connection:
+        failed = connection.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        assert failed["status"] == "FAILED" and failed["error_code"] == "PROVIDER_NOT_CONFIGURED"
+        assert connection.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()[0] == "FAILED"
+        assert connection.execute("SELECT status FROM books WHERE id=?", (book_id,)).fetchone()[0] == "CONFIRMED"
+        assert connection.execute("SELECT ocr_json FROM pages WHERE book_id=?", (book_id,)).fetchone()[0] is None
+
+    page = {"book_id": book_id, "page_no": 1, "status": "ok", "source": {"page_no": 1},
+            "text": "重试成功", "text_confidence": 0.9, "ocr_version": "ocr/1",
+            "vision_version": "vlm/1", "boxes": [], "entities": [], "events": []}
+    result = AnalysisResult(pages=[page], graph={"book_id": book_id, "status": "ok", "entities": []},
+                            note={"summary": "重试成功", "sources": [{"page_no": 1}]},
+                            model_manifest={"provider": "real-test", "status": "ok"})
+
+    class Provider:
+        def analyze(self, book_id, book_type, pages):
+            return result
+
+    monkeypatch.setattr("app.main.build_analysis_provider", lambda: Provider())
+    assert client.post(f"/api/jobs/{job_id}/retry").status_code == 202
+    with db.get_connection() as connection:
+        job = connection.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        assert job["status"] == "SUCCEEDED" and job["attempts"] == 2
+        assert job["error_code"] is None
+        page_row = connection.execute("SELECT ocr_json,vision_json FROM pages WHERE book_id=?", (book_id,)).fetchone()
+        import json
+        assert json.loads(page_row["ocr_json"])["text"] == "重试成功"
+        assert json.loads(page_row["vision_json"])["provider"] == "vlm/1"
+
+
+def test_provider_invalid_result_does_not_mark_book_analyzed(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """错页或模拟结果不能伪装成完整分析成功。"""
+    from app.services.analysis import AnalysisResult
+
+    book_id = create_confirmed_book(client)
+    result = AnalysisResult(
+        pages=[{"book_id": book_id, "page_no": 2, "status": "mock", "source": {"page_no": 2}}],
+        graph={"book_id": book_id, "status": "mock", "entities": []},
+        note={"summary": "假内容", "sources": [{"page_no": 2}]},
+        model_manifest={"provider": "mock", "status": "mock"},
+    )
+
+    class Provider:
+        def analyze(self, book_id, book_type, pages):
+            return result
+
+    monkeypatch.setattr("app.main.build_analysis_provider", lambda: Provider())
+    created = client.post(f"/api/books/{book_id}/analyze", json={}).json()
+    with db.get_connection() as connection:
+        job = connection.execute("SELECT status,error_code FROM jobs WHERE id=?", (created["job_id"],)).fetchone()
+        assert tuple(job) == ("FAILED", "INVALID_INPUT")
+        assert connection.execute("SELECT status FROM books WHERE id=?", (book_id,)).fetchone()[0] == "CONFIRMED"
+        assert connection.execute("SELECT ocr_json FROM pages WHERE book_id=?", (book_id,)).fetchone()[0] is None
+    assert client.post(f"/api/books/{book_id}/notes/generate", json={}).status_code == 409
+
+
+def test_b_local_adapter_runs_actual_pipeline_with_stub_engines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """不下载权重，但实际经过 B 的图片校验、页分析和全书聚合。"""
+    from app.ai import providers
+    from app.services.analysis import AnalysisPageInput, BLocalAnalysisProvider
+
+    image_path = tmp_path / "page.png"
+    image_path.write_bytes(image_bytes())
+    monkeypatch.setenv("AI_VLM_MODEL_PATH", str(tmp_path / "model"))
+
+    class OCR:
+        version = "ocr/verified"
+        def __init__(self, **kwargs):
+            pass
+        def recognize(self, path, page_no):
+            return "科学图画", [{"text": "科学图画", "page_no": page_no}], 0.9
+
+    class VLM:
+        version = "vlm/verified"
+        def __init__(self, *args, **kwargs):
+            pass
+        def understand(self, path, page_no, text):
+            return [{"name": "星球", "kind": "object", "confidence": 0.7}], [], 0.7
+
+    monkeypatch.setattr(providers, "PaddleOCRProvider", OCR)
+    monkeypatch.setattr(providers, "SmolVLMProvider", VLM)
+    result = BLocalAnalysisProvider().analyze(
+        "book-1", "science", [AnalysisPageInput(1, image_path, "test-hash")]
+    )
+    assert result.graph["book_type"] == "popular_science"
+    assert result.graph["status"] == "ok"
+    assert result.pages[0]["source"]["page_no"] == 1
+    assert result.graph["entities"][0]["source"]["page_no"] == 1
+    assert result.note["summary"] == "科学图画"
+    assert result.model_manifest["provider"] == "b_local_paddle_smolvlm"

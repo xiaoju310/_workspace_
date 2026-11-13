@@ -27,6 +27,9 @@ from .schemas import (
     ClassificationRequest, JobOut, NoteGenerateRequest, NoteOut, NotePatch, NoteReview,
     PageOut, ShareCreate, ShareOut,
 )
+from .services.analysis import (
+    AnalysisPageInput, AnalysisProviderError, build_analysis_provider,
+)
 from .services.core import (
     ALLOWED_IMAGE_TYPES, MAX_PAGE_BYTES, classify_title, json_text, now_iso,
     safe_book_path, sha256_bytes, sha256_file, token_pair,
@@ -208,17 +211,139 @@ def _make_job(connection: sqlite3.Connection, book_id: str, stage: str, config: 
     return JobOut(job_id=job_id, run_id=run_id, status="QUEUED", stage=stage, attempts=0)
 
 
-def _run_placeholder(job_id: str) -> None:
-    """缺少 B 的分析 provider 时明确失败，不生成虚假的成功结果。"""
+def _run_analysis(job_id: str) -> None:
+    """执行 B 的分析 provider，并把结果写回 A 的数据库。
+
+    provider 未配置、模型初始化失败或页面分析失败都会进入 FAILED，
+    不会把占位结果伪装成成功。
+    """
     with get_connection() as connection:
         job = connection.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
         if not job:
             return
+        run = connection.execute("SELECT * FROM runs WHERE id=?", (job["run_id"],)).fetchone()
+        if not run:
+            return
+
+        pages = connection.execute(
+            "SELECT page_no,image_path,sha256 FROM pages WHERE book_id=? ORDER BY page_no",
+            (run["book_id"],),
+        ).fetchall()
+        classification = connection.execute(
+            "SELECT confirmed_type,predicted_type FROM book_classifications WHERE book_id=?",
+            (run["book_id"],),
+        ).fetchone()
+        book_type = (classification["confirmed_type"] if classification else None) or (
+            classification["predicted_type"] if classification else "other"
+        )
         now = now_iso()
-        connection.execute("UPDATE jobs SET status='RUNNING', attempts=attempts+1, started_at=? WHERE id=?", (now, job_id))
-        connection.execute("UPDATE runs SET status='RUNNING' WHERE id=?", (job["run_id"],))
-        connection.execute("UPDATE jobs SET status='FAILED', error_code='PROVIDER_NOT_CONFIGURED', error_message='尚未接入真实分析服务', ended_at=? WHERE id=?", (now_iso(), job_id))
-        connection.execute("UPDATE runs SET status='FAILED', finished_at=? WHERE id=?", (now_iso(), job["run_id"]))
+        connection.execute(
+            "UPDATE jobs SET status='RUNNING', attempts=attempts+1, started_at=?, error_code=NULL, error_message=NULL WHERE id=?",
+            (now, job_id),
+        )
+        connection.execute("UPDATE runs SET status='RUNNING', finished_at=NULL WHERE id=?", (run["id"],))
+
+    try:
+        provider = build_analysis_provider()
+        result = provider.analyze(
+            run["book_id"],
+            book_type,
+            [AnalysisPageInput(page_no=row["page_no"], image_path=Path(row["image_path"]), sha256=row["sha256"]) for row in pages],
+        )
+    except AnalysisProviderError as exc:
+        _mark_analysis_failed(job_id, run["id"], exc.code, exc.message)
+        return
+    except Exception as exc:  # provider 不应让 FastAPI 后台任务静默崩溃
+        _mark_analysis_failed(job_id, run["id"], "PROVIDER_ERROR", f"分析服务异常：{type(exc).__name__}: {exc}")
+        return
+
+    # B 的返回值也要核对，避免空结果、错书页码或 mock 被记为真实成功。
+    expected_pages = {row["page_no"] for row in pages}
+    try:
+        actual_pages = [item["page_no"] for item in result.pages]
+        if not expected_pages or len(actual_pages) != len(expected_pages) or set(actual_pages) != expected_pages:
+            raise ValueError("分析结果页码与本次输入不一致")
+        if any(item.get("book_id") != run["book_id"] or item.get("status") not in {"ok", "low_confidence"}
+               or (item.get("source") or {}).get("page_no") != item["page_no"]
+               for item in result.pages):
+            raise ValueError("分析结果包含错误图书、无来源或不可用页面")
+        if result.graph.get("book_id") != run["book_id"] or result.graph.get("status") not in {"ok", "low_confidence"}:
+            raise ValueError("全书分析结果不可用")
+        if any(entity.get("source", {}).get("page_no") not in expected_pages
+               for entity in result.graph.get("entities", [])):
+            raise ValueError("实体来源页码不属于本书")
+        if not result.model_manifest.get("provider") or result.model_manifest.get("status") not in {"ok", "low_confidence"}:
+            raise ValueError("模型来源或状态不可用")
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        _mark_analysis_failed(job_id, run["id"], "INVALID_INPUT", f"分析结果无效：{exc}")
+        return
+
+    try:
+        with get_connection() as connection:
+            now = now_iso()
+            # 保存每页可追溯的 OCR 与视觉结果，供 C/E 查询和复核。
+            for item in result.pages:
+                page_no = item["page_no"]
+                ocr = {
+                    "text": item.get("text", ""),
+                    "boxes": item.get("boxes", []),
+                    "confidence": item.get("text_confidence", 0),
+                    "provider": item.get("ocr_version"),
+                    "source": item["source"],
+                }
+                vision = {
+                    "entities": item.get("entities", []),
+                    "events": item.get("events", []),
+                    "confidence": max(
+                        [float(x.get("confidence", 0)) for x in item.get("entities", []) + item.get("events", [])] or [0.0]
+                    ),
+                    "provider": item.get("vision_version"),
+                    "source": item["source"],
+                }
+                connection.execute(
+                    "UPDATE pages SET ocr_json=?, vision_json=? WHERE book_id=? AND page_no=?",
+                    (json_text(ocr), json_text(vision), run["book_id"], page_no),
+                )
+
+            # 重试同一 run 时，替换该 run 上一次产生的实体，避免重复记录。
+            connection.execute("DELETE FROM book_entities WHERE book_id=? AND json_extract(attributes_json, '$.analysis_run_id')=?", (run["book_id"], run["id"]))
+            graph = result.graph
+            for entity in graph.get("entities", []):
+                source = entity.get("source") or {}
+                attributes = {**entity, "analysis_run_id": run["id"]}
+                connection.execute(
+                    "INSERT INTO book_entities(id,book_id,entity_type,name,attributes_json,source_json,created_at) VALUES(?,?,?,?,?,?,?)",
+                    (str(uuid.uuid4()), run["book_id"], entity.get("kind", "unknown"), entity.get("name", ""),
+                     json_text(attributes), json_text(source), now),
+                )
+            old_config = json.loads(run["config_json"])
+            old_config["analysis_result"] = {"pages": result.pages, "graph": result.graph, "note": result.note}
+            old_config["provider"] = result.model_manifest.get("provider")
+            connection.execute(
+                "UPDATE runs SET status='SUCCEEDED', config_json=?, model_manifest_json=?, finished_at=? WHERE id=?",
+                (json_text(old_config), json_text(result.model_manifest), now, run["id"]),
+            )
+            connection.execute(
+                "UPDATE jobs SET status='SUCCEEDED', ended_at=?, error_code=NULL, error_message=NULL WHERE id=?",
+                (now, job_id),
+            )
+            connection.execute(
+                "UPDATE books SET status='ANALYZED', updated_at=? WHERE id=?",
+                (now, run["book_id"]),
+            )
+
+    except Exception as exc:
+        _mark_analysis_failed(job_id, run["id"], "PROVIDER_ERROR", f"分析结果保存失败：{type(exc).__name__}: {exc}")
+
+
+def _mark_analysis_failed(job_id: str, run_id: str, error_code: str, error_message: str) -> None:
+    now = now_iso()
+    with get_connection() as connection:
+        connection.execute(
+            "UPDATE jobs SET status='FAILED', error_code=?, error_message=?, ended_at=? WHERE id=?",
+            (error_code, error_message[:1000], now, job_id),
+        )
+        connection.execute("UPDATE runs SET status='FAILED', finished_at=? WHERE id=?", (now, run_id))
 
 
 @app.post("/api/books/{book_id}/analyze", response_model=JobOut, status_code=202, tags=["analysis"])
@@ -231,7 +356,7 @@ def analyze_book(book_id: str, payload: AnalyzeRequest, background_tasks: Backgr
         if not connection.execute("SELECT 1 FROM pages WHERE book_id=?", (book_id,)).fetchone():
             raise HTTPException(409, "请先上传至少一页图书")
         result = _make_job(connection, book_id, "analyze", {"analysis_profile": payload.analysis_profile})
-    background_tasks.add_task(_run_placeholder, result.job_id)
+    background_tasks.add_task(_run_analysis, result.job_id)
     return result
 
 
@@ -252,8 +377,18 @@ def generate_note(book_id: str, payload: NoteGenerateRequest, actor: str = Depen
         analyzed = connection.execute("SELECT 1 FROM runs WHERE book_id=? AND status='SUCCEEDED' LIMIT 1", (book_id,)).fetchone()
         if book["status"] != "ANALYZED" or analyzed is None:
             raise HTTPException(409, "请先完成真实分析；不能根据空结果生成笔记")
+        run = connection.execute(
+            "SELECT * FROM runs WHERE book_id=? AND status='SUCCEEDED' ORDER BY finished_at DESC LIMIT 1",
+            (book_id,),
+        ).fetchone()
         now = now_iso(); note_id = str(uuid.uuid4())
-        content = {"template": payload.note_template, "summary": "待根据分析结果补充", "sources": [], "is_placeholder": True}
+        analysis = json.loads(run["config_json"]).get("analysis_result", {})
+        generated = analysis.get("note") if isinstance(analysis, dict) else None
+        content = dict(generated) if isinstance(generated, dict) else {}
+        content.update({"template": payload.note_template, "analysis_run_id": run["id"]})
+        content.setdefault("summary", "")
+        content.setdefault("sources", [])
+        content["is_placeholder"] = not (isinstance(content.get("summary"), str) and bool(content["summary"].strip()) and bool(content.get("sources")))
         connection.execute("INSERT INTO reading_notes(id,book_id,owner_id,content_json,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)", (note_id, book_id, actor, json_text(content), "DRAFT", now, now))
         row = connection.execute("SELECT * FROM reading_notes WHERE id=?", (note_id,)).fetchone()
     return _note_out(row)
@@ -393,7 +528,7 @@ def retry_job(job_id: str, background_tasks: BackgroundTasks, actor: str = Depen
         connection.execute("UPDATE jobs SET status='RETRYING',error_code=NULL,error_message=NULL,ended_at=NULL WHERE id=?", (job_id,))
         connection.execute("UPDATE runs SET status='RETRYING',finished_at=NULL WHERE id=?", (row["run_id"],))
         result = JobOut(job_id=job_id, run_id=row["run_id"], stage=row["stage"], status="RETRYING", attempts=row["attempts"])
-    background_tasks.add_task(_run_placeholder, job_id)
+    background_tasks.add_task(_run_analysis, job_id)
     return result
 
 
