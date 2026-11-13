@@ -9,7 +9,7 @@ function walk(folder) {
   for (const item of fs.readdirSync(folder, { withFileTypes: true })) {
     const file = path.join(folder, item.name);
     if (item.isDirectory()) walk(file);
-    else if (/\.tsx?$/.test(file)) {
+    else if (/\.tsx?$/.test(file) && !file.endsWith('.d.ts') && !file.includes('__tests__')) {
       const id = path.relative(src, file).replaceAll('\\', '/').replace(/\.tsx?$/, '');
       const result = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
         fileName: file,
@@ -17,7 +17,8 @@ function walk(folder) {
         compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true, isolatedModules: true },
       });
       errors.push(...(result.diagnostics || []).map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n')));
-      modules[id] = result.outputText;
+      // CommonJS 运行时里 import.meta 是语法错误，会让整个离线页白屏；离线包固定为 Demo 模式
+      modules[id] = result.outputText.replace(/import\.meta\.env/g, "({VITE_DEFAULT_MODE:'demo'})");
     }
   }
 }
