@@ -1,0 +1,7 @@
+# 可选：仅 AI_PROVIDER=b_local 时安装。先安装 requirements.txt。
+# torch 的 CPU/CUDA 安装方式按设备选择，版本仍需 B/A 在目标电脑实测。
+paddlepaddle>=3.3,<4
+paddleocr>=3.7,<4
+torch>=2.6,<3
+transformers>=4.49,<5
+accelerate>=1,<2
