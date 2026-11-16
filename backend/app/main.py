@@ -17,9 +17,12 @@ from PIL import Image, UnidentifiedImageError
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 from .db import DATABASE_PATH, get_connection, initialize_database
 from .security import actor_id, require_owner
+from .auth_routes import router as auth_router
+from .accounts import initialize_accounts
 from pydantic import BaseModel
 
 from .schemas import (
@@ -31,12 +34,13 @@ from .services.analysis import (
     AnalysisPageInput, AnalysisProviderError, build_analysis_provider,
 )
 from .services.core import (
-    ALLOWED_IMAGE_TYPES, MAX_PAGE_BYTES, classify_title, json_text, now_iso,
+    ALLOWED_IMAGE_TYPES, MAX_BOOK_PAGES, MAX_PAGE_BYTES, classify_title, json_text, now_iso,
     safe_book_path, sha256_bytes, sha256_file, token_pair,
 )
 
 app = FastAPI(title="纸书智伴 API", version="0.1.0")
 DATA_ROOT = Path(os.getenv("DATA_ROOT", str(DATABASE_PATH.parent)))
+app.include_router(auth_router)
 
 
 def _row_or_404(connection: sqlite3.Connection, table: str, object_id: str, label: str = "对象") -> sqlite3.Row:
@@ -67,6 +71,8 @@ def _note_out(row: sqlite3.Row) -> NoteOut:
 @app.on_event("startup")
 def on_startup() -> None:
     initialize_database()
+    if os.getenv('AUTH_BACKEND') != 'legacy':
+        initialize_accounts()
 
 
 @app.get("/health", tags=["system"])
@@ -95,6 +101,27 @@ def get_book(book_id: str, actor: str = Depends(actor_id)) -> BookOut:
         return _book_out(row)
 
 
+@app.post("/api/ocr/recognize")
+async def recognize_page_ocr(request: Request, actor: str = Depends(actor_id)):
+    """Recognize original text for a user's editable draft; never save or confirm it."""
+    from .services.ocr import InvalidOcrImage, OcrUnavailable, recognize_image
+    mime = request.headers.get("content-type", "").split(";", 1)[0].strip()
+    if mime not in {"image/jpeg", "image/png"}:
+        raise HTTPException(415, "仅支持 JPG / PNG")
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > MAX_PAGE_BYTES:
+            raise HTTPException(413, "单页图片过大")
+        data.extend(chunk)
+    try:
+        from fastapi.concurrency import run_in_threadpool
+        return await run_in_threadpool(recognize_image, bytes(data), mime)
+    except InvalidOcrImage as exc:
+        raise HTTPException(415, str(exc)) from exc
+    except OcrUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
 @app.post("/api/books/{book_id}/pages", response_model=PageOut, status_code=201, tags=["books"])
 async def upload_page(book_id: str, page_no: int, request: Request, actor: str = Depends(actor_id)) -> PageOut:
     """接收原始图片字节，避免在离线环境强制依赖 multipart 解析包。
@@ -102,19 +129,19 @@ async def upload_page(book_id: str, page_no: int, request: Request, actor: str =
     客户端发送图片原始字节，并设置 Content-Type 为 image/jpeg 或 image/png。
     """
     content_type = request.headers.get("content-type", "").split(";", 1)[0].strip()
-    if page_no < 1:
-        raise HTTPException(422, "page_no 必须从 1 开始")
+    if page_no < 1 or page_no > MAX_BOOK_PAGES:
+        raise HTTPException(422, f"page_no 必须在 1 到 {MAX_BOOK_PAGES} 之间")
     if content_type not in ALLOWED_IMAGE_TYPES:
         raise HTTPException(415, "只允许上传 JPG 或 PNG 图片")
     # 流式读取，超过上限立即拒绝，避免客户端用超大请求耗尽内存。
     chunks = bytearray()
     async for chunk in request.stream():
+        if len(chunk) > MAX_PAGE_BYTES - len(chunks):
+            raise HTTPException(413, "单页图片不能超过 20MB")
         chunks.extend(chunk)
-        if len(chunks) > MAX_PAGE_BYTES:
-            raise HTTPException(413, "单页图片不能超过 10MB")
     data = bytes(chunks)
     if len(data) > MAX_PAGE_BYTES:
-        raise HTTPException(413, "单页图片不能超过 10MB")
+        raise HTTPException(413, "单页图片不能超过 20MB")
     if not data:
         raise HTTPException(400, "不能上传空文件")
     # MIME 头可以伪造，必须检查真实文件头。
@@ -281,6 +308,16 @@ def _run_analysis(job_id: str) -> None:
     try:
         with get_connection() as connection:
             now = now_iso()
+            # 分析可能运行很久；这期间主人已经校对的页不能被模型写回覆盖。
+            # 查询在同一写事务内完成，以当前最新人工修订为准。
+            manual_pages = {
+                row["page_no"]: row
+                for row in connection.execute(
+                    "SELECT page_no,ocr_json,vision_json,revision FROM pages WHERE book_id=? AND revision>0",
+                    (run["book_id"],),
+                )
+            }
+            corrected_text: dict[int, str] = {}
             # 保存每页可追溯的 OCR 与视觉结果，供 C/E 查询和复核。
             for item in result.pages:
                 page_no = item["page_no"]
@@ -300,6 +337,13 @@ def _run_analysis(job_id: str) -> None:
                     "provider": item.get("vision_version"),
                     "source": item["source"],
                 }
+                manual = manual_pages.get(page_no)
+                if manual and manual["ocr_json"] is not None:
+                    ocr = json.loads(manual["ocr_json"])
+                    if isinstance(ocr, dict) and isinstance(ocr.get("text"), str):
+                        corrected_text[page_no] = ocr["text"]
+                if manual and manual["vision_json"] is not None:
+                    vision = json.loads(manual["vision_json"])
                 connection.execute(
                     "UPDATE pages SET ocr_json=?, vision_json=? WHERE book_id=? AND page_no=?",
                     (json_text(ocr), json_text(vision), run["book_id"], page_no),
@@ -317,7 +361,17 @@ def _run_analysis(job_id: str) -> None:
                      json_text(attributes), json_text(source), now),
                 )
             old_config = json.loads(run["config_json"])
-            old_config["analysis_result"] = {"pages": result.pages, "graph": result.graph, "note": result.note}
+            note = dict(result.note)
+            if corrected_text:
+                # 读书笔记草稿使用主人校对的文字，仍需主人审核才能分享。
+                note["summary"] = " ".join(
+                    corrected_text.get(item["page_no"], item.get("text", "")).strip()
+                    for item in sorted(result.pages, key=lambda item: item["page_no"])
+                    if corrected_text.get(item["page_no"], item.get("text", "")).strip()
+                )[:300]
+                note["summary_method"] = "reviewed_ocr_excerpt_needs_review"
+                note["is_placeholder"] = not bool(note["summary"] and note.get("sources"))
+            old_config["analysis_result"] = {"pages": result.pages, "graph": result.graph, "note": note}
             old_config["provider"] = result.model_manifest.get("provider")
             connection.execute(
                 "UPDATE runs SET status='SUCCEEDED', config_json=?, model_manifest_json=?, finished_at=? WHERE id=?",
@@ -618,11 +672,32 @@ def register_asset(run_id: str, payload: AssetInput, actor: str = Depends(actor_
     path = Path(payload.file_path).resolve()
     if root not in path.parents or not path.is_file():
         raise HTTPException(422, "产物必须是 data/runs/<run_id> 内已存在的文件")
-    allowed_assets = {"video": {"video/mp4": ".mp4"}, "audio": {"audio/mpeg": ".mp3", "audio/wav": ".wav"}, "subtitle": {"text/vtt": ".vtt"}}
+    allowed_assets = {"video": {"video/mp4": ".mp4"}, "image": {"image/png": ".png", "image/jpeg": ".jpg"}, "audio": {"audio/mpeg": ".mp3", "audio/wav": ".wav"}, "subtitle": {"text/vtt": ".vtt"}}
     if payload.asset_type not in allowed_assets or payload.mime_type not in allowed_assets[payload.asset_type]:
         raise HTTPException(422, "产物类型或 MIME 不支持")
     if path.suffix.lower() != allowed_assets[payload.asset_type][payload.mime_type]:
         raise HTTPException(422, "产物扩展名与类型不匹配")
+    if payload.asset_type in {"video", "image"} and not isinstance(payload.metadata.get("producer"), str):
+        raise HTTPException(422, "媒体产物必须标注生成来源 producer")
+    if payload.asset_type == "image":
+        page_no = payload.metadata.get("page_no")
+        if not isinstance(page_no, int) or isinstance(page_no, bool) or page_no < 1:
+            raise HTTPException(422, "插画必须标注来源页码")
+        with get_connection() as connection:
+            run = connection.execute("SELECT book_id FROM runs WHERE id=?", (run_id,)).fetchone()
+            if not connection.execute("SELECT 1 FROM pages WHERE book_id=? AND page_no=?", (run["book_id"], page_no)).fetchone():
+                raise HTTPException(422, "插画来源页码不属于该图书")
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", Image.DecompressionBombWarning)
+                with Image.open(path) as image:
+                    if image.format != ("PNG" if payload.mime_type == "image/png" else "JPEG") or image.width * image.height > 40_000_000:
+                        raise ValueError("image type or size mismatch")
+                    image.verify()
+                with Image.open(path) as image:
+                    image.load()
+        except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombWarning, Image.DecompressionBombError) as exc:
+            raise HTTPException(415, "插画无法完整解码") from exc
     digest = sha256_file(path)
     asset_id = str(uuid.uuid4())
     with get_connection() as connection:
@@ -801,3 +876,14 @@ def export_run_metrics(run_id: str, actor: str = Depends(actor_id)) -> Response:
     writer.writeheader()
     writer.writerow(metrics)
     return Response(content=output.getvalue(), media_type="text/csv; charset=utf-8")
+
+
+
+
+# Built frontend and API share one origin: browsers need no permissive CORS policy.
+# Opt in only after building the frontend. Do not expose the dev server to the internet.
+if os.getenv("SERVE_FRONTEND") == "1":
+    frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    if not (frontend_dist / "index.html").is_file():
+        raise RuntimeError("先运行 npm --prefix frontend run build")
+    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")

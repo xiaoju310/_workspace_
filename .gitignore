@@ -11,3 +11,19 @@ backend/.pytest_cache/
 test-results/
 data/
 *.tsbuildinfo
+
+# 本地运行产生的缓存和测试临时目录。
+.tmp-pytest*/
+*.egg-info/
+
+.pytest-auth-temp/
+.pytest-mongo-auth-temp/
+
+# Development caches, logs and local credentials (desktop release).
+**/__pycache__/
+.pytest*/
+*.log
+*.pem
+*.key
+*.p12
+*.keystore

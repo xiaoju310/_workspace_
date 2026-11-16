@@ -74,12 +74,12 @@
 <rect x="290" y="641" width="22" height="22" rx="6" fill="#eef2e5"/>
 <text x="298" y="656" fill="#7a8d65" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">2</text>
 <text x="322" y="657" fill="#283b33" font-size="14" font-weight="550" font-family="Microsoft YaHei, PingFang SC, sans-serif">添加书页图片</text>
-<text x="961" y="656" fill="#7b847b" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">0 / 24 页</text>
+<text x="961" y="656" fill="#7b847b" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">0 / 100 页</text>
 <rect x="290" y="685" width="717" height="208" rx="9" fill="#f6f8ef" stroke="#b7c6a2" stroke-dasharray="5 4"/>
 <rect x="623" y="709" width="50" height="50" rx="13" fill="#edf1e2"/>
 <g transform="translate(633 719) scale(1.25)" fill="none" stroke="#839b69" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5"/></g>
 <text x="535" y="785" fill="#60734f" font-size="12" font-weight="500" font-family="Microsoft YaHei, PingFang SC, sans-serif">把书页拖到这里，或点击选择</text>
-<text x="525" y="808" fill="#a5af95" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">JPG / PNG · 每张不超过 10 MB · 最多 24 页</text>
+<text x="525" y="808" fill="#a5af95" font-size="9" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">JPG / PNG · 每张不超过 20 MB · 最多 100 页</text>
 <rect x="596" y="827" width="107" height="34" rx="5" fill="#fffef7" stroke="#d8e1cb"/>
 <text x="608" y="849" fill="#6d8558" font-size="10" font-weight="400" font-family="Microsoft YaHei, PingFang SC, sans-serif">选择书页</text>
 <g transform="translate(674 837) scale(0.6666666666666666)" fill="none" stroke="#6d8558" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></g>

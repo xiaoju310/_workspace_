@@ -4,6 +4,9 @@ import type { WorkflowProps } from '../app/types'
 import type { BookType, PreviewState } from '../features/books/types'
 import { bookTypeLabels } from '../features/books/types'
 import { Badge, Button, Icon } from '../components/ui'
+import { apiClient } from '../lib/api'
+import { pageImageBlob } from '../features/books/pageImage'
+import { OcrReviewNotice } from '../components/OcrReviewNotice'
 
 function WorkflowState({ state, title, onRetry, onImport }: { state: PreviewState; title: string; onRetry: () => void; onImport: () => void }) {
   if (state === 'success') return null
@@ -20,6 +23,10 @@ export function ReviewPage({ book, state, setState, updateBook, navigate, notify
   const selected = book.pages.find(page => page.id === selectedId) ?? book.pages[0]
   const [text, setText] = useState(selected?.ocr_text ?? '')
   const [error, setError] = useState('')
+  const [recognizing, setRecognizing] = useState(false)
+  // 重识别参考分跟随当前草稿，不继续显示旧结果的分数。
+  const [recognizedScore, setRecognizedScore] = useState<{ pageId: string; confidence: number } | null>(null)
+  const score = recognizedScore && recognizedScore.pageId === selected?.id ? recognizedScore.confidence : selected?.confidence
   const [discardPageId, setDiscardPageId] = useState<string | null>(null)
   const confirmedCount = book.pages.filter(page => page.confirmed).length
   const changed = !!selected && text !== selected.ocr_text
@@ -31,22 +38,42 @@ export function ReviewPage({ book, state, setState, updateBook, navigate, notify
     setSelectedId(target); setError(''); setDiscardPageId(null)
   }, [book.id])
   useEffect(() => { setText(selected?.ocr_text ?? ''); setError('') }, [selected?.id, selected?.ocr_text])
+  useEffect(() => { setRecognizedScore(null) }, [book.id, selected?.id])
+
+  async function recognizeSelected() {
+    if (!selected || recognizing || changed || selected.confirmed) return
+    if (book.origin !== 'real' || !apiClient.getToken()) { setError('请先登录并使用真实模式。'); return }
+    const pageId = selected.id
+    setRecognizing(true); setError('')
+    try {
+      const result = await apiClient.recognizePage(await pageImageBlob(selected.image_url))
+      if (!result.text.trim()) { setError('没有识别出文字，可手动填写画面描述。'); return }
+      // Only edit the visible draft. Never save or confirm an OCR result automatically.
+      if (book.pages.find(page => page.id === pageId)?.confirmed) return
+      setText(result.text)
+      setRecognizedScore({ pageId, confidence: result.confidence })
+      notify('识别文字已填入草稿，请核对原图后手动保存和确认。')
+    } catch (cause) {
+      setError(`识别失败：${cause instanceof Error ? cause.message : '请手动填写'}`)
+    } finally { setRecognizing(false) }
+  }
 
   function choosePage(id: string) {
-    if (id === selected?.id) return
+    if (id === selected?.id || recognizing) return
     if (changed) { setDiscardPageId(id); return }
     setSelectedId(id)
   }
 
   function save(confirm: boolean) {
-    if (!selected) return
+    if (!selected || recognizing) return
     if (!text.trim()) { setError('这一页还没有文字。请补充识别内容或填写画面描述，再保存校对。'); return }
     updateBook(current => ({
       ...current,
       status: 'REVIEW_REQUIRED',
       safety_reviewed: false,
+      pages_only: false,
       classification: current.pages.some(page => page.id === selected.id && page.ocr_text !== text) ? { ...current.classification, owner_confirmed: false } : current.classification,
-      pages: current.pages.map(page => page.id === selected.id ? { ...page, ocr_text: text, revision: page.revision + (page.ocr_text === text ? 0 : 1), confirmed: confirm } : page),
+      pages: current.pages.map(page => page.id === selected.id ? { ...page, ocr_text: text, confidence: score ?? page.confidence, revision: page.revision + (page.ocr_text === text ? 0 : 1), confirmed: confirm } : page),
     }))
     setError('')
     notify(confirm ? '这一页已校对确认。' : '校对文字已保存，请确认此页后继续。')
@@ -66,15 +93,15 @@ export function ReviewPage({ book, state, setState, updateBook, navigate, notify
   return <div className="page-content workflow-page"><WorkflowHeading eyebrow="READ, CHECK, MAKE IT RIGHT" title="先读懂每一页，再开始新故事。" description={`《${book.title}》 · 检查书页顺序，修正文字，保留每次校对。`}><Button variant="ghost" onClick={() => navigate('import')}>导入其他图书<Icon name="arrow" size={17}/></Button></WorkflowHeading>
     <div className="wf-path"><span className="done"><Icon name="check" size={14}/>导入书页</span><span className="active">02 · 页序与文字校对</span><span>03 · 分类确认</span><span>04 · 分析与生成</span></div>
     <WorkflowState state={effectiveState} title="页序与 OCR 校对" onRetry={() => setState('success')} onImport={() => navigate('import')}/>
-    {effectiveState === 'success' && selected && <><div className="wf-context"><span><Icon name="info" size={16}/>{book.origin === 'mock' ? 'OCR 文字与置信度为演示数据，请逐页核对。' : '识别文字供你校对，保存后会更新校对版本。'}</span><Badge tone={allConfirmed ? 'green' : 'amber'}>{confirmedCount} / {book.pages.length} 页已确认</Badge></div>
+    {effectiveState === 'success' && selected && <><div className="wf-context"><span><Icon name="info" size={16}/>{book.origin === 'mock' ? 'OCR 文字与参考分为演示数据，请逐页核对。' : '识别文字供你校对，保存后会更新校对版本。'}</span><Badge tone={allConfirmed ? 'green' : 'amber'}>{confirmedCount} / {book.pages.length} 页已确认</Badge></div>
       <div className="review-layout"><aside className="wf-card page-order"><div className="wf-card-heading"><h2>书页顺序</h2><span>{book.pages.length} 页</span></div><ol>{book.pages.map((page, index) => <li key={page.id} className={selected.id === page.id ? 'chosen' : ''}><button className="page-select" onClick={() => choosePage(page.id)} aria-current={selected.id === page.id ? 'step' : undefined}><img src={page.image_url} alt=""/><div><strong>第 {index + 1} 页</strong><small>{page.confirmed ? '已校对确认' : '待校对'}</small></div>{page.confirmed && <Icon name="check" size={15}/>}</button><div className="order-controls"><button aria-label={`将第 ${index + 1} 页前移`} disabled={index === 0} onClick={() => reorder(index, -1)}><Icon name="up" size={15}/></button><button aria-label={`将第 ${index + 1} 页后移`} disabled={index === book.pages.length - 1} onClick={() => reorder(index, 1)}><Icon name="down" size={15}/></button></div></li>)}</ol><p className="wf-small">调整顺序后需重新确认书页，确保引用页码准确。</p></aside>
       <section className="wf-card original-page"><div className="wf-card-heading"><h2>原始书页</h2><Badge>{selected.demo ? '原创示例' : '本地图片'}</Badge></div><div className="original-image"><img src={selected.image_url} alt={`《${book.title}》第 ${book.pages.indexOf(selected) + 1} 页原图`}/></div><div className="original-caption"><span>第 {book.pages.indexOf(selected) + 1} 页</span><span title={selected.name}>{selected.name}</span></div></section>
-      <section className="wf-card ocr-editor"><div className="wf-card-heading"><h2>文字校对</h2><Badge tone={selected.confidence < .8 ? 'amber' : 'green'}>识别置信度 {Math.round(selected.confidence * 100)}%</Badge></div>{selected.confidence < .8 && <p className="wf-warning"><Icon name="alert" size={16}/>此页识别置信度较低，请对照原图检查漏字与错字。</p>}<label htmlFor="ocr-text">书页文字 / 画面描述</label><textarea id="ocr-text" value={text} onChange={event => { setText(event.target.value); setError('') }} rows={12} maxLength={12000} aria-describedby="ocr-help ocr-error"/><div className="ocr-meta"><span>校对版本 r{selected.revision}{changed ? ' · 有未保存修改' : selected.confirmed ? ' · 已确认' : ' · 已保存'}</span><span>{text.length} / 12000</span></div><p id="ocr-help" className="wf-small">无文字的书页可填写画面描述。这里只保存校对内容，不会自动改写原图。</p>{error && <p id="ocr-error" className="wf-error" role="alert">{error}</p>}{discardPageId && <div className="wf-confirm-box" role="alert"><p>当前页有未保存修改。先保存，或放弃修改后切换书页。</p><div><Button variant="secondary" onClick={() => setDiscardPageId(null)}>留在当前页</Button><Button variant="ghost" onClick={() => { setSelectedId(discardPageId); setDiscardPageId(null) }}>放弃修改并切换</Button></div></div>}<div className="wf-actions"><Button variant="secondary" onClick={() => save(false)}>保存校对</Button><Button onClick={() => save(true)}><Icon name="check" size={16}/>确认此页</Button></div></section></div>
+      <section className="wf-card ocr-editor"><OcrReviewNotice text={text} score={score} demo={book.origin === 'mock' || selected.demo} edited={changed}/><label htmlFor="ocr-text">书页文字 / 画面描述</label>{book.origin === 'real' && !selected.demo && <Button variant="secondary" disabled={recognizing || changed || selected.confirmed} onClick={recognizeSelected}>{recognizing ? '正在识别…' : '重新识别这一页'}</Button>}<textarea id="ocr-text" disabled={recognizing} value={text} onChange={event => { setText(event.target.value); setError('') }} rows={12} maxLength={12000} aria-describedby={`ocr-help ocr-score-help ocr-review-help${error ? ' ocr-error' : ''}`}/><div className="ocr-meta"><span>校对版本 r{selected.revision}{changed ? ' · 有未保存修改' : selected.confirmed ? ' · 已确认' : ' · 已保存'}</span><span>{text.length} / 12000</span></div><p id="ocr-help" className="wf-small">无文字的书页可填写画面描述。这里只保存校对内容，不会自动改写原图。</p>{error && <p id="ocr-error" className="wf-error" role="alert">{error}</p>}{discardPageId && <div className="wf-confirm-box" role="alert"><p>当前页有未保存修改。先保存，或放弃修改后切换书页。</p><div><Button variant="secondary" onClick={() => setDiscardPageId(null)}>留在当前页</Button><Button variant="ghost" onClick={() => { setSelectedId(discardPageId); setDiscardPageId(null) }}>放弃修改并切换</Button></div></div>}<div className="wf-actions"><Button variant="secondary" onClick={() => save(false)}>保存校对</Button><Button onClick={() => save(true)}><Icon name="check" size={16}/>确认此页</Button></div></section></div>
       <div className="wf-next-bar"><div><strong>{allConfirmed ? '所有书页已确认，可以继续。' : '逐页确认，让每一个引用都有依据。'}</strong><p>校对修改和版本会随本次阅读会话保留。</p></div><Button disabled={!allConfirmed} onClick={() => navigate('classification', book.id)}>下一步：分类确认<Icon name="arrow" size={17}/></Button></div></>}
   </div>
 }
 
-export function ClassificationPage({ book, state, setState, updateBook, navigate, notify, onGenerate }: WorkflowProps) {
+export function ClassificationPage({ book, state, setState, updateBook, navigate, notify, onGenerate, appMode }: WorkflowProps) {
   const [selectedType, setSelectedType] = useState<BookType>(book.classification.confirmed_type ?? book.classification.predicted_type)
   const [confirmed, setConfirmed] = useState(book.classification.owner_confirmed)
   const [ageBand, setAgeBand] = useState(book.age_band.startsWith('3') ? '3–6 岁（成人陪同）' : book.age_band.startsWith('9') ? '9–12 岁' : book.age_band.startsWith('12') ? '12 岁以上' : '6–9 岁')
@@ -84,9 +111,24 @@ export function ClassificationPage({ book, state, setState, updateBook, navigate
   const pagesReady = book.pages.length > 0 && book.pages.every(page => page.confirmed)
   useEffect(() => { setSelectedType(book.classification.confirmed_type ?? book.classification.predicted_type); setConfirmed(book.classification.owner_confirmed); setAgeBand(book.age_band.startsWith('3') ? '3–6 岁（成人陪同）' : book.age_band.startsWith('9') ? '9–12 岁' : book.age_band.startsWith('12') ? '12 岁以上' : '6–9 岁'); setError('') }, [book.id])
 
-  function confirmClassification() {
+  async function confirmClassification() {
     if (selectedType === 'unknown') { setError('请选择一个图书类型后确认；暂不确定时可以先返回校对。'); return }
     if (!pagesReady) { setError('请先完成全部书页校对，再确认分类。'); return }
+
+    // 只有真正在 A 后端建档的书(server_book_id)才调用 PATCH /api/books/{id}/classification；
+    // 失败时绝不显示"已确认"。本地导入的书只做本地确认，并明确告知未同步。
+    if (book.server_book_id) {
+      try {
+        await apiClient.confirmCategory(book.server_book_id, selectedType)
+      } catch (err: any) {
+        setError(`后端保存分类失败: ${err.message || '网络或鉴权错误'}。保存失败不能确认。`)
+        notify(`分类确认失败: ${err.message}`)
+        return
+      }
+    } else if (appMode === 'live') {
+      notify('该书尚未在服务端建档，类型仅在本地确认，未同步到后端。')
+    }
+
     updateBook(current => ({ ...current, age_band: ageBand, classification: { ...current.classification, confirmed_type: selectedType, owner_confirmed: true } }))
     setConfirmed(true); setError(''); notify('图书类型已由主人确认。')
   }
@@ -96,4 +138,3 @@ export function ClassificationPage({ book, state, setState, updateBook, navigate
       <section className="wf-card classification-owner"><div className="wf-card-heading"><h2>由你作最后确认</h2><Badge tone={confirmed ? 'green' : 'amber'}>{confirmed ? '主人已确认' : '待主人确认'}</Badge></div><p className="wf-lead">选择最接近原书的类型。</p><fieldset className="type-choices"><legend className="sr-only">确认图书类型</legend>{(['picture_book', 'fiction', 'nonfiction', 'unknown'] as const).map(type => <label className={selectedType === type ? 'type-choice selected' : 'type-choice'} key={type}><input type="radio" name="book-type" value={type} checked={selectedType === type} onChange={() => { setSelectedType(type); setConfirmed(false); setError(''); updateBook(current => ({ ...current, status: 'REVIEW_REQUIRED', safety_reviewed: false, classification: { ...current.classification, owner_confirmed: false } })) }}/><span><strong>{bookTypeLabels[type]}</strong><small>{type === 'picture_book' ? '图像叙事为主，优先进入互动伴读' : type === 'fiction' ? '故事与人物为主，整理情节和阅读发现' : type === 'nonfiction' ? '概念与知识为主，保留定义与来源引用' : '暂不下判断，返回原文继续检查'}</small></span></label>)}</fieldset><label className="field wf-age">阅读年龄建议<select value={ageBand} onChange={event => { setAgeBand(event.target.value); setConfirmed(false); updateBook(current => ({ ...current, status: 'REVIEW_REQUIRED', safety_reviewed: false, classification: { ...current.classification, owner_confirmed: false } })) }}><option>3–6 岁（成人陪同）</option><option>6–9 岁</option><option>9–12 岁</option><option>12 岁以上</option></select></label><p className="wf-small">年龄标签用于界面说明，内容是否适合仍需主人复核。</p>{!pagesReady && <p className="wf-warning"><Icon name="info" size={16}/>还有书页未完成校对，请先返回检查。</p>}{error && <p className="wf-error" role="alert">{error}</p>}<div className="wf-actions"><Button variant="secondary" onClick={confirmClassification}><Icon name="check" size={16}/>确认图书类型</Button><Button disabled={!confirmed || !pagesReady} onClick={onGenerate}>开始分析与生成<Icon name="arrow" size={17}/></Button></div><div className="wf-private"><Icon name="lock" size={17}/><span>笔记会先生成私密草稿，经主人审核后才能分享。原型中的确认不替代服务端鉴权。</span></div></section></div>}
   </div>
 }
-

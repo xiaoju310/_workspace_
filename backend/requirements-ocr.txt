@@ -1,0 +1,3 @@
+# Optional local OCR, independent of the much larger VLM analysis dependencies.
+rapidocr>=3.10,<4
+onnxruntime>=1.19,<2
