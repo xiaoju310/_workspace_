@@ -9,7 +9,7 @@ function walk(folder) {
   for (const item of fs.readdirSync(folder, { withFileTypes: true })) {
     const file = path.join(folder, item.name);
     if (item.isDirectory()) walk(file);
-    else if (/\.tsx?$/.test(file)) {
+    else if (/\.tsx?$/.test(file) && !file.endsWith('.d.ts') && !file.includes('__tests__')) {
       const id = path.relative(src, file).replaceAll('\\', '/').replace(/\.tsx?$/, '');
       const result = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
         fileName: file,
@@ -17,7 +17,8 @@ function walk(folder) {
         compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true, isolatedModules: true },
       });
       errors.push(...(result.diagnostics || []).map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n')));
-      modules[id] = result.outputText;
+      // CommonJS 运行时里 import.meta 是语法错误，会让整个离线页白屏；离线包固定为 Demo 模式
+      modules[id] = result.outputText.replace(/import\.meta\.env/g, "({VITE_DEFAULT_MODE:'demo'})");
     }
   }
 }
@@ -50,7 +51,7 @@ get('main');`;
 const vendorBase = path.dirname(require.resolve('react/package.json'));
 const react = fs.readFileSync(path.join(vendorBase, 'umd/react.production.min.js'), 'utf8');
 const reactDom = fs.readFileSync(path.join(path.dirname(require.resolve('react-dom/package.json')), 'umd/react-dom.production.min.js'), 'utf8');
-const css = ['global.css','workspace.css','workflow.css','reader.css','notes.css'].map(file => fs.readFileSync(path.join(src,'styles',file),'utf8')).join('\n');
+const css = fs.readFileSync(path.join(src, 'index.css'), 'utf8') + '\n' + ['global.css','workspace.css','workflow.css','reader.css','notes.css'].map(file => fs.readFileSync(path.join(src,'styles',file),'utf8')).join('\n');
 let html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="纸书智伴全流程离线交互原型，所有内容为模拟"><title>纸书智伴 · 全流程演示</title><style>${css}</style></head><body><div id="root"></div><script>${react}</script><script>${reactDom}</script><script>${runtime}</script></body></html>`;
 for(const [url, data] of Object.entries(art)) html = html.replaceAll(url, data);
 fs.mkdirSync(path.join(root, 'docs/prototype'), { recursive: true });

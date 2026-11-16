@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png"}
-MAX_PAGE_BYTES = 10 * 1024 * 1024
+MAX_PAGE_BYTES = 20 * 1024 * 1024
+MAX_BOOK_PAGES = 100
 
 
 def now_iso() -> str:

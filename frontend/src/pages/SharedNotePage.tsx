@@ -2,7 +2,24 @@ import { useEffect, useState } from 'react'
 import type { SharedProps } from '../app/types'
 import { Badge, Button, Icon } from '../components/ui'
 
-export default function SharedNotePage({ state, grant, recipient, setRecipient, navigate }: SharedProps) {
+/** Live：只展示服务端核验后返回的内容；拒绝/失败时不显示任何笔记内容 */
+function ServerSharedView({ view, navigate, onRetry }: { view: NonNullable<SharedProps['serverView']>; navigate: SharedProps['navigate']; onRetry?: () => void }) {
+  const heading = <div className="page-heading"><div><p className="eyebrow">A DISCOVERY, SHARED WITH YOU</p><h1>一份来自阅读的礼物。</h1><p className="page-description">只读查看已审核的阅读笔记。</p></div><Button variant="ghost" onClick={() => navigate('home')}>返回阅读空间 <Icon name="arrow" size={16}/></Button></div>
+  const origin = <div className="notes-origin"><Icon name="info" size={17}/><span>真实分享（Live）：访问权限、有效期和撤销状态由服务端核验，下方内容来自服务端，不是本地快照。</span></div>
+  let body
+  if (view.status === 'loading') body = <div className="notes-state" role="status" data-shared-status="loading"><span className="notes-state-icon"><Icon name="note" size={28}/></span><h2>正在向服务端核验分享</h2><p>核对令牌、有效期、撤销状态和查看身份。</p></div>
+  else if (view.status === 'missing') body = <div className="notes-state shared-denied" role="status" data-shared-status="missing"><span className="notes-state-icon"><Icon name="lock" size={28}/></span><h2>链接不完整</h2><p>缺少分享令牌或邀请编号。</p><Badge tone="amber">内容未展示</Badge></div>
+  else if (view.status === 'denied') body = <div className="notes-state shared-denied" role="status" data-shared-status="denied" data-shared-code={view.code}><span className="notes-state-icon"><Icon name="lock" size={28}/></span><h2>{view.title}</h2><p>{view.detail}</p><Badge tone="amber">内容未展示</Badge>{onRetry && <Button variant="secondary" onClick={onRetry}>重新核验</Button>}</div>
+  else body = <article className="shared-reading-card" data-shared-status="ok"><header><div className="notes-badges"><Badge tone="green">服务端已核验</Badge><Badge>只读</Badge><span className="notes-revision">服务端版本 {view.note.version}</span></div><h2>{view.note.title}</h2></header><section className="shared-summary"><h3>阅读发现</h3><p>{view.note.summary || '（摘要为空）'}</p><div className="notes-concept-list">{view.note.concepts.map((concept, index) => <Badge key={`${concept}-${index}`}>{concept}</Badge>)}</div></section><section className="notes-sources"><div className="notes-section-heading"><h2>来源引用</h2><span>{view.note.sources.length} 处</span></div>{view.note.sources.length ? view.note.sources.map((source, index) => <blockquote className="shared-source" key={`${source.page_no}-${index}`}>{source.quote || '未提供引用文字。'}<cite>第 {source.page_no} 页{source.start_ms !== null ? ` · ${(source.start_ms / 1000).toFixed(1)} 秒` : ''}</cite></blockquote>) : <p className="notes-inline-help">来源待补充。</p>}</section><footer><Icon name="lock" size={16}/><span>只读视图：原图、音频和编辑操作不会随本页提供。</span></footer></article>
+  return <div className="page-content notes-page shared-note-page">{heading}{origin}{body}</div>
+}
+
+export default function SharedNotePage({ state, grant, recipient, setRecipient, navigate, serverView, onRetryServer }: SharedProps) {
+  if (serverView) return <ServerSharedView view={serverView} navigate={navigate} onRetry={onRetryServer} />
+  return <LocalSharedNotePage state={state} grant={grant} recipient={recipient} setRecipient={setRecipient} navigate={navigate} />
+}
+
+function LocalSharedNotePage({ state, grant, recipient, setRecipient, navigate }: SharedProps) {
   const [now, setNow] = useState(Date.now())
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer) }, [])
   const expiresAt = grant ? new Date(grant.expires_at).getTime() : 0

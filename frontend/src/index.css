@@ -1,0 +1,58 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #0f172a;
+  background-color: #f8fafc;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  width: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ping {
+  75%, 100% {
+    transform: translate(-50%, -50%) scale(2);
+    opacity: 0;
+  }
+}
+
+/* 顶部模式切换栏在手机上分行，避免收缩成逐字竖排和横向溢出。 */
+.app-toolbar,.app-toolbar-main,.app-toolbar-controls{flex-wrap:wrap;min-width:0}
+.app-toolbar-tabs{flex-wrap:wrap;min-width:0}
+.app-toolbar-mode{min-width:0}
+.app-toolbar-mode select{max-width:100%;min-height:36px}
+.app-toolbar-token input{min-height:32px}
+@media(max-width:680px){
+  .app-toolbar{gap:10px;padding:10px 12px !important;align-items:flex-start !important}
+  .app-toolbar-main,.app-toolbar-controls{width:100%;max-width:100%;gap:8px !important}
+  .app-toolbar-main>strong{width:100%;white-space:normal}
+  .app-toolbar-tabs{width:100%;display:grid !important;grid-template-columns:minmax(0,1fr)}
+  .app-toolbar-tabs button{width:100%;min-width:0;min-height:44px;white-space:normal;text-align:left;overflow-wrap:anywhere}
+  .app-toolbar-mode{flex:1 1 100%;width:100%;justify-content:space-between}
+  .app-toolbar-mode select{flex:1;min-width:0;width:calc(100% - 50px)}
+  .app-toolbar-token{width:100%;flex-wrap:wrap}
+  .app-toolbar-token input{flex:1 1 130px;width:auto !important;min-width:0}
+  .app-toolbar-token button{min-height:40px}
+}

@@ -1,4 +1,4 @@
-param([int]$Port = 8000)
+param([int]$Port = 8000, [string]$Bind = "127.0.0.1", [switch]$WithFrontend)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $backend = Join-Path $repo 'backend'
@@ -11,5 +11,13 @@ if (-not (Test-Path $python)) {
 }
 $env:PYTHONPATH = $backend
 $env:DATABASE_PATH = Join-Path $repo 'data\paper_companion.db'
-if (-not $env:APP_USER_TOKENS) { throw 'Set APP_USER_TOKENS to a JSON mapping of user IDs to secret bearer tokens before starting.' }
-& $python -m uvicorn app.main:app --host 127.0.0.1 --port $Port
+if ($WithFrontend) {
+    if (-not (Test-Path (Join-Path $repo 'frontend\dist\index.html'))) {
+        throw 'Build the frontend first: npm --prefix frontend run build'
+    }
+    $env:SERVE_FRONTEND = '1'
+}
+if ($Bind -ne '127.0.0.1' -and $Bind -ne 'localhost') {
+    Write-Warning 'Network mode: use only on a trusted LAN/VPN. Do not forward port 8000 to the internet; configure HTTPS and MongoDB authentication first.'
+}
+& $python -m uvicorn app.main:app --host $Bind --port $Port

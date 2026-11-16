@@ -13,6 +13,8 @@ from app.main import app
 
 @pytest.fixture()
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("AUTH_BACKEND", "legacy")
+    monkeypatch.setenv("ALLOW_LEGACY_TOKENS", "1")
     monkeypatch.setenv("APP_USER_TOKENS", '{"owner-local":"test-secret","other":"other-secret"}')
     monkeypatch.delenv("AI_PROVIDER", raising=False)  # 普通用例不依赖本机是否安装模型
     database = tmp_path / "test.db"
@@ -179,13 +181,13 @@ def test_asset_download_and_timeline_isolation(client: TestClient, tmp_path: Pat
     root.mkdir(parents=True)
     asset_path = root / "test.mp4"
     asset_path.write_bytes(b"test video only")
-    registration = client.post(f"/api/runs/{run_a}/assets", json={"asset_type": "video", "file_path": str(asset_path), "mime_type": "video/mp4"})
+    registration = client.post(f"/api/runs/{run_a}/assets", json={"asset_type": "video", "file_path": str(asset_path), "mime_type": "video/mp4", "metadata": {"producer": "test"}})
     assert registration.status_code == 201
     asset_id = registration.json()["id"]
     assert client.get(f"/api/runs/{run_a}/assets/{asset_id}/content").content == b"test video only"
     assert client.get(f"/api/runs/{run_a}/assets/{asset_id}/content", headers={"authorization": "Bearer other-secret"}).status_code == 404
     assert client.get(f"/api/runs/{run_b}/assets/{asset_id}/content").status_code == 404
-    assert client.post(f"/api/runs/{run_b}/assets", json={"asset_type": "video", "file_path": str(asset_path), "mime_type": "video/mp4"}).status_code == 422
+    assert client.post(f"/api/runs/{run_b}/assets", json={"asset_type": "video", "file_path": str(asset_path), "mime_type": "video/mp4", "metadata": {"producer": "test"}}).status_code == 422
     asset_path.write_bytes(b"changed")
     assert client.get(f"/api/runs/{run_a}/assets/{asset_id}/content").status_code == 409
     valid = {"page_no": 1, "start_ms": 0, "end_ms": 1000, "source": {"producer": "manual-test"}}
@@ -251,6 +253,57 @@ def test_run_fingerprint_and_classification_freeze(client: TestClient) -> None:
         connection.execute("UPDATE books SET status='ANALYZED' WHERE id=?", (book_id,))
     assert client.post(f"/api/books/{book_id}/classify", json={"force_reclassify": True}).status_code == 409
 
+
+def test_book_capacity_and_page_size_limits(client: TestClient) -> None:
+    """逐页实际导入 100 页，并验证数据库记录与落盘图片一致。"""
+    from app.services.core import MAX_BOOK_PAGES, MAX_PAGE_BYTES
+
+    book_id = create_confirmed_book(client)
+    url = f"/api/books/{book_id}/pages"
+    headers = {"content-type": "image/png"}
+    payload = image_bytes()
+    assert MAX_BOOK_PAGES == 100
+    assert MAX_PAGE_BYTES == 20 * 1024 * 1024
+    for page_no in range(2, MAX_BOOK_PAGES + 1):
+        response = client.post(f"{url}?page_no={page_no}", content=payload, headers=headers)
+        assert response.status_code == 201, (page_no, response.text)
+    pages = client.get(url).json()
+    assert [page["page_no"] for page in pages] == list(range(1, MAX_BOOK_PAGES + 1))
+    for page in pages:
+        saved = Path(page["image_path"])
+        assert saved.is_file()
+        assert saved.read_bytes() == payload
+        assert page["sha256"] == hashlib.sha256(payload).hexdigest()
+    assert len(list(Path(pages[0]["image_path"]).parent.glob("page-*"))) == MAX_BOOK_PAGES
+    beyond = client.post(f"{url}?page_no={MAX_BOOK_PAGES + 1}", content=payload, headers=headers)
+    assert beyond.status_code == 422
+    assert len(client.get(url).json()) == MAX_BOOK_PAGES
+
+
+def test_page_exact_size_boundary_accepts_valid_png(client: TestClient) -> None:
+    """补足 PNG 附加块至刚好 20 MiB，确保完整解码且上限是包含的。"""
+    import struct
+    import zlib
+    from app.services.core import MAX_PAGE_BYTES
+
+    book_id = create_confirmed_book(client)
+    url = f"/api/books/{book_id}/pages"
+    png = image_bytes()
+    # 未知的非关键 PNG 块不改变像素，但让文件精确达到大小上限。
+    chunk_data = b"\0" * (MAX_PAGE_BYTES - len(png) - 12)
+    chunk_type = b"raNd"
+    chunk = (struct.pack(">I", len(chunk_data)) + chunk_type + chunk_data
+             + struct.pack(">I", zlib.crc32(chunk_type + chunk_data)))
+    exact = png[:-12] + chunk + png[-12:]
+    assert len(exact) == MAX_PAGE_BYTES
+    accepted = client.post(f"{url}?page_no=2", content=exact, headers={"content-type": "image/png"})
+    assert accepted.status_code == 201, accepted.text
+    assert accepted.json()["size_bytes"] == MAX_PAGE_BYTES
+    assert Path(accepted.json()["image_path"]).stat().st_size == MAX_PAGE_BYTES
+    oversized = client.post(f"{url}?page_no=3", content=exact + b"x", headers={"content-type": "image/png"})
+    assert oversized.status_code == 413
+    assert "20MB" in oversized.json()["detail"]
+    assert [page["page_no"] for page in client.get(url).json()] == [1, 2]
 
 def test_page_upload_rejects_invalid_signature_and_foreign_book(client: TestClient) -> None:
     book_id = create_confirmed_book(client)
@@ -433,3 +486,59 @@ def test_b_local_adapter_runs_actual_pipeline_with_stub_engines(tmp_path: Path, 
     assert result.graph["entities"][0]["source"]["page_no"] == 1
     assert result.note["summary"] == "科学图画"
     assert result.model_manifest["provider"] == "b_local_paddle_smolvlm"
+
+def test_analysis_preserves_manual_page_revision_and_note_text(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """模型晚于人工校对返回时，不能覆盖主人修改过的内容。"""
+    from app.services.analysis import AnalysisResult
+
+    book_id = create_confirmed_book(client)
+    revised = client.patch(f"/api/books/{book_id}/pages/1/revision", json={
+        "ocr": {"text": "主人校对后的文字", "source": "manual_review"},
+        "vision": {"entities": [{"name": "小熊"}], "source": "manual_review"},
+    })
+    assert revised.status_code == 200
+
+    class Provider:
+        def analyze(self, book_id, book_type, pages):
+            return AnalysisResult(
+                pages=[{"book_id": book_id, "page_no": 1, "status": "ok", "source": {"page_no": 1},
+                        "text": "旧 OCR 错字", "text_confidence": 0.9, "ocr_version": "ocr/1",
+                        "vision_version": "vlm/1", "boxes": [], "entities": [], "events": []}],
+                graph={"book_id": book_id, "status": "ok", "entities": []},
+                note={"summary": "旧 OCR 错字", "sources": [{"page_no": 1}]},
+                model_manifest={"provider": "real-test", "status": "ok"},
+            )
+
+    monkeypatch.setattr("app.main.build_analysis_provider", lambda: Provider())
+    job = client.post(f"/api/books/{book_id}/analyze", json={}).json()
+    assert client.get(f"/api/jobs/{job['job_id']}").json()["status"] == "SUCCEEDED"
+    with db.get_connection() as connection:
+        import json
+        row = connection.execute("SELECT ocr_json,vision_json,revision FROM pages WHERE book_id=?", (book_id,)).fetchone()
+        assert json.loads(row["ocr_json"])["text"] == "主人校对后的文字"
+        assert json.loads(row["vision_json"])["entities"][0]["name"] == "小熊"
+        assert row["revision"] == 1
+    note = client.post(f"/api/books/{book_id}/notes/generate", json={}).json()
+    assert note["content"]["summary"] == "主人校对后的文字"
+    assert note["content"]["summary_method"] == "reviewed_ocr_excerpt_needs_review"
+    assert client.get(f"/api/books/{book_id}/pages/1/revisions").json()[0]["revision"] == 1
+
+def test_illustration_asset_needs_valid_image_and_owned_page(client: TestClient, tmp_path: Path) -> None:
+    book_id = create_confirmed_book(client)
+    run_id = client.post(f"/api/books/{book_id}/analyze", json={}).json()["run_id"]
+    root = tmp_path / "data" / "runs" / run_id
+    root.mkdir(parents=True, exist_ok=True)
+    image = root / "page-1.png"
+    image.write_bytes(image_bytes())
+    payload = {"asset_type": "image", "file_path": str(image), "mime_type": "image/png", "metadata": {"page_no": 1, "producer": "b_doubao"}}
+    missing = client.post(f"/api/runs/{run_id}/assets", json={**payload, "metadata": {"producer": "b_doubao"}})
+    assert missing.status_code == 422
+    wrong_page = client.post(f"/api/runs/{run_id}/assets", json={**payload, "metadata": {"page_no": 2}})
+    assert wrong_page.status_code == 422
+    image.write_bytes(b"not a png")
+    assert client.post(f"/api/runs/{run_id}/assets", json=payload).status_code == 415
+    image.write_bytes(image_bytes())
+    created = client.post(f"/api/runs/{run_id}/assets", json=payload)
+    assert created.status_code == 201
+    assert client.get(f"/api/runs/{run_id}/assets/{created.json()['id']}/content").content == image.read_bytes()
+    assert client.get(f"/api/runs/{run_id}/assets", headers={"authorization": "Bearer other-secret"}).status_code == 404
