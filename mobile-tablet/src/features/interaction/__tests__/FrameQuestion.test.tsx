@@ -90,3 +90,40 @@ describe('指定画面看图问答',()=>{
   })
   it('业务层无独立同意时不请求',async()=>{const api=new ApiClient();api.setToken('private');await expect(api.askFrame('r',{query_text:'画面里有什么？'})).rejects.toThrow('明确同意')})
 })
+
+describe('语音接入与授权隔离',()=>{
+
+  it('语音请求默认不收费；独立授权后新口令只执行一次',async()=>{
+    video.paused=true
+    props.voiceRequest={id:1,query:'当前画面里有什么？',scope:props.scope,videoMs:12345};render()
+    expect(props.api!.askFrame).not.toHaveBeenCalled()
+    nodes(n=>n.props?.['aria-label']==='语音看图问答收费授权')[0].props.onChange({target:{checked:true}});render()
+    expect(props.api!.askFrame).not.toHaveBeenCalled()
+    props.voiceRequest={...props.voiceRequest,id:2};render();await Promise.resolve();render()
+    expect(props.api!.askFrame).toHaveBeenCalledTimes(1)
+    expect(props.api!.askFrame).toHaveBeenCalledWith('r',expect.objectContaining({query_text:'当前画面里有什么？',confirm_paid:true,video_ms:12345}))
+    render();expect(props.api!.askFrame).toHaveBeenCalledTimes(1)
+  })
+  it('换书或画面变化后的旧语音请求不发送；授权不能跨书页复用',async()=>{
+    nodes(n=>n.props?.['aria-label']==='语音看图问答收费授权')[0].props.onChange({target:{checked:true}});render()
+    video.paused=true;video.currentTime=20
+    props.voiceRequest={id:1,query:'当前画面里有什么？',scope:props.scope,videoMs:12345};render();expect(props.api!.askFrame).not.toHaveBeenCalled()
+    props.scope='different-book';props.voiceRequest={id:2,query:'当前画面里有什么？',scope:'book-a',videoMs:20000};render()
+    expect(props.api!.askFrame).not.toHaveBeenCalled();expect(nodes(n=>n.props?.['aria-label']==='语音看图问答收费授权')[0].props.checked).toBe(false)
+  })
+  it('换书与新语音同一轮到达时也不能使用上本书授权',()=>{
+    nodes(n=>n.props?.['aria-label']==='语音看图问答收费授权')[0].props.onChange({target:{checked:true}});render()
+    video.paused=true
+    props={...props,scope:'new-book',authorizationScope:'new-book',runId:'new-run',voiceRequest:{id:100,query:'当前画面',scope:'new-book',videoMs:12345}};render()
+    expect(props.api!.askFrame).not.toHaveBeenCalled()
+  })
+  it('同书换页保留语音授权，但重新登录立即失效',async()=>{
+    props.authorizationScope='same-book';render()
+    nodes(n=>n.props?.['aria-label']==='语音看图问答收费授权')[0].props.onChange({target:{checked:true}});render()
+    video.paused=true;props={...props,scope:'page-two',pageNo:2,voiceRequest:{id:100,query:'Hello',scope:'page-two',videoMs:12345}};render();await Promise.resolve();render()
+    expect(props.api!.askFrame).toHaveBeenCalledTimes(1)
+    token='new-login';props.voiceRequest={id:101,query:'Hello',scope:'page-two',videoMs:12345};render()
+    expect(props.api!.askFrame).toHaveBeenCalledTimes(1)
+  })
+
+})

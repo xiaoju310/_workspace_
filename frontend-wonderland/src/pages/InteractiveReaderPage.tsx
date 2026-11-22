@@ -1,3 +1,5 @@
+import { classifyReaderIntent, locateScene } from '../features/interaction/readerIntent'
+import type { FrameVoiceRequest } from '../features/interaction/readerIntent'
 import { FrameQuestion } from '../features/interaction/FrameQuestion'
 import { VisualTextFinder } from '../features/interaction/VisualTextFinder'
 import { TouchObjectOverlay } from '../features/interaction/TouchObjectOverlay'
@@ -65,6 +67,15 @@ export default function InteractiveReaderPage({
   const [question, setQuestion] = useState('')
   const [busy, setBusy] = useState<'question' | 'touch' | null>(null)
   const [error, setError] = useState('')
+  const [commandStatus,setCommandStatus]=useState('')
+  const [textVoiceRequest,setTextVoiceRequest]=useState<FrameVoiceRequest|null>(null)
+  const [frameVoiceRequest,setFrameVoiceRequest]=useState<FrameVoiceRequest|null>(null)
+  const [visualBusy,setVisualBusy]=useState(false)
+  const visualPending=useRef(false)
+  const visualJobs=useRef({text:false,frame:false})
+  const commandPending=useRef(false)
+  const commandSequence=useRef(0)
+
   const [videoError, setVideoError] = useState(false)
   const [result, setResult] = useState<Interaction | null>(null)
   const [touchMode, setTouchMode] = useState(false)
@@ -134,7 +145,10 @@ export default function InteractiveReaderPage({
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
+  const activeReaderScope=useRef('')
+  activeReaderScope.current=`${book.id}:${book.run_id}:${book.video_url}:${appMode}`
   const mounted = useRef(true)
+  useEffect(()=>{setCommandStatus('');setTextVoiceRequest(null);setFrameVoiceRequest(null)},[book.id,book.run_id,book.video_url,appMode])
   const requestVersion = useRef(0)
   const currentTime = useRef(0)
   currentTime.current = timeMs
@@ -150,6 +164,7 @@ export default function InteractiveReaderPage({
     ? pageAt.index
     : Math.min(pageCount - 1, Math.floor(timeMs / Math.max(1, durationMs / pageCount)))
   const pageBasis: PageBasis = pageAt ? pageAt.basis : 'page_image'
+  const visualScope=`${book.id}:${book.run_id}:${book.video_url}:${appMode}:${currentPage}`
   const page = book.pages[currentPage]
   useEffect(() => { onReaderPageChange?.(currentPage) }, [currentPage, onReaderPageChange])
   // Periodic saves are throttled; pause/leave also flush the exact current position.
@@ -247,6 +262,7 @@ export default function InteractiveReaderPage({
 
   // Changing position must not let a late screenshot/result overwrite the new page.
   function seek(value: number) {
+    setTextVoiceRequest(null);setFrameVoiceRequest(null)
     invalidateInteraction()
     positionTouched.current=true
     if (isVideo && !metadataReady) {
@@ -272,7 +288,7 @@ export default function InteractiveReaderPage({
   },[segments,metadataReady,isVideo,durationMs,videoKey])
 
   async function togglePlayback() {
-    if (busy || touchPending.current || operationPending.current) return
+    if (busy || touchPending.current || operationPending.current || visualPending.current || commandPending.current) return
     setTouchMarker(null)
     positionTouched.current=true
     if (!isVideo) {
@@ -303,6 +319,8 @@ export default function InteractiveReaderPage({
       setError('提问内容不能为空，请通过语音或键盘输入问题。')
       return
     }
+    if (classifyReaderIntent(trimmed).kind!=='question') { await executeReaderIntent(trimmed);return }
+    if (visualPending.current || commandPending.current) return
     operationPending.current = true
     cancelVoicePlayback()
     if(sampleId)updateVoiceSample(sampleId,{requestStartedAt:performance.now(),status:'requesting'})
@@ -338,6 +356,7 @@ export default function InteractiveReaderPage({
 
   async function touch(x: number, y: number, box: { width: number; height: number }, detail?: TouchDetail, videoMs = currentTime.current) {
     if (operationPending.current) return
+    if(visualPending.current||commandPending.current)return
     operationPending.current = true
     setBusy('touch')
     setResult(null)
@@ -460,9 +479,73 @@ export default function InteractiveReaderPage({
       })
   }
 
+  function onVisualBusyChange(kind:'text'|'frame',value:boolean) { visualJobs.current[kind]=value;visualPending.current=visualJobs.current.text||visualJobs.current.frame;setVisualBusy(visualPending.current) }
+  async function executeReaderIntent(text:string):Promise<boolean> {
+    const intent=classifyReaderIntent(text)
+    if(intent.kind==='question')return false
+    if(operationPending.current||touchPending.current||commandPending.current||visualPending.current)return true
+    commandPending.current=true
+    const scope=activeReaderScope.current
+    try {
+      setError('');setLastAction(null);setCommandStatus('');setTouchMode(false);setTextVoiceRequest(null);setFrameVoiceRequest(null);pendingVoice.current=null;setVoiceInput(false)
+      ttsManager.stop()
+      if(intent.kind==='text'||intent.kind==='frame') {
+        if(appMode!=='live'||!book.run_id){setError('语音画面功能需要已关联任务的真实书页或视频，演示模式不会发送收费请求。');return true}
+        const video=videoRef.current
+        video?.pause();setPlaying(false)
+        const videoMs=video?Math.round(video.currentTime*1000):null
+        // timeupdate may lag the media clock at a page boundary; bind to the captured frame's page.
+        const at=videoMs!==null?resolvePageAtTime(videoMs,book.pages,segments,durationMs):null
+        if(videoMs!==null){currentTime.current=videoMs;setTimeMs(videoMs)}
+        const request:FrameVoiceRequest={id:++commandSequence.current,query:intent.query,scope:`${scope}:${at?.index??currentPage}`,videoMs}
+        if(intent.kind==='text')setTextVoiceRequest(request);else setFrameVoiceRequest(request)
+        setCommandStatus('已将语音交给'+(intent.kind==='text'?'当前画面文字框选':'当前画面问答')+'；未授权时不会收费。')
+        return true
+      }
+      if(isVideo&&(!metadataReady||!videoRef.current||videoRef.current.readyState<2||videoError)){
+        setError('视频尚未就绪，语音口令没有执行。请等待视频加载完成。');return true
+      }
+      if(intent.kind==='scene') {
+        if(!isVideo){setError('当前没有生成视频，不能把原书页切换当作视频场景定位。');return true}
+        const target=locateScene(intent.query,book.pages,segments,durationMs)
+        if(!target.ok){setError(target.message);return true}
+        const video=videoRef.current
+        const resumeAfterSeek=Boolean(video&&!video.paused)
+        video?.pause();setPlaying(false);seek(target.ms)
+        if(video&&resumeAfterSeek){
+          await video.play()
+          if(!mounted.current||scope!==activeReaderScope.current)return true
+          setPlaying(true)
+        }
+        setCommandStatus(`已依据原文/分镜和时间轴定位到第 ${target.pageNo} 页相关片段起点 ${formatTime(target.ms)}；${resumeAfterSeek?'已继续播放，':'保持暂停，'}请核对生成画面。`)
+        return true
+      }
+      if(intent.kind==='pause'||intent.kind==='stop') {
+        videoRef.current?.pause();setPlaying(false)
+        if(intent.kind==='stop')seek(0)
+        setCommandStatus(intent.kind==='stop'?'已执行“结束播放”：停止视频并返回开头。':'已执行“暂停”：保留当前播放位置。')
+      } else {
+        const video=videoRef.current
+        if(video) {
+          if(video.ended||video.currentTime*1000>=durationMs)seek(0)
+          await video.play()
+          if(!mounted.current||scope!==activeReaderScope.current)return true
+        } else if(currentTime.current>=durationMs)seek(0)
+        setPlaying(true)
+        setCommandStatus(intent.kind==='resume'?'已执行“继续”：从当前暂停位置播放。':'已执行“播放”。')
+      }
+    } catch {
+      if(mounted.current&&scope===activeReaderScope.current)setError('播放口令未能执行。浏览器可能需要先点击播放以允许视频启动，请核实后重试。')
+    } finally {commandPending.current=false}
+    return true
+  }
+
   function handleRecording(blob: Blob, mimeType: string, transcript: string, meta: RecordingMeta) {
     const text = transcript.trim()
     if(!mounted.current||activeRecordingScope.current!==recordingScope||operationPending.current||touchPending.current)return
+    if(text&&meta.transcriptIsFinal&&!meta.asrErrorCode&&classifyReaderIntent(text).kind!=='question'){
+      pendingVoice.current=null;setQuestion(text);setVoiceInput(false);void executeReaderIntent(text);return
+    }
     const canAuto=autoVoice&&blob.size>0&&Boolean(text)&&meta.transcriptIsFinal&&!meta.asrErrorCode
     const sampleId=String(++voiceSequence.current)
     if(autoVoice)setVoiceSamples(current=>[...current,{id:sampleId,language:speechLanguage,
@@ -713,11 +796,11 @@ export default function InteractiveReaderPage({
                 alt={`《${book.title}》第 ${currentPage + 1} 页画面`}
               />
             )}
-              <VisualTextFinder runId={book.run_id ?? undefined} scope={`${book.id}:${book.video_url}:${appMode}:${currentPage}`}
+              <VisualTextFinder voiceRequest={textVoiceRequest} authorizationScope={activeReaderScope.current} canStart={()=>!visualPending.current&&!operationPending.current&&!touchPending.current} onBusyChange={value=>onVisualBusyChange('text',value)} runId={book.run_id ?? undefined} scope={visualScope}
                 pageNo={page?.server_page_no ?? undefined} live={appMode==='live'} videoRef={videoRef} imageRef={imageRef}
                 assetId={videoState?.status==='ready'?videoState.asset_id:undefined}
                 assetSha256={videoState?.status==='ready'?videoState.sha256:undefined}/>
-              <FrameQuestion runId={book.run_id ?? undefined} scope={`${book.id}:${book.video_url}:${appMode}:${currentPage}`}
+              <FrameQuestion voiceRequest={frameVoiceRequest} authorizationScope={activeReaderScope.current} canStart={()=>!visualPending.current&&!operationPending.current&&!touchPending.current} onBusyChange={value=>onVisualBusyChange('frame',value)} runId={book.run_id ?? undefined} scope={visualScope}
                 pageNo={page?.server_page_no ?? undefined} live={appMode==='live'} videoRef={videoRef} imageRef={imageRef}
                 assetId={videoState?.status==='ready'?videoState.asset_id:undefined}
                 assetSha256={videoState?.status==='ready'?videoState.sha256:undefined}/>
@@ -922,6 +1005,9 @@ export default function InteractiveReaderPage({
               setVoiceInput(false)
             }}
           >
+            <p role="status" aria-label="语音操作结果">{commandStatus}</p>
+            {visualBusy&&<p role="status">正在处理语音画面请求…</p>}
+            <p>可说“播放、暂停、继续、结束播放、找到某个场景、查找‘某词’几个字”；控制口令识别定稿后执行，不记作问答成功。看图提问请说“当前画面…”。</p>
             <label htmlFor="reader-question">想问故事什么呢？</label>
             <textarea
               id="reader-question"
@@ -929,7 +1015,7 @@ export default function InteractiveReaderPage({
               value={question}
               onChange={(event) => { setQuestion(event.target.value); setVoiceInput(false) }}
               placeholder={`针对《${book.title}》提出一个问题，例如关于画面、情节或角色…`}
-              disabled={Boolean(busy) || isRecording}
+              disabled={Boolean(busy) || isRecording || visualBusy}
             />
 
             {/* 真实录音提问 (D1)：录音 + 浏览器普通话识别，录音可回放/保存 */}
@@ -937,7 +1023,7 @@ export default function InteractiveReaderPage({
               <label>提问语言<select aria-label="提问语言" value={speechLanguage} disabled={isRecording||Boolean(busy)} onChange={e=>{setSpeechLanguage(e.target.value as 'zh-CN'|'en-US');setLocalAsrConsent(false)}}><option value="zh-CN">中文</option><option value="en-US">English</option></select></label>
               <label><input aria-label="自动语音问答" type="checkbox" checked={autoVoice} disabled={isRecording||Boolean(busy)} onChange={e=>{setAutoVoice(e.target.checked);if(!e.target.checked)cancelVoicePlayback()}}/>识别定稿后自动提问并朗读答案（不自动授权云端；失败或未定稿需核对）</label>
               {appMode==='live'&&<label><input type="checkbox" checked={localAsrConsent} disabled={isRecording||Boolean(busy)||!localLanguageAvailable} onChange={e=>setLocalAsrConsent(e.target.checked)}/>浏览器识别失败时，允许把本次录音发送到当前服务器的本机识别组件；不调用云端、不另收费，临时文件处理后删除。{!localLanguageAvailable&&'（当前语言的服务器识别未就绪）'}</label>}
-              <AudioRecorder key={recordingScope} language={speechLanguage} serverFallback={appMode==='live'&&localAsrConsent&&localLanguageAvailable?(audio,signal)=>apiClient.transcribeAudio(audio,signal,speechLanguage):undefined} onRecordingComplete={handleRecording} onRecordingChange={recording=>{if(!mounted.current||activeRecordingScope.current!==recordingScope)return;setIsRecording(recording);if(recording){cancelVoicePlayback();videoRef.current?.pause();setPlaying(false)}}} disabled={Boolean(busy)} />
+              <AudioRecorder key={recordingScope} language={speechLanguage} serverFallback={appMode==='live'&&localAsrConsent&&localLanguageAvailable?(audio,signal)=>apiClient.transcribeAudio(audio,signal,speechLanguage):undefined} onRecordingComplete={handleRecording} onRecordingChange={recording=>{if(!mounted.current||activeRecordingScope.current!==recordingScope)return;setIsRecording(recording);if(recording){cancelVoicePlayback()}}} disabled={Boolean(busy)||visualBusy} />
               {voiceSamples.length>0&&<div role="status" aria-label="自动语音统计">
                 自动语音样本 {voiceSamples.length} 条；浏览器播放启动≤2秒 {summarizeVoiceSamples(voiceSamples).withinTwoSeconds}/{voiceSamples.length}（含失败及待确认样本）。此指标不是实际可听首音，需录音验收。
                 <Button type="button" variant="ghost" onClick={()=>{const url=URL.createObjectURL(new Blob([JSON.stringify({summary:summarizeVoiceSamples(voiceSamples),samples:voiceSamples},null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='voice-session-metrics.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}}>导出本次语音统计</Button>
@@ -948,7 +1034,7 @@ export default function InteractiveReaderPage({
               <span>{question.length}/500 字 · 支持语音识别与键盘输入</span>
             </div>
 
-            <Button type="submit" className="button--block" disabled={Boolean(busy) || isRecording}>
+            <Button type="submit" className="button--block" disabled={Boolean(busy) || isRecording || visualBusy}>
               {busy === 'question' ? '正在寻找依据并生成回答…' : '问问伴读助手'}
               <Icon name="arrow" size={17} />
             </Button>
