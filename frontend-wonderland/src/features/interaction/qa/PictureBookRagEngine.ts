@@ -1,3 +1,4 @@
+import { isCausalQuestion, supportedCause } from './causalEvidence';
 import type { AskQuestionRequest, AskQuestionResponse, EvidenceSource } from '../../../types/interaction';
 import { overviewIntent } from './overviewIntent';
 import { TimeSliceIndexer } from '../indexing/TimeSliceIndexer';
@@ -91,9 +92,15 @@ export class PictureBookRagEngine {
 
     const r0 = performance.now();
     const overview = overviewIntent(query);
-    const evidence: EvidenceSource[] = overview
+    let evidence: EvidenceSource[] = overview
       ? indexer.overviewEvidence(overview, req.video_ms, req.current_page_no)
       : indexer.searchEvidence(query, req.video_ms);
+    const causal = isCausalQuestion(query);
+    if (causal) {
+      const all = indexer.causalCandidates();
+      const bookText = all.map(e=>e.source_quote || e.snippet).join('。');
+      evidence = all.flatMap(e=>{const quote=supportedCause(query,e.source_quote || e.snippet,bookText);return quote?[{...e,source_quote:quote,snippet:quote}]:[]}).slice(0,2);
+    }
     const retrievalMs = Math.round(performance.now() - r0);
 
     const base = {
@@ -114,6 +121,7 @@ export class PictureBookRagEngine {
     if (evidence.length === 0) {
       const base_text = indexer.size() === 0
         ? '当前这本书还没有经过校对的文字内容，无法回答。请先完成逐页文字校对。'
+        : causal ? '原书没有写明原因：未找到与这个人物和动作对应的明确因果依据，无法回答为什么。'
         : overview === 'page'
           ? '当前页没有可用的校对文字，或暂时无法准确定位当前视频对应的书页。请先校对这一页，或改问“这本书讲了什么”。'
           : '原书这段内容里没有找到相关依据，请结合书页观察，或换个问法。';
@@ -132,13 +140,6 @@ export class PictureBookRagEngine {
 
     const top = evidence[0];
     const quote = top.source_quote || top.snippet;
-    // "为什么"不能只凭动作存在就编造动机；需要页内明确写出原因。
-    // 抽取式回答仍只是原文摘录，因果关系复杂时交给主人复核。
-    if (/(为什么|为何|什么原因|因为什么)/.test(query) && !/(因为|为了|所以|由于|原因|目的是|因此)/.test(quote)) {
-      const noCause = '原书找到相关动作，但这一页没有写明原因，无法据此回答为什么。';
-      this.remember(cacheKey, { answer: noCause, status: 'no_evidence', confidence: 0, evidence: [] });
-      return { ...base, answer: noCause, status: 'no_evidence', confidence: 0, evidence: [], audio_url: null, latency: latency() };
-    }
     const safety = isDangerousQuestion(query) ? SAFETY_NOTE : '';
     const excerpt = overview
       ? `${overview === 'book' ? `仅依据已导入且已校对的 ${indexer.size()} 页文字${evidence.length < indexer.size() ? `，选取其中 ${evidence.length} 页节选` : ''}（不代表完整原书）` : '当前页的主要内容（原文节选）'}：\n${evidence.map((item) => `第 ${item.page_no} 页：“${clip(item.source_quote || item.snippet, 200)}”`).join('\n')}`

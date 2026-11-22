@@ -175,6 +175,11 @@ export class TimeSliceIndexer {
     return this.slices.find((s) => s.video_start_ms >= 0 && videoMs >= s.video_start_ms && videoMs < s.video_end_ms);
   }
 
+  /** Candidate original text only; confidence is not a model probability. */
+  causalCandidates(): EvidenceSource[] {
+    return this.slices.map(slice=>({page_no:slice.page_no,video_start_ms:Math.max(0,slice.video_start_ms),video_end_ms:Math.max(0,slice.video_end_ms),evidence_type:slice.video_start_ms>=0?'video_frame':'page',confidence:0.95,snippet:slice.snippet,source_quote:slice.ocr_content,details:{page:{page_no:slice.page_no,ocr_text:slice.ocr_content,key_entities:slice.entities}}}));
+  }
+
   searchEvidence(query: string, currentVideoMs: number): EvidenceSource[] {
     const grams = contentBigrams(query);
     if (grams.length === 0 || this.slices.length === 0) return [];

@@ -1,3 +1,4 @@
+import { isCausalQuestion } from '../features/interaction/qa/causalEvidence';
 import { sanitizeTouchBox } from '../features/interaction/objectBounds'
 import { ApiError, createApiClient } from '../api/client';
 import type { ApiClient as TransportClient, InteractionIn } from '../api/client';
@@ -296,7 +297,7 @@ export class ApiClient {
     if (this.cloudConsent.has(params.run_id)) {
       data = await this.client.semanticQuestion(params.run_id, {...params,query_text:query,session_id:this.readerSessions.get(params.run_id),confirm_paid:true});
       data.answer_source = 'model_service';
-    } else if (this.modelServiceUrl) {
+    } else if (this.modelServiceUrl && !isCausalQuestion(query)) {
       data = await this.callModelService<AskQuestionResponse>('/interaction/qa', { ...params, query_text: query }, 4000);
       if (typeof data?.answer !== 'string' || !Array.isArray(data.evidence)) {
         throw new Error('模型服务返回格式无效（缺少 answer / evidence）');

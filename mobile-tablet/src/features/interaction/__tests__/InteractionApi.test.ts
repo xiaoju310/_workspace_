@@ -179,3 +179,20 @@ describe('分类确认', () => {
     await expect(setup({ status: 409, body: { detail: '请先校对' } }).api.confirmCategory('b', 'fiction')).rejects.toThrow('请先校对');
   });
 });
+
+
+describe('外部问答服务也不能绕过原因证据验证',()=>{
+  it.each([false,true])('只采用当前书已写明的原因，不采用模型编造的原因：%s',async(valid)=>{
+    const modelFetch=vi.fn()
+    const {api,calls}=setup({modelServiceUrl:'https://model.invalid',modelFetch})
+    const text=valid?'小禾为了学习生字，拿起书。':'小禾拿起书。因为下雨，小鸟飞回家。'
+    const indexer=new TimeSliceIndexer(buildSlicesFromBook([{ocr_text:text}]))
+    const result=await api.askQuestion(askReq('小禾为什么拿起书？'),'live',undefined,{indexer})
+    expect(modelFetch).not.toHaveBeenCalled()
+    expect(result.status).toBe(valid?'success':'no_evidence')
+    expect(result.answer_source).toBe('local_extractive')
+    expect(calls).toHaveLength(1)
+    if(valid)expect(result.answer).toContain('为了学习生字')
+    else expect(result.evidence).toEqual([])
+  })
+})

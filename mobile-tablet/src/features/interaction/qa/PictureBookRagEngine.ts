@@ -1,3 +1,4 @@
+import { isCausalQuestion, supportedCause } from './causalEvidence';
 import type { AskQuestionRequest, AskQuestionResponse, EvidenceSource } from '../../../types/interaction';
 import { TimeSliceIndexer } from '../indexing/TimeSliceIndexer';
 
@@ -89,7 +90,13 @@ export class PictureBookRagEngine {
     }
 
     const r0 = performance.now();
-    const evidence: EvidenceSource[] = indexer.searchEvidence(query, req.video_ms);
+    let evidence: EvidenceSource[] = indexer.searchEvidence(query, req.video_ms);
+    const causal = isCausalQuestion(query);
+    if (causal) {
+      const all = indexer.causalCandidates();
+      const bookText = all.map(e=>e.source_quote || e.snippet).join('。');
+      evidence = all.flatMap(e=>{const quote=supportedCause(query,e.source_quote || e.snippet,bookText);return quote?[{...e,source_quote:quote,snippet:quote}]:[]}).slice(0,2);
+    }
     const retrievalMs = Math.round(performance.now() - r0);
 
     const base = {
@@ -110,6 +117,7 @@ export class PictureBookRagEngine {
     if (evidence.length === 0) {
       const base_text = indexer.size() === 0
         ? '当前这本书还没有经过校对的文字内容，无法回答。请先完成逐页文字校对。'
+        : causal ? '原书没有写明原因：未找到与这个人物和动作对应的明确因果依据，无法回答为什么。'
         : '原书这段内容里没有找到相关依据，请结合书页观察，或换个问法。';
       // 安全提示不依赖证据：危险提问找不到依据时更需要提醒
       const noAnswer = isDangerousQuestion(query) ? `${SAFETY_NOTE} ${base_text}` : base_text;
@@ -126,13 +134,6 @@ export class PictureBookRagEngine {
 
     const top = evidence[0];
     const quote = top.source_quote || top.snippet;
-    // "为什么"不能只凭动作存在就编造动机；需要页内明确写出原因。
-    // 抽取式回答仍只是原文摘录，因果关系复杂时交给主人复核。
-    if (/(为什么|为何|什么原因|因为什么)/.test(query) && !/(因为|为了|所以|由于|原因|目的是|因此)/.test(quote)) {
-      const noCause = '原书找到相关动作，但这一页没有写明原因，无法据此回答为什么。';
-      this.remember(cacheKey, { answer: noCause, status: 'no_evidence', confidence: 0, evidence: [] });
-      return { ...base, answer: noCause, status: 'no_evidence', confidence: 0, evidence: [], audio_url: null, latency: latency() };
-    }
     const safety = isDangerousQuestion(query) ? SAFETY_NOTE : '';
     const answer = `${safety}${safety ? ' ' : ''}原书第 ${top.page_no} 页写道：“${clip(quote)}”`;
 

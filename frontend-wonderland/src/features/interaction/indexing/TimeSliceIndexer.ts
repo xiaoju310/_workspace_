@@ -175,6 +175,9 @@ export class TimeSliceIndexer {
     return this.slices.find((s) => s.video_start_ms >= 0 && videoMs >= s.video_start_ms && videoMs < s.video_end_ms);
   }
 
+  /** Candidate original text only; confidence is not a model probability. */
+  causalCandidates(): EvidenceSource[] { return this.slices.map(slice=>this.toEvidence(slice, 1)); }
+
   searchEvidence(query: string, currentVideoMs: number): EvidenceSource[] {
     const grams = contentBigrams(query);
     if (grams.length === 0 || this.slices.length === 0) return [];

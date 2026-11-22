@@ -1,3 +1,4 @@
+import { isCausalQuestion } from '../features/interaction/qa/causalEvidence';
 import { sanitizeTouchBox } from '../features/interaction/objectBounds'
 import { ApiError, createApiClient } from '../api/client';
 import type { ApiClient as TransportClient, InteractionIn } from '../api/client';
@@ -264,7 +265,7 @@ export class ApiClient {
     }
 
     let data: AskQuestionResponse;
-    if (this.modelServiceUrl) {
+    if (this.modelServiceUrl && !isCausalQuestion(query)) {
       data = await this.callModelService<AskQuestionResponse>('/interaction/qa', { ...params, query_text: query }, 4000);
       if (typeof data?.answer !== 'string' || !Array.isArray(data.evidence)) {
         throw new Error('模型服务返回格式无效（缺少 answer / evidence）');
