@@ -14,8 +14,8 @@ try {
     $name = "PaperCompanion-LAN-$Port-$LocalAddress"
     $existing = Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue
     if ($existing) { $existing | Remove-NetFirewallRule -ErrorAction Stop }
-    New-NetFirewallRule -Name $name -DisplayName "Paper Companion LAN ($LocalAddress`:$Port)" `
-        -Description 'Paper Companion: trusted private LAN only, local IPv4 subnet, no MongoDB exposure.' `
+    New-NetFirewallRule -Name $name -DisplayName "KaiJuan YouLing LAN ($LocalAddress`:$Port)" `
+        -Description 'KaiJuan YouLing: trusted private LAN only, local IPv4 subnet, no MongoDB exposure.' `
         -Direction Inbound -Action Allow -Enabled True -Profile Private -Protocol TCP `
         -LocalAddress $LocalAddress -LocalPort $Port -RemoteAddress LocalSubnet4 -ErrorAction Stop | Out-Null
     exit 0

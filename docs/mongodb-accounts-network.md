@@ -8,7 +8,7 @@
 
 ```powershell
 backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-npm --prefix frontend run build
+npm --prefix frontend-wonderland run build
 .\scripts\start-backend.ps1 -WithFrontend
 ```
 

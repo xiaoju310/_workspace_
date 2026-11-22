@@ -20,7 +20,8 @@ def concatenate_segments(segments: list[VideoResult], output: str | Path, *, ffm
         try:
             proc = subprocess.run([ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", str(manifest),
                                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(output)],
-                                  capture_output=True, text=True, timeout=timeout_s)
+                                  capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=timeout_s,
+                                  creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             result = {"status": "ok" if proc.returncode == 0 else "failed", "output": str(output),
                       "segment_count": len(segments), "error_code": None if proc.returncode == 0 else "FFMPEG_FAILED",
                       "stderr_tail": proc.stderr[-2000:]}

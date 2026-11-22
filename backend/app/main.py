@@ -1,34 +1,32 @@
-"""纸书智伴 FastAPI 入口。"""
+"""开卷有灵 FastAPI 入口。"""
 from __future__ import annotations
 
-import json
 import csv
-from io import BytesIO, StringIO
 import hashlib
+import json
 import os
 import sqlite3
 import uuid
+import warnings
 from datetime import datetime, timezone
+from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any
-import warnings
-
-from PIL import Image, UnidentifiedImageError
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from PIL import Image, UnidentifiedImageError
 
-from .db import DATABASE_PATH, get_connection, initialize_database
-from .security import actor_id, require_owner
-from .auth_routes import router as auth_router
 from .accounts import initialize_accounts
-from pydantic import BaseModel
-
+from .auth_routes import router as auth_router
+from .db import DATABASE_PATH, get_connection, initialize_database
+from .library_routes import router as library_router
+from .security import actor_id, require_owner
 from .schemas import (
-    AnalyzeRequest, BookCreate, BookOut, ClassificationConfirm, ClassificationOut,
-    ClassificationRequest, JobOut, NoteGenerateRequest, NoteOut, NotePatch, NoteReview,
-    PageOut, ShareCreate, ShareOut,
+    AnalyzeRequest, AssetInput, BookCreate, BookOut, ClassificationConfirm, ClassificationOut,
+    ClassificationRequest, InteractionInput, JobOut, NoteGenerateRequest, NoteOut, NotePatch,
+    NoteReview, PageOut, PageRevisionInput, RunLogInput, SegmentInput, ShareCreate, ShareOut,
 )
 from .services.analysis import (
     AnalysisPageInput, AnalysisProviderError, build_analysis_provider,
@@ -38,9 +36,19 @@ from .services.core import (
     safe_book_path, sha256_bytes, sha256_file, token_pair,
 )
 
-app = FastAPI(title="纸书智伴 API", version="0.1.0")
+from .generation_routes import router as generation_router
+from .video_routes import router as video_router
+from .workflow_routes import router as workflow_router
+from .speech_routes import router as speech_router
+
+app = FastAPI(title="开卷有灵 API", version="0.1.0")
 DATA_ROOT = Path(os.getenv("DATA_ROOT", str(DATABASE_PATH.parent)))
 app.include_router(auth_router)
+app.include_router(video_router)
+app.include_router(generation_router)
+app.include_router(workflow_router)
+app.include_router(speech_router)
+app.include_router(library_router)
 
 
 def _row_or_404(connection: sqlite3.Connection, table: str, object_id: str, label: str = "对象") -> sqlite3.Row:
@@ -99,6 +107,44 @@ def get_book(book_id: str, actor: str = Depends(actor_id)) -> BookOut:
         row = _row_or_404(connection, "books", book_id, "图书")
         require_owner(row["owner_id"], actor)
         return _book_out(row)
+
+
+@app.delete("/api/books/{book_id}", status_code=204, tags=["books"])
+def delete_book(book_id: str, actor: str = Depends(actor_id)) -> Response:
+    """仅主人可删除；关联笔记、分享、运行与留痕由外键原子级联清理。"""
+    with get_connection() as connection:
+        # 与任务启动、重试及书页写入串行，不能在生成过程中删掉任务依据。
+        connection.execute("BEGIN IMMEDIATE")
+        book = _row_or_404(connection, "books", book_id, "图书")
+        require_owner(book["owner_id"], actor)
+        active = connection.execute(
+            "SELECT 1 FROM jobs j JOIN runs r ON r.id=j.run_id "
+            "WHERE r.book_id=? AND j.status IN ('QUEUED','RUNNING','RETRYING') "
+            "UNION SELECT 1 FROM runs WHERE book_id=? AND status IN ('QUEUED','RUNNING','RETRYING')",
+            (book_id, book_id),
+        ).fetchone()
+        if active:
+            raise HTTPException(409, "这本书正在生成，请等待任务结束后再删除")
+        runs = [row[0] for row in connection.execute("SELECT id FROM runs WHERE book_id=?", (book_id,))]
+        connection.execute("DELETE FROM books WHERE id=?", (book_id,))
+    # 仅清理由系统 UUID 命名的专属目录，绝不根据记录里的任意 file_path 删除文件。
+    # 数据库删除已提交，清理失败不能误报为图书仍存在；孤立文件由日志提示维护。
+    import logging
+    import shutil
+    for kind, ids in (("books", [book_id]), ("runs", runs)):
+        for object_id in ids:
+            try:
+                if str(uuid.UUID(object_id)) != object_id:
+                    continue
+                parent = (DATA_ROOT / kind).resolve()
+                target = parent / object_id
+                if target.is_symlink() or target.resolve().parent != parent:
+                    continue
+                if target.exists():
+                    shutil.rmtree(target)
+            except (OSError, ValueError):
+                logging.getLogger(__name__).warning("图书记录已删除，专属目录待清理: %s/%s", kind, object_id)
+    return Response(status_code=204)
 
 
 @app.post("/api/ocr/recognize")
@@ -253,7 +299,7 @@ def _run_analysis(job_id: str) -> None:
             return
 
         pages = connection.execute(
-            "SELECT page_no,image_path,sha256 FROM pages WHERE book_id=? ORDER BY page_no",
+            "SELECT page_no,image_path,sha256,ocr_json,revision FROM pages WHERE book_id=? ORDER BY page_no",
             (run["book_id"],),
         ).fetchall()
         classification = connection.execute(
@@ -275,7 +321,11 @@ def _run_analysis(job_id: str) -> None:
         result = provider.analyze(
             run["book_id"],
             book_type,
-            [AnalysisPageInput(page_no=row["page_no"], image_path=Path(row["image_path"]), sha256=row["sha256"]) for row in pages],
+            [AnalysisPageInput(
+                page_no=row["page_no"], image_path=Path(row["image_path"]), sha256=row["sha256"],
+                reviewed_text=(json.loads(row["ocr_json"]).get("text")
+                               if row["revision"] > 0 and row["ocr_json"] else None),
+            ) for row in pages],
         )
     except AnalysisProviderError as exc:
         _mark_analysis_failed(job_id, run["id"], exc.code, exc.message)
@@ -428,6 +478,28 @@ def generate_note(book_id: str, payload: NoteGenerateRequest, actor: str = Depen
     with get_connection() as connection:
         book = _row_or_404(connection, "books", book_id, "图书")
         require_owner(book["owner_id"], actor)
+        # 云端分镜已经由主人复核时，可据其生成私密笔记（也支持无文字的纯插画书）。
+        # 不改写旧运行的状态，不覆盖旧笔记，不自动分享。
+        approved_workflow = connection.execute(
+            "SELECT w.*,r.id AS analysis_run_id FROM reading_workflows w JOIN runs r ON r.id=w.run_id "
+            "WHERE r.book_id=? AND w.storyboard_json IS NOT NULL AND w.approved_revision=w.revision "
+            "ORDER BY w.updated_at DESC LIMIT 1", (book_id,)
+        ).fetchone()
+        if approved_workflow:
+            from .workflow_routes import fingerprint, pages_for
+            if approved_workflow['source_hash'] != fingerprint(pages_for(connection, book_id)):
+                raise HTTPException(409, '书页已变化，请先重新检查图文分析和分镜')
+            story = json.loads(approved_workflow['storyboard_json'])
+            sources = [{'page_no': shot['page_no'], 'location': f"page:{shot['page_no']}",
+                        'quote': shot['caption'], 'source': 'reviewed_storyboard'} for shot in story['shots']]
+            content = {'title': f"《{book['title']}》的阅读发现", 'summary': '\n\n'.join(shot['caption'] for shot in story['shots']),
+                       'concepts': ['角色', '场景', '故事事件'], 'sources': sources, 'template': payload.note_template,
+                       'analysis_run_id': approved_workflow['analysis_run_id'], 'storyboard_revision': approved_workflow['revision'],
+                       'summary_method': 'owner_reviewed_visual_storyboard', 'review_required': True, 'is_placeholder': False}
+            now, note_id = now_iso(), str(uuid.uuid4())
+            connection.execute("INSERT INTO reading_notes(id,book_id,owner_id,content_json,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                               (note_id, book_id, actor, json_text(content), 'DRAFT', now, now))
+            return _note_out(connection.execute('SELECT * FROM reading_notes WHERE id=?', (note_id,)).fetchone())
         analyzed = connection.execute("SELECT 1 FROM runs WHERE book_id=? AND status='SUCCEEDED' LIMIT 1", (book_id,)).fetchone()
         if book["status"] != "ANALYZED" or analyzed is None:
             raise HTTPException(409, "请先完成真实分析；不能根据空结果生成笔记")
@@ -575,6 +647,8 @@ def retry_job(job_id: str, background_tasks: BackgroundTasks, actor: str = Depen
     with get_connection() as connection:
         row = _row_or_404(connection, "jobs", job_id, "任务")
         get_run(row["run_id"], actor)
+        if row["stage"] in {"video", "vision", "book_video"}:
+            raise HTTPException(409, "视频任务请使用继续查询入口，不会通过分析重试重新付费")
         if row["status"] != "FAILED":
             raise HTTPException(409, "只有失败任务可以重试")
         if row["attempts"] >= row["max_attempts"]:
@@ -619,11 +693,6 @@ def run_progress(run_id: str, actor: str = Depends(actor_id)) -> dict[str, Any]:
             "stages": [{"stage": j["stage"], "status": j["status"], "attempts": j["attempts"], "error_code": j["error_code"]} for j in jobs]}
 
 
-class PageRevisionInput(BaseModel):
-    ocr: dict[str, Any] | None = None
-    vision: dict[str, Any] | None = None
-
-
 @app.patch("/api/books/{book_id}/pages/{page_no}/revision", tags=["books"])
 def revise_page(book_id: str, page_no: int, payload: PageRevisionInput, actor: str = Depends(actor_id)) -> dict[str, Any]:
     """人工校对结果单独存历史；不能假称自动 OCR/VLM 已运行。"""
@@ -653,14 +722,6 @@ def list_page_revisions(book_id: str, page_no: int, actor: str = Depends(actor_i
         if page is None:
             raise HTTPException(404, "页面不存在")
         return [dict(row) for row in connection.execute("SELECT * FROM page_revisions WHERE page_id=? ORDER BY revision", (page["id"],))]
-
-
-class AssetInput(BaseModel):
-    asset_type: str
-    file_path: str
-    mime_type: str
-    duration_ms: int | None = None
-    metadata: dict[str, Any] = {}
 
 
 @app.post("/api/runs/{run_id}/assets", status_code=201, tags=["media"])
@@ -755,14 +816,6 @@ def view_invited_note(note_id: str, share_id: str, actor: str = Depends(actor_id
 
 
 
-class SegmentInput(BaseModel):
-    page_no: int | None = None
-    start_ms: int
-    end_ms: int
-    caption: str | None = None
-    source: dict[str, Any]
-
-
 @app.post("/api/runs/{run_id}/segments", status_code=201, tags=["media"])
 def add_segment(run_id: str, payload: SegmentInput, actor: str = Depends(actor_id)) -> dict[str, Any]:
     """登记外部生成器提供的时间轴；必须有真实来源，不代表 A 已生成视频。"""
@@ -793,13 +846,6 @@ def list_segments(run_id: str, actor: str = Depends(actor_id)) -> list[dict[str,
         )]
 
 
-class InteractionInput(BaseModel):
-    interaction_type: str
-    input: dict[str, Any]
-    output: dict[str, Any]
-    latency_ms: int | None = None
-
-
 @app.post("/api/runs/{run_id}/interactions", status_code=201, tags=["interactions"])
 def add_interaction(run_id: str, payload: InteractionInput, actor: str = Depends(actor_id)) -> dict[str, Any]:
     """记录 C 模块上报的结果；空响应或缺少来源标记不得冒充真实 Agent。"""
@@ -823,12 +869,6 @@ def list_interactions(run_id: str, actor: str = Depends(actor_id)) -> list[dict[
                  "input": json.loads(row["input_json"]), "output": json.loads(row["output_json"]),
                  "latency_ms": row["latency_ms"], "created_at": row["created_at"]}
                 for row in connection.execute("SELECT * FROM interactions WHERE run_id=? ORDER BY created_at,id", (run_id,))]
-
-
-class RunLogInput(BaseModel):
-    level: str
-    event: str
-    safe_metadata: dict[str, str | int | float | bool | None] = {}
 
 
 @app.post("/api/runs/{run_id}/logs", status_code=201, tags=["jobs"])
@@ -883,7 +923,9 @@ def export_run_metrics(run_id: str, actor: str = Depends(actor_id)) -> Response:
 # Built frontend and API share one origin: browsers need no permissive CORS policy.
 # Opt in only after building the frontend. Do not expose the dev server to the internet.
 if os.getenv("SERVE_FRONTEND") == "1":
-    frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
-    if not (frontend_dist / "index.html").is_file():
-        raise RuntimeError("先运行 npm --prefix frontend run build")
+    from .desktop_frontend import resolve_desktop_frontend
+
+    frontend_dist = resolve_desktop_frontend(
+        Path(__file__).resolve().parents[2], os.getenv("DESKTOP_FRONTEND")
+    )
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")

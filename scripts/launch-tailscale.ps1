@@ -54,7 +54,7 @@ try {
     Invoke-Tailscale -Arguments @('serve', '--bg', '--https=443', "http://127.0.0.1:$Port") | Write-Host
     $url = "https://$($dnsName.TrimEnd('.'))/"
     Write-Host "Private Tailscale URL: $url"
-    Write-Host 'Only people allowed by your Tailscale access rules can use this URL. They still need a Paper Companion account.'
+    Write-Host 'Only people allowed by your Tailscale access rules can use this URL. They still need a KaiJuan YouLing account.'
     Write-Host 'To stop sharing: tailscale serve --https=443 off'
     Write-Host 'Closing this window does NOT stop the background app or Tailscale Serve.'
     exit 0
@@ -62,3 +62,8 @@ try {
     [Console]::Error.WriteLine("Private sharing failed: $($_.Exception.Message)")
     exit 1
 }
+
+
+
+
+

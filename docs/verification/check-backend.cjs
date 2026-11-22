@@ -9,7 +9,7 @@ const vm=require('node:vm');
 const assert=require('node:assert/strict');
 const net=require('node:net');
 const root=path.resolve(__dirname,'../..');
-const requireFrontend=createRequire(path.join(root,'frontend/package.json'));
+const requireFrontend=createRequire(path.join(root,'frontend-wonderland/package.json'));
 const {chromium}=require('playwright');
 const python=process.env.VERIFY_PYTHON||path.join(root,'backend/.venv/Scripts/python.exe');
 const base='http://127.0.0.1:18765';
@@ -29,7 +29,7 @@ async function terminalJob(api,jobId){let result;for(let i=0;i<50;i++){result=aw
  for(let attempt=0;attempt<100;attempt++){try{const response=await fetch(base+'/health');if(response.ok){ready=true;break}}catch{}if(backend.exitCode!==null)break;await new Promise(resolve=>setTimeout(resolve,100))}
  if(!ready)throw new Error('隔离后端未启动：'+startup.replaceAll(token,'[redacted]').replaceAll(otherToken,'[redacted]'));
  const ts=requireFrontend('typescript');
- const source=fs.readFileSync(path.join(root,'frontend/src/api/client.ts'),'utf8');
+ const source=fs.readFileSync(path.join(root,'frontend-wonderland/src/api/client.ts'),'utf8');
  const exportsObj={};vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:exportsObj,URL,Headers,Blob,AbortController,setTimeout,clearTimeout,fetch});
  const api=exportsObj.createApiClient(base,{getToken:()=>token});
  const unauthorized=exportsObj.createApiClient(base,{getToken:()=>randomUUID()});
@@ -44,7 +44,7 @@ async function terminalJob(api,jobId){let result;for(let i=0;i<50;i++){result=aw
  await check('实际分析缺模型失败、错误码与笔记拒绝',async()=>{job=await api.analyzeBook(book.id);assert.equal((await terminalJob(api,job.job_id)).status,'FAILED');assert.equal((await api.progress(job.run_id)).stages[0].error_code,'PROVIDER_NOT_CONFIGURED');assert.equal((await api.runJobs(job.run_id))[0].error_message,'尚未接入真实分析服务');await assert.rejects(()=>api.generateNote(book.id),e=>e.status===409)});
  await check('实际最多三次尝试，重试超限 409',async()=>{for(let i=0;i<2;i++){await api.retryJob(job.job_id);await terminalJob(api,job.job_id)}assert.equal((await api.getJob(job.job_id)).attempts,3);await assert.rejects(()=>api.retryJob(job.job_id),e=>e.status===409)});
  const vite=await import(pathToFileURL(requireFrontend.resolve('vite')).href);
- viteServer=await vite.createServer({root:path.join(root,'frontend'),logLevel:'error',server:{host:'127.0.0.1',port:15173,strictPort:true,proxy:{'/backend-api':{target:base,changeOrigin:true,rewrite:value=>value.replace(/^\/backend-api/,'')}}}});await viteServer.listen();
+ viteServer=await vite.createServer({root:path.join(root,'frontend-wonderland'),logLevel:'error',server:{host:'127.0.0.1',port:15173,strictPort:true,proxy:{'/backend-api':{target:base,changeOrigin:true,rewrite:value=>value.replace(/^\/backend-api/,'')}}}});await viteServer.listen();
  browser=await chromium.launch({channel:'msedge',headless:true});
  const page=await browser.newPage({viewport:{width:1366,height:1000}});const errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.goto(ui+'/#/settings');

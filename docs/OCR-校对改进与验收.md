@@ -32,7 +32,6 @@
 在仓库根目录执行：
 
 ```powershell
-backend\.venv\Scripts\python.exe scripts\generate-ocr-samples.py
 backend\.venv\Scripts\python.exe scripts\evaluate-ocr.py
 ```
 
@@ -62,7 +61,3 @@ backend\.venv\Scripts\python.exe scripts\evaluate-ocr.py
 - 本次后端针对 OCR 与图片上传的回归测试：8 项通过。没有将其表述为全后端测试全部通过。
 - 没有调用付费绘图／视频服务，没有改变数据库或覆盖已确认正文。
 - 尚未完成真实手机／平板设备与浏览器视觉验收；现有 APK 安装包未重新打包。源码与网页构建已经更新。
-
-## 本次电脑版提交边界
-
-本次分支只上传电脑版；上文手机／平板测试属于本地开发记录，手机／平板源码及 APK 未包含在本次提交。复测脚本默认从 test-results/ocr-samples 读取素材，不依赖手机版目录。生成素材脚本使用 Windows 微软雅黑字体，输出素材及识别结果均不纳入提交。

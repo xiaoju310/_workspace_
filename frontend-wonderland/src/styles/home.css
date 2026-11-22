@@ -1,0 +1,771 @@
+/* ==========================================================================
+   首页：奇幻立体绘本大厅
+   ========================================================================== */
+
+.home-page {
+  gap: var(--s-9);
+  padding-top: var(--s-6);
+}
+
+/* --------------------------------------------------------------------------
+   星点装饰层
+   -------------------------------------------------------------------------- */
+
+.ornament-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.ornament--star {
+  position: absolute;
+  color: var(--amber-500);
+}
+
+.star-1 { top: 9%; right: 6%; }
+.star-2 { top: 32%; left: 2.5%; color: var(--iris-500); }
+.star-3 { top: 64%; right: 4%; color: var(--coral-300); }
+.star-4 { bottom: 16%; left: 8%; }
+.star-5 { top: 4%; left: 46%; color: var(--sky-500); }
+.star-6 { bottom: 6%; right: 18%; color: var(--sage-500); }
+
+/* --------------------------------------------------------------------------
+   主视觉
+   -------------------------------------------------------------------------- */
+
+.hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr);
+  align-items: center;
+  gap: clamp(20px, 3.6vw, 56px);
+  padding: clamp(8px, 2vw, 28px) 0 var(--s-6);
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  max-width: 34rem;
+}
+
+.hero-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--teal-700);
+}
+
+.hero-kicker-line {
+  width: 34px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--coral-500), var(--amber-500));
+}
+
+.display-title {
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 1.5rem + 3vw, 4.15rem);
+  font-weight: 650;
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+  color: var(--teal-900);
+  text-wrap: balance;
+}
+
+.hero-em {
+  position: relative;
+  display: inline-block;
+  padding: 0 4px;
+  color: var(--coral-600);
+  font-style: normal;
+}
+
+.hero-em::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.06em;
+  height: 0.3em;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(232, 188, 88, 0.55), rgba(240, 120, 98, 0.35));
+  z-index: -1;
+  transform: rotate(-1deg);
+}
+
+.hero-lead {
+  max-width: 30ch;
+  font-size: 1.02rem;
+  line-height: 1.85;
+  color: var(--ink-soft);
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  margin-top: var(--s-2);
+}
+
+.hero-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--teal-700);
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--dur-micro) var(--ease-paper);
+}
+
+.hero-link:hover { border-bottom-color: currentColor; }
+
+.hero-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+  padding-top: var(--s-4);
+  border-top: 1px dashed var(--line-strong);
+}
+
+.hero-facts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hero-facts dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--teal-800);
+}
+
+.hero-facts dt svg { color: var(--coral-500); }
+
+.hero-facts dd {
+  font-size: var(--text-micro);
+  line-height: 1.5;
+  color: var(--ink-ghost);
+}
+
+/* 主视觉舞台：三层纸叠 + 画框 */
+.hero-stage {
+  position: relative;
+  z-index: 2;
+  padding: 18px 10px 26px;
+}
+
+.hero-stage-sheet {
+  position: absolute;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  pointer-events: none;
+}
+
+.hero-stage-sheet--back {
+  inset: 4% 2% -4% 6%;
+  background: linear-gradient(150deg, #e9e2cd, #dcd6c3);
+  transform: rotate(2.6deg);
+  box-shadow: 0 30px 60px -40px rgba(38, 59, 60, 0.8);
+}
+
+.hero-stage-sheet--mid {
+  inset: 8% 4% -1% 3%;
+  background: linear-gradient(150deg, #f3ede0, #ece4d2);
+  transform: rotate(-1.8deg);
+  box-shadow: 0 24px 46px -34px rgba(38, 59, 60, 0.7);
+}
+
+.hero-plate {
+  position: relative;
+  border-radius: var(--r-lg);
+  padding: 12px;
+  background: linear-gradient(155deg, #fffdf6, #f6f0e1);
+  border: 1px solid rgba(38, 59, 60, 0.14);
+  box-shadow: 0 1px 0 #fff inset, 0 34px 60px -34px rgba(23, 57, 61, 0.45);
+  transform: rotate(-0.6deg);
+}
+
+.hero-art {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: calc(var(--r-lg) - 10px);
+  background: var(--paper);
+}
+
+.hero-plate .tape { width: 104px; }
+
+.hero-side-note {
+  position: absolute;
+  right: -6px;
+  bottom: 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.32em;
+  color: var(--ink-ghost);
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+}
+
+/* --------------------------------------------------------------------------
+   阅读探索
+   -------------------------------------------------------------------------- */
+
+.explore-caption {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--iris-500);
+}
+
+.explore-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-5);
+  align-items: start;
+  padding-top: var(--s-3);
+}
+
+.explore-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-4);
+  padding: var(--s-4);
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--paper-card);
+  background-image: var(--fiber-soft);
+  box-shadow: var(--shadow-raise);
+  transition: transform var(--dur-base) var(--ease-paper), box-shadow var(--dur-base) var(--ease-paper);
+}
+
+.explore-card--1 { transform: translateY(6px) rotate(-0.8deg); }
+.explore-card--2 { transform: translateY(26px) rotate(0.7deg); }
+.explore-card--3 { transform: translateY(0) rotate(-0.4deg); }
+
+.explore-card:hover {
+  transform: translateY(-2px) rotate(0);
+  box-shadow: var(--shadow-float);
+  z-index: 3;
+}
+
+.explore-cover {
+  flex: 0 0 96px;
+  width: 96px;
+  aspect-ratio: 3 / 4;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(160deg, var(--sage-500), var(--teal-700));
+  box-shadow: 0 14px 26px -18px rgba(23, 57, 61, 0.9);
+}
+
+.explore-cover img { width: 100%; height: 100%; object-fit: cover; }
+
+.explore-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.explore-index {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  letter-spacing: 0.16em;
+  color: var(--coral-500);
+}
+
+.explore-body h3 {
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  line-height: 1.3;
+  color: var(--teal-900);
+}
+
+.explore-body p {
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  color: var(--ink-soft);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.explore-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: var(--s-2);
+  font-size: var(--text-micro);
+  color: var(--ink-ghost);
+}
+
+.explore-meta svg { color: var(--teal-700); }
+
+/* --------------------------------------------------------------------------
+   书架
+   -------------------------------------------------------------------------- */
+
+.bookshelf {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.shelf-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+
+.shelf-count {
+  font-size: var(--text-xs);
+  color: var(--ink-ghost);
+  letter-spacing: 0.06em;
+}
+
+.book-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: var(--s-5) var(--s-4);
+  padding-top: var(--s-3);
+}
+
+.book-slot.is-raised { transform: translateY(-6px); }
+
+/* 书架底板：一条浅浅的搁板 */
+.book-grid::after {
+  content: "";
+  grid-column: 1 / -1;
+  height: 10px;
+  border-radius: 50%;
+  background: radial-gradient(50% 100% at 50% 0%, rgba(38, 59, 60, 0.16), transparent 70%);
+  filter: blur(1px);
+}
+
+.book-card {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  width: 100%;
+  padding: 12px 12px 14px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--paper-card);
+  background-image: var(--fiber-soft);
+  box-shadow: var(--shadow-raise);
+  transition: transform var(--dur-base) var(--ease-paper), box-shadow var(--dur-base) var(--ease-paper);
+}
+
+.book-card-shadow {
+  position: absolute;
+  inset: 10px -6px -7px 8px;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--paper-sub);
+  border: 1px solid rgba(38, 59, 60, 0.07);
+  transform: rotate(-0.8deg);
+  transition: transform var(--dur-base) var(--ease-paper);
+}
+
+.book-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-float);
+}
+
+.book-card:hover .book-card-shadow { transform: rotate(-0.8deg) translateY(3px); }
+
+.book-art {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.book-cover {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: 10px;
+  background: linear-gradient(160deg, var(--teal-600), var(--teal-800));
+  box-shadow: 0 16px 30px -22px rgba(23, 57, 61, 0.9);
+}
+
+.book-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--dur-scene) var(--ease-paper);
+}
+
+.book-card:hover .book-cover img { transform: scale(1.04); }
+
+.book-cover::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 0 0;
+  background: linear-gradient(180deg, rgba(15, 40, 43, 0) 42%, rgba(15, 40, 43, 0.72));
+  pointer-events: none;
+}
+
+.cover-lettering {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  color: #fdf9ee;
+}
+
+.cover-lettering small {
+  font-size: 8px;
+  letter-spacing: 0.22em;
+  opacity: 0.72;
+}
+
+.cover-lettering strong {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  line-height: 1.25;
+  font-weight: 600;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+}
+
+.cover-lettering span {
+  font-size: var(--text-micro);
+  opacity: 0.75;
+}
+
+.book-open {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: var(--teal-900);
+  background: rgba(255, 253, 243, 0.92);
+  box-shadow: var(--shadow-contact);
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity var(--dur-base) var(--ease-paper), transform var(--dur-base) var(--ease-paper);
+}
+
+.book-card:hover .book-open,
+.book-card:focus-visible .book-open { opacity: 1; transform: translateY(0); }
+
+.book-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.book-meta h3 {
+  font-family: var(--font-display);
+  font-size: 1.04rem;
+  line-height: 1.3;
+  color: var(--teal-900);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.book-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.book-details {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding-top: var(--s-2);
+  border-top: 1px dashed var(--line);
+  font-size: var(--text-micro);
+  color: var(--ink-soft);
+}
+
+.confidence-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-micro);
+  color: var(--state-warning);
+}
+
+/* 添加图书卡 */
+.add-book-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+  min-height: 100%;
+  padding: var(--s-5);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  background:
+    repeating-linear-gradient(135deg, rgba(38, 59, 60, 0.02) 0 8px, transparent 8px 16px),
+    rgba(255, 254, 250, 0.6);
+  color: var(--ink-soft);
+  transition: all var(--dur-base) var(--ease-paper);
+}
+
+.add-book-card:hover {
+  border-color: var(--teal-700);
+  background-color: #fffdf5;
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-raise);
+}
+
+.add-book-mark {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin-bottom: var(--s-2);
+  border-radius: 16px;
+  color: var(--teal-800);
+  background: linear-gradient(150deg, #fffdf3, var(--amber-100));
+  box-shadow: var(--shadow-contact);
+  transform: rotate(-4deg);
+}
+
+.add-book-card strong {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  color: var(--teal-900);
+}
+
+.add-book-card p {
+  font-size: var(--text-xs);
+  color: var(--ink-ghost);
+}
+
+.add-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: var(--s-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--coral-600);
+}
+
+/* 搜索无结果 */
+.search-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-9) var(--s-5);
+  text-align: center;
+  border-radius: var(--r-lg);
+  border: 1px dashed var(--line-strong);
+  background: rgba(255, 254, 250, 0.66);
+}
+
+.search-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 20px;
+  background: var(--paper-sub);
+  color: var(--teal-700);
+  transform: rotate(-5deg);
+}
+
+.search-empty h3 { font-family: var(--font-display); }
+
+.search-empty p { font-size: var(--text-sm); color: var(--ink-soft); }
+
+/* --------------------------------------------------------------------------
+   笔记墙
+   -------------------------------------------------------------------------- */
+
+.private-caption {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+}
+
+.notes-wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--s-4);
+  padding-top: var(--s-2);
+}
+
+.note-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  text-align: left;
+  border: 1px solid rgba(38, 59, 60, 0.1);
+  border-radius: var(--r-sm);
+  background: linear-gradient(150deg, #fffdf4, #fbf6e6);
+  box-shadow: var(--shadow-raise);
+  transition: transform var(--dur-base) var(--ease-paper), box-shadow var(--dur-base) var(--ease-paper);
+}
+
+.note-card::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 24px;
+  width: 54px;
+  height: 16px;
+  background: rgba(232, 188, 88, 0.42);
+  transform: rotate(-3deg);
+  box-shadow: 0 2px 4px -3px rgba(38, 59, 60, 0.6);
+}
+
+.note-card--1 { transform: rotate(-0.5deg); }
+.note-card--2 { transform: rotate(0.6deg); background: linear-gradient(150deg, #fdf8f6, #f7ece8); }
+.note-card--3 { transform: rotate(-0.2deg); background: linear-gradient(150deg, #f6f8f2, #eef3e8); }
+
+.note-card:hover {
+  transform: translateY(-3px) rotate(0);
+  box-shadow: var(--shadow-float);
+}
+
+.note-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--teal-700);
+  box-shadow: var(--shadow-contact);
+}
+
+.note-card > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.note-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.note-title h3 {
+  font-family: var(--font-display);
+  font-size: 0.98rem;
+  color: var(--teal-900);
+}
+
+.note-card p {
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+}
+
+.note-card > svg {
+  color: var(--ink-ghost);
+  margin-top: 4px;
+}
+
+.notes-placeholder {
+  padding: var(--s-7);
+  border-radius: var(--r-md);
+  border: 1px dashed var(--line-strong);
+  background: rgba(255, 254, 250, 0.6);
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+
+/* --------------------------------------------------------------------------
+   首页响应式
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 1080px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-6);
+  }
+
+  .hero-copy { max-width: none; }
+
+  .hero-stage { max-width: 640px; margin: 0 auto; width: 100%; }
+
+  .explore-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .explore-card--2 { transform: translateY(0) rotate(0.7deg); }
+}
+
+@media (max-width: 720px) {
+  .hero-facts { grid-template-columns: minmax(0, 1fr); gap: var(--s-2); }
+
+  .hero-facts > div { flex-direction: row; align-items: baseline; gap: var(--s-2); }
+
+  .explore-row { grid-template-columns: minmax(0, 1fr); }
+
+  .explore-card--1,
+  .explore-card--2,
+  .explore-card--3 { transform: none; }
+
+  .book-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s-4) var(--s-3); }
+
+  .notes-wall { grid-template-columns: minmax(0, 1fr); }
+
+  .book-slot.is-raised { transform: none; }
+
+  .hero-side-note { display: none; }
+}
+
+/* Continue reading: a visible bookmark, separate from recommendations/search. */
+.continue-reading { display:flex; align-items:center; gap:24px; margin:0 0 36px; padding:24px; border:1px solid var(--line, #deded1); border-radius:20px; background:var(--paper, #fffdf7); box-shadow:0 6px 18px #4253400a; }
+.continue-reading-cover { width:64px; height:86px; object-fit:cover; border-radius:6px; flex-shrink:0; }
+.continue-reading-copy { flex:1; min-width:0; }
+.continue-reading-copy h2 { margin:6px 0; overflow-wrap:anywhere; }
+.continue-reading-copy p { margin:0; color:#526453; font-size:14px; }
+.continue-reading-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.book-reading-position { display:flex; align-items:center; gap:6px; margin-top:10px; color:#42624c; font-size:13px; }
+@media (max-width:640px) {
+  .continue-reading { flex-wrap:wrap; gap:16px; padding:18px; }
+  .continue-reading-actions { width:100%; }
+}
