@@ -1,0 +1,9 @@
+# Keep binaries byte-identical on Windows and in repository archives.
+*.pdf binary
+*.docx binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.woff binary
+*.woff2 binary

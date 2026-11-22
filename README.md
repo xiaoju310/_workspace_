@@ -2,6 +2,9 @@
 
 项目资料：
 
+- [2026年11月22日软件与材料更新](docs/GitHub更新说明-2026-11-22.md)
+- [最新参赛材料公开副本](docs/competition/2026-11-22/README.md)（尚未正式验收；联系方式已隐藏）
+
 - [软件更新日志（2026-11-20）](docs/软件更新日志-2026-11-20.md)：代码整理、视频工具兼容修复与本轮复测结果
 
 - [代码导航与测试入口](docs/代码导航与测试入口.md)：当前电脑版目录、模块职责、测试和整理边界
@@ -71,7 +74,7 @@ Get-NetFirewallRule -Name 'PaperCompanion-LAN-*' -ErrorAction SilentlyContinue |
 
 - 电脑版界面：`frontend-wonderland/`，后端：`backend/`，启动入口：根目录 `启动开卷有灵.cmd`。
 - 账号使用 MongoDB，业务数据使用 SQLite 与 `data/` 文件；不能只备份 MongoDB。
-- `mobile-tablet/` 是独立手机版，本轮整理不修改、不加入电脑版提交。
+- `mobile-tablet/` 是独立手机版；本次GitHub同步已单独提交其源码，不包含测试图书、APK及依赖，数据与电脑版仍独立。
 - [代码整理、提交分组与私有备份说明](docs/代码整理与备份说明-2026-11-19.md)
 - 私有备份位于项目外，含账号与图书数据，不能上传 GitHub。依赖目录不打包，需要时根据锁文件重新安装。
 

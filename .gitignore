@@ -35,3 +35,18 @@ data/
 
 # Python 工具脚本也会生成缓存。
 __pycache__/
+
+# Do not upload generated acceptance data, personal books or local test artifacts.
+/backend/.pytest-*/
+/backend/frame-longbook-*/
+/backend/pdf-tests-*/
+/backend/pdf-wrapup-*/
+/backend/priority-tests-*/
+/backend/qa-*/
+/backend/system-check-*/
+/backend/*tests.txt
+/frontend-wonderland/*tests.txt
+/frontend-wonderland/*build.txt
+/frontend-wonderland/*results.txt
+/mobile-tablet/test-books/
+/汇报材料/_work/
