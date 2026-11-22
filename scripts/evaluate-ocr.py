@@ -60,14 +60,13 @@ def transform(image: Image.Image, variant: str) -> Image.Image:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=ROOT / "test-results" / "ocr-samples")
     parser.add_argument("--output", type=Path, default=ROOT / "test-results" / "ocr-evaluation")
     parser.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=list(VARIANTS))
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    pages = sorted(args.input.glob("*.png"))
+    pages = sorted((ROOT / "mobile-tablet/test-books/tortoise-hare").glob("*.png"))
     if len(pages) != len(REFERENCES):
-        raise SystemExit("Expected six sample PNGs; run scripts/generate-ocr-samples.py first or pass --input <directory>")
+        raise SystemExit("Expected the six original sample PNGs")
     rows = []
     report = ["# 自动 OCR 本机模拟压力测试", "",
               "这是原创测试图的模拟变换，不是真实纸书拍照验收，也不代表所有图书的准确率。",

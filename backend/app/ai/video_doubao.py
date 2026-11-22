@@ -2,7 +2,8 @@ from __future__ import annotations
 
 """Volcengine Ark Seedream -> Seedance adapter for B's media pipeline.
 
-Only explicit CLI invocations submit paid generation requests. Credentials are read
+Explicit CLI invocations or owner-confirmed desktop requests may submit paid generation
+requests. Credentials are read
 at call time and never serialized into a result file.
 """
 

@@ -1,8 +1,10 @@
+> 2026-11-17：旧前端已清理。离线原型截图脚本与旧结果属于历史验收记录；当前电脑版请优先执行 `frontend-wonderland/` 中的测试和根目录 `scripts/check-wonderland.py`。
+
 # 检查脚本
 
 离线检查脚本验证前端与 HTTP 适配器；check-backend.cjs 另启动隔离的 A 后端进行实际联调。所有检查均不调用真实模型。测试会覆盖相应结果 JSON 和截图；不会自动改业务源码。
 
-在可联网环境中，先安装 `frontend/` 开发依赖。此目录额外安装验证工具：
+在可联网环境中，先安装 `frontend-wonderland/` 开发依赖。此目录额外安装验证工具：
 
 ```powershell
 cd docs/verification

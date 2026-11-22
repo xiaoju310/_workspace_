@@ -26,6 +26,8 @@ class AnalysisPageInput:
     page_no: int
     image_path: Path
     sha256: str
+    # 由后端读取人工修订记录，不接受客户端直接指定可信来源。
+    reviewed_text: str | None = None
 
 
 @dataclass
@@ -147,12 +149,82 @@ class BLocalAnalysisProvider:
         )
 
 
+class LocalTextAnalysisProvider:
+    """低内存文字整理：人工校对优先，缺少校对时才运行本地 OCR。
+
+    不加载视觉大模型、不请求云端，不声称理解插画、推断人物或生成视频。
+    low_confidence 表示语义能力受限，不是 OCR 的识别分数。
+    """
+
+    name = "local_text_excerpt"
+
+    def analyze(
+        self, book_id: str, book_type: str, pages: list[AnalysisPageInput]
+    ) -> AnalysisResult:
+        if not pages:
+            raise AnalysisProviderError("INVALID_INPUT", "没有可整理的图书页")
+        from .ocr import InvalidOcrImage, OcrUnavailable, recognize_image
+
+        results = []
+        for page in sorted(pages, key=lambda item: item.page_no):
+            source = {"page_no": page.page_no, "location": f"page:{page.page_no}"}
+            if page.reviewed_text is not None:
+                text = page.reviewed_text.strip()
+                ocr_version = "owner_reviewed_text"
+                confidence = 0.0  # 人工校对不是模型预测，不伪造模型分数。
+            else:
+                try:
+                    mime = "image/png" if page.image_path.suffix.lower() == ".png" else "image/jpeg"
+                    recognized = recognize_image(page.image_path.read_bytes(), mime)
+                except (OSError, InvalidOcrImage, OcrUnavailable) as exc:
+                    raise AnalysisProviderError(
+                        "OCR_UNAVAILABLE", f"第 {page.page_no} 页识别不可用，请先校对并保存文字后重试"
+                    ) from exc
+                text = recognized["text"].strip()
+                confidence = recognized["confidence"]
+                ocr_version = recognized["provider"]
+            if not text:
+                raise AnalysisProviderError(
+                    "TEXT_REQUIRED", f"第 {page.page_no} 页没有可用文字；请返回书页校对补充文字。纯插画暂不支持文字整理。"
+                )
+            results.append({
+                "book_id": book_id, "page_no": page.page_no,
+                "book_type": _backend_book_type(book_type), "type_confidence": 0.0,
+                "text": text, "text_confidence": confidence, "boxes": [],
+                "entities": [], "events": [], "model_version": "text-excerpt/1",
+                "ocr_version": ocr_version, "vision_version": "not_used",
+                "status": "low_confidence", "source": source, "error_code": None,
+            })
+        sources = [item["source"] for item in results]
+        manifest = {
+            "provider": self.name, "status": "low_confidence", "analysis_mode": "text_only",
+            "method": "extractive_excerpt", "vision": "not_used", "media": "not_generated",
+            "semantic_analysis": False,
+            "limitations": ["仅整理书页文字与来源，不理解插画", "摘录不是自动书评，须主人复核", "不生成插画、视频或配音"],
+        }
+        return AnalysisResult(
+            pages=results,
+            graph={"book_id": book_id, "book_type": book_type, "pages": results,
+                   "entities": [], "events": [], "status": "low_confidence",
+                   "analysis_mode": "text_only"},
+            note={"summary": " ".join(item["text"] for item in results)[:300],
+                  "summary_method": "text_excerpt_needs_review", "book_type": book_type,
+                  "sources": sources, "entities": [], "events": [],
+                  "is_placeholder": False, "analysis_status": "low_confidence",
+                  "analysis_mode": "text_only", "review_required": True,
+                  "limitations": manifest["limitations"]},
+            model_manifest=manifest,
+        )
+
+
 def build_analysis_provider() -> AnalysisProvider:
     """根据环境变量选择 provider；默认不假装有 AI。"""
     provider = os.getenv("AI_PROVIDER", "").strip().lower()
+    if provider == "text_local":
+        return LocalTextAnalysisProvider()
     if provider in {"b_local", "b", "paddle_smolvlm"}:
         return BLocalAnalysisProvider()
     raise AnalysisProviderError(
         "PROVIDER_NOT_CONFIGURED",
-        "尚未配置真实分析 provider；请设置 AI_PROVIDER=b_local",
+        "尚未配置分析方式；低内存文字整理可设置 AI_PROVIDER=text_local；图文语义分析需配置 b_local 及模型",
     )

@@ -32,8 +32,9 @@ def test_ocr_returns_draft_without_saving(monkeypatch):
     monkeypatch.setenv("ALLOW_LEGACY_TOKENS", "1")
     monkeypatch.setenv("APP_USER_TOKENS", '{"owner-local":"test-secret"}')
     class Engine:
-        def __call__(self, path):
-            assert path.endswith(".png")
+        def __call__(self, image):
+            assert isinstance(image, Image.Image)
+            assert image.mode == "RGB"
             return type("Result", (), {"txts": ["乌龟和兔子"], "scores": [0.97]})()
     monkeypatch.setattr(ocr, "_engine", Engine())
     with TestClient(app) as client:
@@ -61,3 +62,17 @@ def test_ocr_empty_result_is_not_fabricated(monkeypatch):
     result = ocr.recognize_image(image_bytes(), "image/png")
     assert result["text"] == ""
     assert result["confidence"] == 0.0
+
+
+def test_ocr_does_not_require_temporary_directory(monkeypatch):
+    """Windows TEMP can be unavailable; OCR must still use only the supplied image."""
+    import tempfile
+    def unavailable(*args, **kwargs):
+        raise PermissionError("TEMP unavailable")
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", unavailable)
+    class Engine:
+        def __call__(self, image):
+            assert isinstance(image, Image.Image)
+            return type("Result", (), {"txts": ["原文"], "scores": [.98]})()
+    monkeypatch.setattr(ocr, "_engine", Engine())
+    assert ocr.recognize_image(image_bytes(), "image/png")["text"] == "原文"

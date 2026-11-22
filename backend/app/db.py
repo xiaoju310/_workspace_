@@ -8,6 +8,50 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", str(PROJECT_ROOT / "data" / "paper_companion.db")))
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS account_drafts (
+ owner_id TEXT NOT NULL, record_id TEXT NOT NULL, data_json TEXT NOT NULL,
+ revision INTEGER NOT NULL, updated_at TEXT NOT NULL,
+ PRIMARY KEY(owner_id,record_id)
+);
+CREATE TABLE IF NOT EXISTS account_images (
+ owner_id TEXT NOT NULL, sha256 TEXT NOT NULL, content BLOB NOT NULL, mime_type TEXT NOT NULL,
+ PRIMARY KEY(owner_id,sha256)
+);
+
+CREATE TABLE IF NOT EXISTS reading_dialogue (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+ session_id TEXT NOT NULL, source_hash TEXT NOT NULL,
+ kind TEXT NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL,
+ page_nos_json TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS dialogue_session ON reading_dialogue(run_id,session_id,id);
+CREATE TABLE IF NOT EXISTS reading_workflows (
+    run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+    vision_json TEXT,
+    storyboard_json TEXT,
+    revision INTEGER NOT NULL DEFAULT 0,
+    approved_revision INTEGER,
+    source_hash TEXT,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS workflow_tasks (
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    stage TEXT NOT NULL,
+    job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    request_json TEXT NOT NULL,
+    PRIMARY KEY(run_id,stage)
+);
+CREATE TABLE IF NOT EXISTS workflow_clips (
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    page_no INTEGER NOT NULL,
+    task_id TEXT,
+    submission_started INTEGER NOT NULL DEFAULT 0,
+    file_path TEXT,
+    sha256 TEXT,
+    PRIMARY KEY(run_id,page_no)
+);
+
 CREATE TABLE IF NOT EXISTS books (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -61,6 +105,17 @@ CREATE TABLE IF NOT EXISTS jobs (
     error_message TEXT,
     started_at TEXT,
     ended_at TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS video_generations (
+    run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+    job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    page_no INTEGER NOT NULL,
+    prompt TEXT NOT NULL,
+    model TEXT NOT NULL,
+    task_id TEXT,
+    submission_started INTEGER NOT NULL DEFAULT 0,
+    asset_id TEXT REFERENCES media_assets(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS book_classifications (

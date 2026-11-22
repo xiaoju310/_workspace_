@@ -1,0 +1,532 @@
+/* ==========================================================================
+   童趣增强层 / Playful Layer
+   在「奇想纸艺世界」之上再加一层孩子气：更圆的形、更亮的色、会动的贴纸与小伙伴。
+   本层只覆盖视觉 Token 与组件外观，不改任何布局骨架与业务逻辑。
+   ========================================================================== */
+
+:root {
+  /* 更圆 */
+  --r-sm: 14px;
+  --r-md: 24px;
+  --r-lg: 34px;
+
+  /* 儿童色卡：在品牌色体系内提高明度与饱和度 */
+  --kid-sun: #ffd24a;
+  --kid-sun-soft: #fff0bf;
+  --kid-pink: #ff9db4;
+  --kid-pink-soft: #ffe1e8;
+  --kid-sky: #7fd0f5;
+  --kid-sky-soft: #d9f1fd;
+  --kid-grass: #8ad469;
+  --kid-grass-soft: #e2f5d6;
+  --kid-grape: #b39cf5;
+  --kid-grape-soft: #ece5fd;
+
+  /* 圆润的标题字体；缺失时回退到系统黑体加粗，仍保持憨厚感 */
+  --font-display: "YouYuan", "Yuanti SC", "STYuanti", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+
+  /* 更暖的阴影 */
+  --shadow-raise: 0 2px 0 rgba(38, 59, 60, 0.06), 0 16px 30px -20px rgba(38, 59, 60, 0.38);
+  --shadow-float: 0 4px 0 rgba(38, 59, 60, 0.06), 0 26px 44px -24px rgba(38, 59, 60, 0.46);
+}
+
+/* --------------------------------------------------------------------------
+   标题：憨一点、厚一点
+   -------------------------------------------------------------------------- */
+
+h1,
+h2,
+.display-title,
+.page-heading h1 {
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.display-title {
+  line-height: 1.12;
+}
+
+.eyebrow {
+  color: var(--coral-600);
+}
+
+.section-title h2 {
+  position: relative;
+  display: inline-block;
+}
+
+.section-title h2::after {
+  content: "";
+  display: block;
+  width: 72%;
+  height: 7px;
+  margin-top: 3px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--kid-sun), var(--kid-pink));
+  transform: rotate(-0.8deg);
+  opacity: 0.9;
+}
+
+/* --------------------------------------------------------------------------
+   按钮：厚底、按下去会"噗"一声
+   -------------------------------------------------------------------------- */
+
+.button {
+  min-height: 50px;
+  padding: 0 22px;
+  font-weight: 700;
+  border-width: 0;
+  transition: transform 140ms var(--ease-paper), box-shadow 140ms var(--ease-paper), background-color 140ms var(--ease-paper);
+}
+
+.button-primary {
+  box-shadow: 0 4px 0 #1b4448, 0 14px 24px -16px rgba(27, 68, 72, 0.75);
+}
+
+.button-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #1b4448, 0 18px 28px -16px rgba(27, 68, 72, 0.8);
+}
+
+.button-primary:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #1b4448;
+}
+
+.button--coral {
+  box-shadow: 0 4px 0 #b64b38, 0 14px 24px -16px rgba(182, 75, 56, 0.7);
+}
+
+.button--coral:hover { transform: translateY(-2px); box-shadow: 0 6px 0 #b64b38; }
+.button--coral:active { transform: translateY(3px); box-shadow: 0 1px 0 #b64b38; }
+
+.button-secondary {
+  background: #fffdf6;
+  border: 2px solid var(--line-strong);
+  box-shadow: 0 3px 0 rgba(38, 59, 60, 0.14);
+}
+
+.button-secondary:hover {
+  transform: translateY(-2px);
+  border-color: var(--teal-700);
+  box-shadow: 0 5px 0 rgba(38, 59, 60, 0.16);
+}
+
+.button-secondary:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(38, 59, 60, 0.16); }
+
+.button--gold { box-shadow: 0 4px 0 #b8892a; }
+.button--iris { box-shadow: 0 4px 0 #7862c9; }
+.button--danger { box-shadow: 0 4px 0 #9b4343; }
+
+.button-ghost {
+  border-radius: var(--r-pill);
+  font-weight: 600;
+}
+
+.button-ghost:hover { background: rgba(255, 210, 74, 0.22); }
+
+/* --------------------------------------------------------------------------
+   卡片：厚纸板 + 内圈虚线（手作感）
+   -------------------------------------------------------------------------- */
+
+.paper-card,
+.wf-card {
+  border-width: 2px;
+  border-color: rgba(38, 59, 60, 0.1);
+}
+
+.paper-card::after,
+.wf-card::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border: 2px dashed rgba(38, 59, 60, 0.08);
+  border-radius: calc(var(--r-md) - 8px);
+  pointer-events: none;
+}
+
+.paper-card--lg::after { border-radius: calc(var(--r-lg) - 8px); }
+
+.paper-card:hover {
+  transform: translateY(-3px) rotate(-0.2deg);
+}
+
+/* 轻微摇摆：让静态卡片有一点点"活着"的感觉（只用于图标，不用于可点击卡片，避免与 hover 位移冲突） */
+@keyframes kid-bob {
+  0%, 100% { transform: translateY(0) rotate(-0.2deg); }
+  50% { transform: translateY(-3px) rotate(0.3deg); }
+}
+
+/* --------------------------------------------------------------------------
+   贴纸风徽标
+   -------------------------------------------------------------------------- */
+
+.badge,
+.status-pill,
+.count-pill,
+.prototype-label,
+.context-origin,
+.reader-mode-chip {
+  border-width: 2px;
+  box-shadow: 0 2px 0 rgba(38, 59, 60, 0.12);
+  font-weight: 700;
+}
+
+.badge-green { background: var(--kid-grass-soft); border-color: rgba(97, 168, 66, 0.4); color: #3d6b26; }
+.badge-amber { background: var(--kid-sun-soft); border-color: rgba(201, 155, 52, 0.45); color: #7d5a13; }
+.badge-purple { background: var(--kid-grape-soft); border-color: rgba(145, 133, 200, 0.42); color: #55489f; }
+.badge-red { background: var(--kid-pink-soft); border-color: rgba(198, 93, 93, 0.34); color: #8f3b3b; }
+
+.count-pill {
+  background: var(--kid-sun);
+  color: #6b4d0c;
+  border-color: #fff;
+  transform: rotate(-3deg);
+}
+
+/* --------------------------------------------------------------------------
+   输入：厚边、圆角、聚焦时亮起来
+   -------------------------------------------------------------------------- */
+
+input[type="text"],
+input[type="search"],
+input[type="password"],
+input[type="number"],
+input:not([type]),
+select,
+textarea {
+  border-width: 2px;
+  border-radius: var(--r-sm);
+  background-color: #fffefa;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  box-shadow: 0 0 0 4px rgba(255, 210, 74, 0.4);
+  border-color: var(--teal-700);
+}
+
+/* --------------------------------------------------------------------------
+   侧栏：彩色图标芯片 + 贴纸式选中
+   -------------------------------------------------------------------------- */
+
+.sidebar nav .nav-item svg {
+  padding: 5px;
+  box-sizing: content-box;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff6dc;
+}
+
+.sidebar nav .nav-item:nth-child(1) svg { background: rgba(255, 210, 74, 0.28); }
+.sidebar nav .nav-item:nth-child(2) svg { background: rgba(127, 208, 245, 0.26); }
+.sidebar nav .nav-item:nth-child(3) svg { background: rgba(138, 212, 105, 0.26); }
+.sidebar nav .nav-item:nth-child(4) svg { background: rgba(255, 157, 180, 0.28); }
+.sidebar nav .nav-item:nth-child(5) svg { background: rgba(179, 156, 245, 0.28); }
+.sidebar nav .nav-item:nth-child(6) svg { background: rgba(255, 210, 74, 0.22); }
+.sidebar nav .nav-item:nth-child(7) svg { background: rgba(127, 208, 245, 0.22); }
+.sidebar nav .nav-item:nth-child(8) svg { background: rgba(138, 212, 105, 0.22); }
+
+.nav-item.active svg { background: rgba(40, 94, 99, 0.12); }
+
+.nav-item.active {
+  transform: rotate(-0.6deg);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.18), 0 1px 0 #fff inset;
+}
+
+.brand-icon {
+  animation: kid-wiggle 5s ease-in-out infinite;
+}
+
+@keyframes kid-wiggle {
+  0%, 88%, 100% { transform: rotate(-4deg); }
+  92% { transform: rotate(6deg); }
+  96% { transform: rotate(-10deg); }
+}
+
+/* --------------------------------------------------------------------------
+   步骤条与进度：蜡笔质感
+   -------------------------------------------------------------------------- */
+
+.stepper li {
+  border-width: 2px;
+  border-radius: var(--r-md);
+}
+
+.stepper li > span {
+  border-radius: 50%;
+  font-weight: 700;
+}
+
+.stepper li.current > span { background: var(--kid-sun); color: #6b4d0c; }
+
+.stepper li.current::after {
+  height: 5px;
+  background: repeating-linear-gradient(90deg, var(--kid-sun) 0 12px, var(--kid-pink) 12px 24px);
+}
+
+.progress-track {
+  height: 14px;
+  border-radius: var(--r-pill);
+  border: 2px solid rgba(38, 59, 60, 0.12);
+}
+
+.progress-track span {
+  background: repeating-linear-gradient(45deg, var(--kid-grass) 0 10px, #a6e07f 10px 20px);
+  animation: none;
+}
+
+.confidence-meter {
+  height: 12px;
+  border: 2px solid rgba(38, 59, 60, 0.1);
+}
+
+.confidence-meter span {
+  background: repeating-linear-gradient(45deg, var(--kid-sky) 0 9px, #a6e2fb 9px 18px);
+}
+
+/* --------------------------------------------------------------------------
+   书卡：封面角标 + 弹性抬起
+   -------------------------------------------------------------------------- */
+
+.book-card {
+  border-width: 2px;
+}
+
+.book-art::after {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  width: 30px;
+  height: 30px;
+  background: var(--kid-sun);
+  clip-path: polygon(50% 0, 61% 34%, 98% 35%, 68% 57%, 79% 92%, 50% 71%, 21% 92%, 32% 57%, 2% 35%, 39% 34%);
+  transform: rotate(-10deg);
+  filter: drop-shadow(0 3px 4px rgba(38, 59, 60, 0.25));
+  z-index: 2;
+  pointer-events: none;
+}
+
+.book-card:hover {
+  transform: translateY(-6px) rotate(-0.6deg);
+}
+
+.book-open {
+  background: var(--kid-sun);
+  color: #6b4d0c;
+  border: 2px solid #fff;
+}
+
+/* --------------------------------------------------------------------------
+   涂鸦层
+   -------------------------------------------------------------------------- */
+
+.doodle {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+  filter: drop-shadow(0 8px 12px rgba(38, 59, 60, 0.12));
+}
+
+.doodle-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.doodle--float { animation: kid-float 8s ease-in-out infinite; }
+.doodle--float-slow { animation: kid-float 11s ease-in-out infinite; }
+
+@keyframes kid-float {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-10px) rotate(2deg); }
+}
+
+/* 首页主视觉周围的小伙伴 */
+.doodle--cloud { top: -2%; left: -3%; width: 116px; }
+.doodle--sun { top: 2%; right: 1%; width: 92px; }
+.doodle--squiggle { bottom: 2%; left: 6%; width: 150px; }
+.doodle--arrow { top: 52%; left: -8%; width: 108px; transform: rotate(-12deg); }
+.doodle--balloon { top: 30%; right: -6%; width: 86px; }
+.doodle--sparkle { top: 44%; right: 12%; width: 40px; }
+.doodle--pencil { bottom: 8%; right: 6%; width: 84px; transform: rotate(8deg); }
+
+/* 空状态里的小动物 */
+.state-panel,
+.notes-state,
+.reader-state {
+  position: relative;
+  overflow: hidden;
+}
+
+.doodle--state {
+  position: absolute;
+  right: 6%;
+  bottom: 6%;
+  width: 92px;
+  opacity: 0.95;
+}
+
+.doodle--assistant {
+  position: relative;
+  width: 92px;
+  margin: 0 auto var(--s-2);
+}
+
+.doodle--hero-owl {
+  bottom: -6%;
+  left: 4%;
+  width: 108px;
+  z-index: 4;
+}
+
+/* 对话气泡 */
+.hero-bubble {
+  position: absolute;
+  right: -10px;
+  top: 6%;
+  z-index: 4;
+  max-width: 176px;
+  padding: 10px 14px;
+  border-radius: 18px 18px 18px 5px;
+  border: 2px solid var(--teal-700);
+  background: #fffdf6;
+  color: var(--teal-900);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  line-height: 1.5;
+  box-shadow: 0 4px 0 rgba(38, 59, 60, 0.16);
+  transform: rotate(3deg);
+}
+
+.hero-bubble::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  bottom: -12px;
+  width: 18px;
+  height: 18px;
+  background: #fffdf6;
+  border-right: 2px solid var(--teal-700);
+  border-bottom: 2px solid var(--teal-700);
+  transform: rotate(45deg);
+  border-radius: 0 0 4px 0;
+}
+
+/* --------------------------------------------------------------------------
+   状态面板：图标会轻轻跳
+   -------------------------------------------------------------------------- */
+
+.state-icon,
+.notes-state-icon {
+  border: 2px solid rgba(38, 59, 60, 0.1);
+  border-radius: 22px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .state-empty .state-icon { animation: kid-hop 2200ms var(--ease-paper) infinite; }
+}
+
+@keyframes kid-hop {
+  0%, 70%, 100% { transform: translateY(0) rotate(-3deg); }
+  80% { transform: translateY(-8px) rotate(3deg); }
+  90% { transform: translateY(0) rotate(-2deg); }
+}
+
+/* 选项卡选中：像贴上去的一张彩纸 */
+.filter-tabs {
+  border-radius: var(--r-pill);
+  padding: 6px;
+}
+
+.filter-tabs button.selected {
+  background: var(--kid-sun);
+  color: #6b4d0c;
+  font-weight: 700;
+  box-shadow: 0 3px 0 rgba(38, 59, 60, 0.16);
+  transform: rotate(-1.2deg);
+}
+
+/* 阅读页：深度保留，控制条更圆更厚 */
+.reader-controls {
+  border-radius: var(--r-pill);
+  border-width: 2px;
+  box-shadow: 0 4px 0 rgba(38, 59, 60, 0.12), var(--shadow-raise);
+}
+
+.play-toggle {
+  box-shadow: 0 4px 0 #b64b38;
+}
+
+.play-toggle:active { transform: translateY(2px); box-shadow: 0 1px 0 #b64b38; }
+
+.touch-toggle {
+  border-width: 2px;
+  box-shadow: 0 3px 0 rgba(38, 59, 60, 0.12);
+}
+
+.reader-page-strip button.selected {
+  border-width: 2px;
+  transform: rotate(-1.5deg) translateY(-2px);
+}
+
+/* 分享方式卡：更像两张可以撕下来的票 */
+.share-mode-options button {
+  border-width: 2px;
+  border-radius: var(--r-md);
+}
+
+.share-mode-options button.selected {
+  background: linear-gradient(150deg, #fffdf3, var(--kid-sun-soft));
+  border-color: var(--teal-700);
+  box-shadow: 0 4px 0 rgba(38, 59, 60, 0.14);
+}
+
+/* 页脚注释：像便签 */
+.home-footnote {
+  border-style: dashed;
+  border-width: 2px;
+  border-radius: var(--r-md);
+  background: repeating-linear-gradient(135deg, rgba(255, 210, 74, 0.12) 0 10px, rgba(255, 255, 255, 0) 10px 20px), #fffdf6;
+}
+
+/* 提示条 */
+.toast {
+  border-radius: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.18), var(--shadow-float);
+}
+
+/* --------------------------------------------------------------------------
+   手机：收掉大涂鸦，留住颜色
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 860px) {
+  .doodle--arrow,
+  .doodle--balloon,
+  .doodle--pencil,
+  .doodle--sun { display: none; }
+
+  .hero-bubble {
+    right: 6px;
+    top: auto;
+    bottom: 12px;
+    max-width: 150px;
+    font-size: var(--text-micro);
+  }
+
+  .doodle--hero-owl { width: 78px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doodle--float,
+  .doodle--float-slow,
+  .brand-icon,
+  .book-card:hover,
+  .state-empty .state-icon { animation: none; }
+  .paper-card:hover,
+  .book-card:hover { transform: none; }
+}

@@ -1,0 +1,280 @@
+/* ==========================================================================
+   纸艺层：纸张材质、叠层卡片、胶带、画框、书封与装饰碎片
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   纸张底板
+   -------------------------------------------------------------------------- */
+
+.paper {
+  background-color: var(--paper-card);
+  background-image: var(--fiber-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-contact);
+}
+
+.paper-tint {
+  background-color: #fcfaf2;
+  background-image: var(--fiber-soft), var(--wash-warm);
+}
+
+/* 主卡片：底板 + 后缀纸层，形成"一叠纸"的空间感 */
+.paper-card {
+  position: relative;
+  isolation: isolate;
+  padding: var(--s-5) var(--s-5) var(--s-5);
+  background-color: var(--paper-card);
+  background-image: var(--fiber-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-raise);
+  transition: transform var(--dur-base) var(--ease-paper), box-shadow var(--dur-base) var(--ease-paper);
+}
+
+.paper-card::before {
+  content: "";
+  position: absolute;
+  inset: 10px -7px -8px 9px;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--paper-sub);
+  border: 1px solid rgba(38, 59, 60, 0.08);
+  transform: rotate(-0.7deg);
+  opacity: 0.85;
+}
+
+.paper-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-float);
+}
+
+.paper-card--flat::before,
+.paper-card--flat:hover { transform: none; }
+
+.paper-card--flat::before { display: none; }
+
+.paper-card--lg {
+  border-radius: var(--r-lg);
+  padding: var(--s-6) var(--s-6) var(--s-6);
+}
+
+.paper-card--sage { background-color: #f4f7ef; }
+.paper-card--iris { background-color: #f5f3fb; }
+.paper-card--amber { background-color: #fdf6e6; }
+.paper-card--coral { background-color: #fdf0eb; }
+.paper-card--teal { background-color: #eef5f3; }
+
+/* 轻微错落：同一网格中的卡片交替倾斜，靠 transform 而非布局，避免影响点击区域 */
+.tilt-a { transform: rotate(-0.5deg); }
+.tilt-b { transform: rotate(0.6deg); }
+.tilt-a:hover, .tilt-b:hover { transform: translateY(-2px) rotate(0); }
+
+/* 上沿纸带 */
+.paper-top-strip {
+  position: relative;
+}
+
+.paper-top-strip::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--s-5);
+  right: var(--s-5);
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: linear-gradient(90deg, var(--amber-500), var(--coral-500) 45%, var(--iris-500));
+  opacity: 0.55;
+}
+
+/* --------------------------------------------------------------------------
+   编辑式分节标题
+   -------------------------------------------------------------------------- */
+
+.section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-5);
+  flex-wrap: wrap;
+  margin-bottom: var(--s-4);
+}
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+
+.section-title h2 {
+  position: relative;
+}
+
+.count-pill {
+  display: inline-grid;
+  place-items: center;
+  min-width: 30px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  background: var(--teal-700);
+  color: #fdf9ee;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  box-shadow: 0 6px 14px -10px rgba(40, 94, 99, 0.9);
+}
+
+.section-subtitle {
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+
+.section-rule {
+  height: 1px;
+  margin: var(--s-2) 0 var(--s-5);
+  background: linear-gradient(90deg, var(--line-strong), transparent 70%);
+}
+
+/* --------------------------------------------------------------------------
+   胶带、图钉、画框、纸张纹理
+   -------------------------------------------------------------------------- */
+
+.tape {
+  position: absolute;
+  width: 96px;
+  height: 26px;
+  background: linear-gradient(100deg, rgba(232, 188, 88, 0.55), rgba(232, 188, 88, 0.28));
+  border-left: 1px dashed rgba(255, 255, 255, 0.7);
+  border-right: 1px dashed rgba(255, 255, 255, 0.7);
+  box-shadow: 0 2px 6px -4px rgba(38, 59, 60, 0.6);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.tape--tl { top: -12px; left: -18px; transform: rotate(-38deg); }
+.tape--tr { top: -12px; right: -18px; transform: rotate(38deg); background: linear-gradient(100deg, rgba(109, 145, 180, 0.45), rgba(109, 145, 180, 0.22)); }
+
+.pin {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff, var(--coral-500) 55%, var(--coral-600));
+  box-shadow: 0 6px 10px -6px rgba(38, 59, 60, 0.8);
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* 横线纸：编辑区、笔记区 */
+.ruled {
+  background-image:
+    repeating-linear-gradient(180deg, transparent 0 27px, rgba(38, 59, 60, 0.07) 27px 28px);
+  background-position: 0 6px;
+}
+
+/* 方格纸：工作台 */
+.gridded {
+  background-image:
+    repeating-linear-gradient(180deg, rgba(38, 59, 60, 0.05) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(90deg, rgba(38, 59, 60, 0.05) 0 1px, transparent 1px 24px);
+}
+
+/* 画框：原始书页 */
+.plate {
+  position: relative;
+  padding: 14px;
+  background: linear-gradient(150deg, #fffdf6, #f4efe2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  box-shadow: 0 18px 40px -26px rgba(38, 59, 60, 0.7), 0 1px 0 #fff inset;
+}
+
+.plate img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #fff;
+}
+
+/* --------------------------------------------------------------------------
+   书封与书脊
+   -------------------------------------------------------------------------- */
+
+.book-plate {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 3 / 4;
+  border-radius: var(--r-sm);
+  background: linear-gradient(160deg, var(--teal-600), var(--teal-800));
+  box-shadow: 0 18px 34px -22px rgba(23, 57, 61, 0.85), 0 1px 0 rgba(255, 255, 255, 0.25) inset;
+}
+
+.book-plate img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 书脊高光，让封面看起来是立体的 */
+.book-plate::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 12px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.34), transparent);
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.book-plate::before {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 46%;
+  background: linear-gradient(180deg, transparent, rgba(15, 40, 43, 0.55));
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+   装饰：纸片、星点、水彩团
+   -------------------------------------------------------------------------- */
+
+.ornament {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.ornament--star {
+  width: 22px;
+  height: 22px;
+  color: var(--amber-500);
+  animation: twinkle 4200ms var(--ease-paper) infinite;
+}
+
+.ornament--star:nth-child(2n) { animation-delay: 700ms; color: var(--coral-300); }
+.ornament--star:nth-child(3n) { animation-delay: 1400ms; color: var(--iris-500); }
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.45; transform: scale(0.9) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1.08) rotate(8deg); }
+}
+
+.ornament--blob {
+  width: 180px;
+  height: 130px;
+  border-radius: 52% 48% 38% 62% / 46% 58% 42% 54%;
+  background: radial-gradient(circle at 40% 40%, rgba(145, 133, 200, 0.28), rgba(145, 133, 200, 0));
+  filter: blur(1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ornament--star { animation: none; }
+  .ornament--star { opacity: 0.8; }
+}

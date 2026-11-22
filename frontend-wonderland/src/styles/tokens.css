@@ -1,0 +1,145 @@
+/* ==========================================================================
+   开卷有灵 · 奇想纸艺世界 / Wonderland in Paper
+   设计 Token —— 全站唯一的色彩、字阶、间距、圆角、阴影与动效来源
+   ========================================================================== */
+
+:root {
+  /* ---------- 品牌色 ---------- */
+  --teal-900: #17393d;
+  --teal-800: #1f4a4f;
+  --teal-700: #285e63; /* 深海蓝绿 · 品牌主色 */
+  --teal-600: #33747a;
+  --teal-300: #93b3b3;
+  --teal-100: #dbe7e4;
+
+  --coral-600: #d95f49;
+  --coral-500: #f07862; /* 奇幻珊瑚橙 · 重点操作 */
+  --coral-300: #f6a493;
+  --coral-100: #fde3dc;
+
+  --amber-500: #e8bc58; /* 琥珀金 · 装饰与提示 */
+  --amber-600: #c99b34;
+  --amber-100: #f8ecc9;
+
+  /* ---------- 辅助艺术色 ---------- */
+  --iris-500: #9185c8; /* 梦幻鸢尾紫 */
+  --iris-100: #e7e3f4;
+  --sage-500: #91a98a; /* 鼠尾草绿 */
+  --sage-100: #e4ebdf;
+  --rose-500: #c77d67; /* 陶土玫瑰 */
+  --rose-100: #f4e2dc;
+  --sky-500: #6d91b4; /* 晴空蓝 */
+  --sky-100: #e0e9f1;
+  --mist-500: #d7a7b7; /* 雾粉 */
+  --mist-100: #f6e7ec;
+  --sand-500: #d5a17d; /* 暖沙棕 */
+  --sand-100: #f6e8db;
+
+  /* ---------- 基础色 ---------- */
+  --paper: #f7f5ef;        /* 全局背景 */
+  --paper-card: #fffefa;   /* 内容卡片 */
+  --paper-sub: #edefe5;    /* 次级背景 */
+  --paper-special: #eae8f2;/* 特殊功能区 */
+  --ink: #263b3c;          /* 标题与主要文字 */
+  --ink-soft: #74817b;     /* 描述与次要信息 */
+  --ink-ghost: #9aa49d;
+  --line: rgba(38, 59, 60, 0.12);
+  --line-strong: rgba(38, 59, 60, 0.22);
+
+  /* ---------- 状态色 ---------- */
+  --state-success: #4d9674;
+  --state-success-bg: #e6f1ea;
+  --state-loading: #6d91b4;
+  --state-loading-bg: #e4edf4;
+  --state-waiting: #d5a13f;
+  --state-waiting-bg: #f7edd4;
+  --state-warning: #e88759;
+  --state-warning-bg: #fbe6da;
+  --state-error: #c65d5d;
+  --state-error-bg: #f8e2e0;
+  --state-info: #9185c8;
+  --state-info-bg: #ece8f7;
+
+  /* ---------- 字体 ---------- */
+  /* 展示字体走衬线，贴近印刷绘本与艺术杂志；正文走无衬线，保证中文可读性 */
+  --font-display: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif;
+  --font-body: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+
+  --text-display: clamp(2.6rem, 1.4rem + 2.6vw, 4.4rem);
+  --text-h1: clamp(2rem, 1.2rem + 1.7vw, 3rem);
+  --text-h2: clamp(1.4rem, 1.1rem + 0.6vw, 1.85rem);
+  --text-h3: 1.15rem;
+  --text-body: 0.975rem;
+  --text-sm: 0.86rem;
+  --text-xs: 0.78rem;
+  --text-micro: 0.7rem;
+
+  --leading-tight: 1.14;
+  --leading-snug: 1.32;
+  --leading-body: 1.75;
+  --tracking-kicker: 0.22em;
+  --tracking-title: -0.01em;
+
+  /* ---------- 间距（4px 体系） ---------- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 32px;
+  --s-8: 40px;
+  --s-9: 56px;
+  --s-10: 72px;
+  --s-11: 96px;
+
+  /* ---------- 圆角 ---------- */
+  --r-sm: 12px;
+  --r-md: 20px;
+  --r-lg: 28px;
+  --r-pill: 999px;
+
+  /* ---------- 阴影：接触 + 扩散 + 彩色环境光 ---------- */
+  --shadow-contact: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 1px 2px rgba(38, 59, 60, 0.08);
+  --shadow-raise: 0 2px 4px rgba(38, 59, 60, 0.06), 0 14px 28px -16px rgba(38, 59, 60, 0.34);
+  --shadow-float: 0 4px 8px rgba(38, 59, 60, 0.07), 0 26px 48px -22px rgba(38, 59, 60, 0.42);
+  --shadow-press: 0 1px 2px rgba(38, 59, 60, 0.16) inset;
+  --glow-coral: 0 18px 36px -20px rgba(240, 120, 98, 0.6);
+  --glow-teal: 0 18px 36px -20px rgba(40, 94, 99, 0.55);
+  --glow-iris: 0 18px 36px -20px rgba(145, 133, 200, 0.55);
+
+  /* ---------- 纸张材质 ---------- */
+  --fiber: repeating-linear-gradient(96deg, rgba(38, 59, 60, 0.024) 0 1px, transparent 1px 5px);
+  --fiber-soft: repeating-linear-gradient(94deg, rgba(38, 59, 60, 0.014) 0 1px, transparent 1px 7px);
+  --wash-warm: radial-gradient(120% 90% at 12% 0%, #fdf3e3 0%, transparent 58%);
+  --wash-cool: radial-gradient(110% 80% at 92% 4%, #e6efee 0%, transparent 60%);
+  --wash-iris: radial-gradient(90% 70% at 50% 108%, #ece8f7 0%, transparent 62%);
+
+  /* ---------- 动效 ---------- */
+  --ease-paper: cubic-bezier(0.22, 0.68, 0.24, 1);
+  --ease-drawer: cubic-bezier(0.16, 0.84, 0.3, 1);
+  --dur-micro: 150ms;
+  --dur-base: 240ms;
+  --dur-scene: 480ms;
+
+  /* ---------- 尺寸 ---------- */
+  --sidebar-w: 252px;
+  --topbar-h: 64px;
+  --content-max: 1240px;
+  --reading-max: 1600px;
+  --focus-ring: 0 0 0 3px rgba(40, 94, 99, 0.28);
+  --z-scene: 0;
+  --z-content: 1;
+  --z-float: 2;
+  --z-nav: 40;
+  --z-toast: 90;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-micro: 0ms;
+    --dur-base: 0ms;
+    --dur-scene: 0ms;
+  }
+}

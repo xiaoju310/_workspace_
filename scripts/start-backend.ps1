@@ -12,12 +12,18 @@ if (-not (Test-Path $python)) {
 $env:PYTHONPATH = $backend
 $env:DATABASE_PATH = Join-Path $repo 'data\paper_companion.db'
 if ($WithFrontend) {
-    if (-not (Test-Path (Join-Path $repo 'frontend\dist\index.html'))) {
-        throw 'Build the frontend first: npm --prefix frontend run build'
+    if (-not (Test-Path (Join-Path $repo 'frontend-wonderland\dist\index.html'))) {
+        throw 'Build the desktop UI first: npm --prefix frontend-wonderland run build'
     }
+    # Build checks and the server must agree on the same, sole supported UI.
+    $env:DESKTOP_FRONTEND = 'frontend-wonderland'
     $env:SERVE_FRONTEND = '1'
 }
 if ($Bind -ne '127.0.0.1' -and $Bind -ne 'localhost') {
     Write-Warning 'Network mode: use only on a trusted LAN/VPN. Do not forward port 8000 to the internet; configure HTTPS and MongoDB authentication first.'
 }
-& $python -m uvicorn app.main:app --host $Bind --port $Port
+. (Join-Path $PSScriptRoot 'backend-runtime.ps1')
+$runtime = Get-PaperBackendRuntime $repo $python $Bind $Port
+# Argument arrays passed directly do not need Start-Process quoting.
+$arguments = @($runtime.Arguments | ForEach-Object { $_.Trim('"') })
+& $runtime.Executable @arguments

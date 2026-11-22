@@ -66,3 +66,4 @@ def test_missing_file_fails_before_opening_video(tmp_path):
     report = qc_video(tmp_path / "missing.mp4")
     assert report["status"] == "failed"
     assert report["error_code"] == "FILE_NOT_FOUND"
+

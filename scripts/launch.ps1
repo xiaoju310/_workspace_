@@ -1,20 +1,31 @@
-﻿# One-click local launcher. All generated files stay inside ignored folders.
+# One-click local launcher. All generated files stay inside ignored folders.
 [CmdletBinding()]
 param(
     [ValidateRange(1, 65535)][int]$Port = 8000,
     [switch]$NoBrowser,
+    [ValidateSet("frontend-wonderland")][string]$Frontend = "frontend-wonderland",
     [switch]$Share,
     [string]$InterfaceAlias
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $backend = Join-Path $repo 'backend'
-$frontend = Join-Path $repo 'frontend'
+$frontendDir = Join-Path $repo $Frontend
+# The backend must serve the same UI that this launcher builds.
+$env:DESKTOP_FRONTEND = $Frontend
 $python = Join-Path $backend '.venv\Scripts\python.exe'
 $url = "http://127.0.0.1:$Port/"
 $shareAddress = $null
 
 function Fail([string]$message) { throw $message }
+function Get-LocalFileHash([string]$Path) {
+    # Work even when Windows PowerShell cannot auto-load Get-FileHash.
+    $stream = [IO.File]::OpenRead($Path)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '') }
+    finally { $stream.Dispose(); $sha.Dispose() }
+}
+
 function Run-Checked([string]$program, [string[]]$arguments) {
     & $program @arguments
     if ($LASTEXITCODE -ne 0) { Fail "$program failed (exit code $LASTEXITCODE)." }
@@ -41,7 +52,7 @@ function Open-App {
         try { Start-Process $url | Out-Null }
         catch { Write-Warning "Could not open a browser automatically. Open $url yourself." }
     }
-    Write-Host "Paper Companion is ready: $url"
+    Write-Host "KaiJuan YouLing is ready: $url"
 }
 
 function Assert-MongoLocalOnly {
@@ -111,6 +122,11 @@ try {
                   -not (Get-AppHealth '127.0.0.1')) {
             Fail "Port $Port is already in use but has no matching loopback-only service. Stop it or choose another port."
         }
+        # Do not silently reopen an old UI when switching desktop versions.
+        $rootResponse = Invoke-WebRequest -Uri $url -UseBasicParsing
+        if ($Frontend -eq 'frontend-wonderland' -and $rootResponse.Content -notmatch 'paper-companion-ui" content="frontend-wonderland') {
+            Fail 'The running service still serves the old UI. Restart the desktop service before switching to Wonderland; your data will be preserved.'
+        }
         Open-App
         exit 0
     }
@@ -148,7 +164,7 @@ try {
     }
     $requirements = Join-Path $backend 'requirements.txt'
     $pythonStamp = Join-Path $backend '.venv\.paper-companion-requirements.sha256'
-    $requirementsHash = (Get-FileHash -LiteralPath $requirements -Algorithm SHA256).Hash
+    $requirementsHash = (Get-LocalFileHash $requirements)
     if (-not (Test-Path -LiteralPath $pythonStamp) -or (Get-Content -LiteralPath $pythonStamp -Raw).Trim() -ne $requirementsHash) {
         Write-Host 'Installing Python dependencies (first run may take a few minutes)...'
         Run-Checked $python @('-m', 'pip', 'install', '-r', $requirements)
@@ -157,17 +173,17 @@ try {
 
     $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
     if (-not $npm) { Fail 'Node.js/npm is missing. Install Node.js LTS, then run this launcher again.' }
-    $lock = Join-Path $frontend 'package-lock.json'
-    $nodeModules = Join-Path $frontend 'node_modules'
+    $lock = Join-Path $frontendDir 'package-lock.json'
+    $nodeModules = Join-Path $frontendDir 'node_modules'
     $nodeStamp = Join-Path $nodeModules '.paper-companion-lock.sha256'
-    $lockHash = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash
+    $lockHash = (Get-LocalFileHash $lock)
     if (-not (Test-Path -LiteralPath $nodeStamp) -or (Get-Content -LiteralPath $nodeStamp -Raw).Trim() -ne $lockHash) {
         Write-Host 'Installing frontend dependencies (first run may take a few minutes)...'
-        Run-Checked $npm.Source @('--prefix', $frontend, 'ci', '--no-audit', '--no-fund')
+        Run-Checked $npm.Source @('--prefix', $frontendDir, 'ci', '--no-audit', '--no-fund')
         Set-Content -LiteralPath $nodeStamp -Value $lockHash -Encoding ascii
     }
     Write-Host 'Building the interface...'
-    Run-Checked $npm.Source @('--prefix', $frontend, 'run', 'build')
+    Run-Checked $npm.Source @('--prefix', $frontendDir, 'run', 'build')
 
     if ($Share) { Ensure-LanFirewall }
     $logDir = Join-Path $repo 'data\logs'
@@ -177,10 +193,15 @@ try {
     if (-not $env:DATA_ROOT) { $env:DATA_ROOT = Join-Path $repo 'data' }
     $env:PYTHONPATH = $backend
     $env:SERVE_FRONTEND = '1'
+    # Explicit desktop fallback: local text excerpts, not a visual/semantic model.
+    # Preserve any advanced provider deliberately configured by the owner.
+    if (-not $env:AI_PROVIDER) { $env:AI_PROVIDER = 'text_local' }
     $stdout = Join-Path $logDir "server-$Port-out.log"
     $stderr = Join-Path $logDir "server-$Port-error.log"
     Write-Host 'Starting local service...'
-    $process = Start-Process -FilePath $python -ArgumentList @('-m', 'uvicorn', 'app.main:app', '--host', $(if ($Share) { $shareAddress } else { '127.0.0.1' }), '--port', "$Port") `
+    . (Join-Path $PSScriptRoot 'backend-runtime.ps1')
+    $runtime = Get-PaperBackendRuntime $repo $python $(if ($Share) { $shareAddress } else { '127.0.0.1' }) $Port
+    $process = Start-Process -FilePath $runtime.Executable -ArgumentList $runtime.Arguments `
         -WorkingDirectory $repo -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
     $ready = $false
     for ($i = 0; $i -lt 30; $i++) {

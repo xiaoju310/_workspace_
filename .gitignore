@@ -19,11 +19,19 @@ data/
 .pytest-auth-temp/
 .pytest-mongo-auth-temp/
 
-# Development caches, logs and local credentials (desktop release).
-**/__pycache__/
-.pytest*/
-*.log
-*.pem
-*.key
-*.p12
-*.keystore
+# 2026-11-16 核心功能补充测试生成物（不含源码）
+.tmp-workflow*/
+.tmp-workflow*.py
+
+# 桌面验收临时文件：源码、正式数据和手机版不在这些规则中。
+/.tmp-*/
+/.tmp-*.py
+/.pytest_cache/
+/.pytest-*-temp/
+/paper-sync-browser-*/
+/pytest-of-*/
+# 私有备份始终建议放项目外；防止误复制后提交账号数据。
+/private-backups/
+
+# Python 工具脚本也会生成缓存。
+__pycache__/
