@@ -698,9 +698,10 @@ export default function InteractiveReaderPage({
             {videoState.status === 'loading'
               ? '正在向后端查询本次运行的视频…'
               : videoState.status === 'none'
-                ? `本次运行尚无可播放视频（已登记产物 ${videoState.assetCount} 个）。可在上方“让书页动起来”中单独生成，当前显示静态书页。`
+                ? `本次运行尚无可播放视频（已登记产物 ${videoState.assetCount} 个）。当前是静态书页自动翻页，没有视频旁白。请前往生成工作台，选择已有分镜的运行，确认中文配音后生成全部视频。`
                 : `读取视频失败：${videoState.error}。当前显示静态书页。`}
           </span>
+          {videoState.status === 'none' && <Button variant="secondary" className="button--sm" onClick={()=>navigate('progress',book.id)}>前往生成带配音的视频</Button>}
           {videoState.status !== 'loading' && onReloadVideo && (
             <Button variant="secondary" className="button--sm" onClick={onReloadVideo}>重新检查视频</Button>
           )}

@@ -4,13 +4,14 @@ export const ACCEPTED_MIME = ['image/jpeg', 'image/png']
 export interface ImportPage { id: string; name: string; url: string; size: number; file?: File; demo?: boolean }
 
 export async function validatePage(file: File): Promise<string | null> {
-  if (!ACCEPTED_MIME.includes(file.type) || !/\.(jpe?g|png)$/i.test(file.name)) return `${file.name}：仅支持 JPG / PNG 图片。`
+  if (!/\.(jpe?g|png)$/i.test(file.name) || (file.type && file.type !== 'application/octet-stream' && !ACCEPTED_MIME.includes(file.type))) return `${file.name}：仅支持 JPG / PNG 图片。`
   if (file.size === 0) return `${file.name}：文件为空，请重新选择。`
   if (file.size > MAX_FILE_BYTES) return `${file.name}：超过 20 MB，请压缩后重试。`
   const bytes = new Uint8Array(await file.slice(0, 8).arrayBuffer())
   const isPng = bytes.length === 8 && [137, 80, 78, 71, 13, 10, 26, 10].every((value, i) => bytes[i] === value)
   const isJpeg = bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
-  if ((file.type === 'image/png' && !isPng) || (file.type === 'image/jpeg' && !isJpeg)) return `${file.name}：文件内容与图片类型不符。`
+  const expectedPng = /\.png$/i.test(file.name)
+  if ((expectedPng && !isPng) || (!expectedPng && !isJpeg) || (file.type === 'image/png' && !isPng) || (file.type === 'image/jpeg' && !isJpeg)) return `${file.name}：文件内容与图片类型不符。`
   const url = URL.createObjectURL(file)
   try {
     const image = new Image()

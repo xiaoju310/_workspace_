@@ -51,6 +51,15 @@ CREATE TABLE IF NOT EXISTS workflow_clips (
     sha256 TEXT,
     PRIMARY KEY(run_id,page_no)
 );
+CREATE TABLE IF NOT EXISTS vision_pages (
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    page_no INTEGER NOT NULL,
+    job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    diagnostics_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(run_id,page_no)
+);
 
 CREATE TABLE IF NOT EXISTS books (
     id TEXT PRIMARY KEY,

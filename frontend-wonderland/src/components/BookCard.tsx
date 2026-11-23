@@ -51,6 +51,7 @@ export function BookCard({ book, onOpen }: { book: ReadingBook; onOpen: (book: R
         <span>{book.updated_label}更新</span>
       </div>
       {position && <span className="book-reading-position"><Icon name="clock" size={14} />继续阅读 · 第 {position.page_index+1} / {book.pages.length} 页</span>}
+      {book.status!=='READY'&&book.server_book_id&&book.run_id&&<span className="book-reading-position"><Icon name="clock" size={14} />继续已保存任务</span>}
       {book.classification.confidence !== null && book.classification.confidence < 0.8 && (
         <span className="confidence-note">
           <Icon name="info" size={13} />类型置信度较低，待主人确认

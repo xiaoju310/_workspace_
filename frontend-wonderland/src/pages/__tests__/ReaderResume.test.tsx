@@ -73,6 +73,16 @@ function metadata(duration=90){
 }
 
 describe('真实阅读组件的续读生命周期',()=>{
+  it('没有视频时明确提示静态翻页无旁白，并提供整书配音生成入口',()=>{
+    props={...props,book:{...props.book,video_url:null},videoState:{status:'none',assetCount:0}}
+    render()
+    expect(find('video')).toBeNull()
+    function flatten(n:any):string {return typeof n==='string'||typeof n==='number'?String(n):n&&typeof n==='object'?[n.props?.children].flat(Infinity).map(flatten).join(''):''}
+    expect(flatten(tree)).toContain('静态书页自动翻页，没有视频旁白')
+    function locate(n:any):any {if(!n||typeof n!=='object')return null;if(n.props?.onClick&&flatten(n)==='前往生成带配音的视频')return n;return [n.props?.children].flat(Infinity).map(locate).find(Boolean)}
+    locate(tree).props.onClick()
+    expect(props.navigate).toHaveBeenCalledWith('progress',props.book.id)
+  })
   it('元数据到达前不保存占位位置，真实时长到达恢复52.5秒且保持暂停',()=>{
     render();expect(props.onReadingPosition).not.toHaveBeenCalled()
     const el=metadata();expect(el.currentTime).toBe(52.5)

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { DraftStore } from '../draftStore'
 import { apiClient } from '../../../lib/api'
-import { enableAccountSync, syncedScopes } from '../../../lib/accountDrafts'
+import { enableAccountSync, recoverServerBooks, syncedScopes } from '../../../lib/accountDrafts'
 
 const scope='sync-test:alice'
 const workspace=()=>({books:[],notes:[],grants:[],interactions:[]})
@@ -11,6 +11,21 @@ const draft=()=>({id:'import-test',title:'旧设备草稿',authorizationRef:'原
 afterEach(()=>{syncedScopes.clear();apiClient.setToken('');vi.restoreAllMocks()})
 function setup(){apiClient.setToken('alice');enableAccountSync(scope,true);return new DraftStore(new IDBFactory(),'sync')}
 describe('跨设备账号草稿',()=>{
+ it('继续历史运行的选择在保存和新设备恢复后保留，不被最新分析覆盖',async()=>{
+  const store=setup();let remote:any={revision:0,data:null}
+  vi.spyOn(apiClient,'libraryDraft').mockImplementation(async()=>structuredClone(remote))
+  vi.spyOn(apiClient,'libraryBooks').mockResolvedValue([{id:'server-book',run:{id:'latest-run'},notes:[]}] as any)
+  vi.spyOn(apiClient,'saveLibraryDraft').mockImplementation(async(_key,revision,data)=>{remote={revision:revision+1,data:structuredClone(data)};return {revision:remote.revision}})
+  const book={...initialBooks()[0],server_book_id:'server-book',run_id:'old-run',preferred_run_id:'old-run',status:'GENERATING' as const,safety_reviewed:false}
+  await store.saveWorkspace(scope,{...workspace(),books:[book]})
+  const other=new DraftStore(new IDBFactory(),'resume-other-device')
+  const restored=await other.loadWorkspace(scope)
+  expect(restored?.data.books[0].run_id).toBe('old-run')
+  expect(restored?.data.books[0].preferred_run_id).toBe('old-run')
+  const normal=await recoverServerBooks({...workspace(),books:[{...book,preferred_run_id:null}]},scope)
+  expect(normal.books[0].run_id).toBe('latest-run')
+  restored?.urls.forEach(URL.revokeObjectURL)
+ })
  it('先读取远端版本，保存带同一版本，另一个干净设备恢复更新',async()=>{
   const a=setup();let remote:any={revision:0,data:null}
   vi.spyOn(apiClient,'libraryDraft').mockImplementation(async()=>structuredClone(remote))

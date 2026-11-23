@@ -22,7 +22,7 @@ def setup(tmp_path, monkeypatch):
     monkeypatch.setattr(flow,'video_settings',lambda:('fixture-key','fixture-video'))
     monkeypatch.setattr(video_runtime,'ffmpeg_path',lambda:'fixture-ffmpeg')
     calls=[]
-    def model(instruction,data,schema,image=None):
+    def model(instruction,data,schema,image=None,**options):
         calls.append((instruction,data,schema,image))
         if schema is cloud_vision.PageMeaning:
             return schema(summary='小乌龟慢慢向前走',scene='森林小路',entities=[{'name':'乌龟','description':'绿色背甲','confidence':.8}],events=['乌龟向前走'],uncertain=False)

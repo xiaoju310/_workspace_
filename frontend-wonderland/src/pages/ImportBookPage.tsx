@@ -34,7 +34,8 @@ export default function ImportBookPage({
   const [title, setTitle] = useState('')
   const [authorizationRef, setAuthorizationRef] = useState('')
   const [authorized, setAuthorized] = useState(false)
-  const [type, setType] = useState<BookType>('picture_book')
+  const [authorizationChoice, setAuthorizationChoice] = useState('')
+  const [type, setType] = useState<BookType>('unknown')
   const [errors, setErrors] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
@@ -55,7 +56,7 @@ export default function ImportBookPage({
     if (state === 'empty') {
       importEpoch.current += 1; importAbort.current?.abort(); addingFiles.current = false; setBusy(false)
       pageRef.current.forEach(page => { if (!page.demo) URL.revokeObjectURL(page.url) })
-      pageRef.current = []; setPages([]); setTitle(''); setAuthorizationRef(''); setAuthorized(false)
+      pageRef.current = []; setPages([]); setTitle(''); setAuthorizationRef(''); setAuthorized(false); setAuthorizationChoice('')
     }
   }, [state])
 
@@ -75,7 +76,7 @@ export default function ImportBookPage({
     void draftStore.loadImport(draftScope,requestedDraftId).then(draft=>{
       if(stale){draft?.pages.forEach(p=>{if(!p.demo)URL.revokeObjectURL(p.url)});return}
       if(!draft)throw new Error('此草稿已不存在，请返回首页重新选择')
-      setPages(draft.pages);setTitle(draft.title);setAuthorizationRef(draft.authorizationRef);setAuthorized(draft.authorized);setType(draft.type)
+      setPages(draft.pages);setTitle(draft.title);setAuthorizationRef(draft.authorizationRef);setAuthorized(draft.authorized);setAuthorizationChoice(draft.authorized?'yes':'');setType('unknown')
       setDraftReady(true);setDraftStatus('已恢复草稿，可以继续编辑')
     }).catch((e:Error)=>{if(!stale)setLoadError(e.message)})
     return()=>{stale=true}
@@ -91,7 +92,7 @@ export default function ImportBookPage({
   }
   // 不用卸载时才保存：每次变更立即进入顺序写入队列，切页面也不会取消已开始的保存。
   useEffect(()=>{
-    if(!draftReady||!(touched.current||pages.length||title||authorizationRef||authorized||type!=='picture_book'))return
+    if(!draftReady||!(touched.current||pages.length||title||authorizationRef||authorized||type!=='unknown'))return
     touched.current=true;void saveDraft().catch(()=>{})
   },[pages,title,authorizationRef,authorized,type,draftReady])
   useEffect(()=>{const warn=(e:BeforeUnloadEvent)=>{if(pending.current){e.preventDefault();e.returnValue=''}};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn)},[])
@@ -127,7 +128,7 @@ export default function ImportBookPage({
         assertActive()
         if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
           if (!serverSync) { nextErrors.push(`${file.name}：PDF 需要登录并连接当前服务器；仅发送到该服务器解析，不调用云端模型。`); continue }
-          if (!file.size || file.size > 30 * 1024 * 1024) { nextErrors.push(`${file.name}：PDF 必须为 1 字节至 30 MB。`); continue }
+          if (!file.size || file.size > 200 * 1024 * 1024) { nextErrors.push(`${file.name}：PDF 必须为 1 字节至 200 MB。`); continue }
           const remaining = available - nextPages.length
           if (remaining <= 0) { nextErrors.push('没有剩余书页位置，未导入 PDF。'); continue }
           try {
@@ -160,7 +161,7 @@ export default function ImportBookPage({
   function loadDemo() {
     pages.forEach(page => { if (!page.demo) URL.revokeObjectURL(page.url) })
     setPages([1, 2, 3].map(no => ({ id: `demo-${no}`, name: `森林里的来信-${String(no).padStart(2, '0')}.png`, url: ['/art/page-forest-1.svg','/art/page-forest-2.svg','/art/page-forest-3.svg'][no-1], size: 0, demo: true })))
-    setTitle('森林里的来信'); setAuthorizationRef('原创合成演示页'); setAuthorized(false); setDone(false); setErrors([])
+    setTitle('森林里的来信'); setAuthorizationRef('原创合成演示页'); setAuthorized(false); setAuthorizationChoice(''); setDone(false); setErrors([])
   }
 
   function removePage(id: string) {
@@ -176,7 +177,6 @@ export default function ImportBookPage({
     if (busy || addingFiles.current || done) return
     const missing: string[] = []
     if (!title.trim()) missing.push('请填写图书名称。')
-    if (!authorizationRef.trim()) missing.push('请填写素材来源或授权标识。')
     if (!authorized) missing.push('请确认你拥有所选书页的使用授权。')
     if (!pages.length) missing.push('请至少选择一张书页。')
     setErrors(missing)
@@ -202,7 +202,7 @@ export default function ImportBookPage({
         <Button variant="ghost" onClick={onHome}>返回首页 <Icon name="arrow" size={17} /></Button>
       </div>
 
-      <div className="draft-notice paper-card" role="status"><p>{draftStatus}</p><p>书名、类型、授权来源和原图会先保存在本机；登录真实账号后同步到服务器。看到“已同步到账号”再换设备，另一台设备需连接同一服务器。</p><Button type="button" variant="secondary" disabled={busy} onClick={()=>{void saveDraft().catch(()=>{})}}>保存草稿</Button></div>
+      <div className="draft-notice paper-card" role="status"><p>{draftStatus}</p><p>书名、授权选择和原图会先保存在本机；登录真实账号后同步到服务器。看到“已同步到账号”再换设备，另一台设备需连接同一服务器。</p><Button type="button" variant="secondary" disabled={busy} onClick={()=>{void saveDraft().catch(()=>{})}}>保存草稿</Button></div>
       <ol className="stepper" aria-label="导入流程">
         <li className="current" aria-current="step"><span>01</span><div>导入书页<small>添加图片与授权信息</small></div></li>
         <li><span>02</span><div>校对与确认<small>页序、文字和图书类型</small></div></li>
@@ -222,7 +222,7 @@ export default function ImportBookPage({
                 <span className="section-number">1</span>
                 <h2>给这本书一个名字</h2>
                 <Badge tone={isLive ? (serverSync ? 'green' : 'amber') : 'neutral'}>
-                  {isLive ? (serverSync ? '可同步到后端' : '需先填写令牌') : '本地演示'}
+                  {isLive ? (serverSync ? '可同步到后端' : '需先登录') : '本地演示'}
                 </Badge>
               </div>
               <div className="form-grid">
@@ -237,57 +237,55 @@ export default function ImportBookPage({
                     disabled={busy || done}
                   />
                 </label>
-                <label className="field">
-                  图书类型
-                  <select value={type} onChange={e => setType(e.target.value as BookType)} disabled={busy || done}>
-                    <option value="picture_book">绘本 · 互动伴读优先</option>
-                    <option value="fiction">文学故事 · 笔记原型</option>
-                    <option value="nonfiction">知识读物 · 笔记原型</option>
-                    <option value="unknown">暂不确定，稍后确认</option>
-                  </select>
-                </label>
+                <div className="field">
+                  <span>图书类型</span>
+                  <strong>自动识别</strong>
+                  <span className="field-help">继续校对时自动分类；无法确定时会提示你确认。</span>
+                </div>
               </div>
-              <p className="field-help">
-                <Icon name="info" size={14} />这里是你的初步选择；分析后会展示预测类型、置信度和理由，由主人最终确认。
-              </p>
               <label className="field source-field">
-                素材来源 / 授权标识 <span className="required">*</span>
-                <input
-                  maxLength={200}
-                  value={authorizationRef}
-                  onChange={e => { setAuthorizationRef(e.target.value); setDone(false) }}
-                  placeholder="例如：自制内容 / 赛事授权样本编号"
-                  required
-                  disabled={busy || done}
-                />
+                是否拥有所选书页的使用授权 <span className="required">*</span>
+                <select aria-label="是否拥有使用授权" value={authorizationChoice} disabled={busy || done}
+                  onChange={e => {
+                    const choice = e.target.value
+                    setAuthorizationChoice(choice); setAuthorized(choice === 'yes')
+                    setAuthorizationRef(choice === 'yes' ? '用户声明拥有使用授权' : '')
+                    setDone(false)
+                  }}>
+                  <option value="">请选择</option>
+                  <option value="yes">是，我拥有使用授权（含自制内容）</option>
+                  <option value="no">否，我没有使用授权</option>
+                  <option value="unsure">不确定，需要先核实</option>
+                </select>
               </label>
+              {(authorizationChoice === 'no' || authorizationChoice === 'unsure') && <p className="field-help">请先取得或核实使用授权，再继续导入。</p>}
             </section>
 
             {/* 工作台 02：书页 */}
             <section className="paper-card paper-card--lg form-card upload-card">
               <div className="card-title">
                 <span className="section-number">2</span>
-                <h2>添加书页图片</h2>
+                <h2>添加书页（图片 / PDF）</h2>
                 <span className="muted count-text">{uploaded} / {MAX_PAGES} 页</span>
               </div>
 
               <label
                 className={`upload-dropzone ${dragging ? 'dragging' : ''} ${busy || done ? 'disabled' : ''}`}
-                onDragOver={e => { e.preventDefault(); if (!busy && !done) setDragging(true) }}
+                onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = busy || done ? 'none' : 'copy'; if (!busy && !done) setDragging(true) }}
                 onDragLeave={() => setDragging(false)}
                 onDrop={e => { e.preventDefault(); setDragging(false); if (!busy && !done) void addFiles(Array.from(e.dataTransfer.files)) }}
               >
                 <input
                   ref={inputRef}
                   type="file"
-                  accept="image/jpeg,image/png,application/pdf,.pdf"
+                  accept="image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf"
                   multiple
                   disabled={busy || done}
                   onChange={e => { void addFiles(Array.from(e.target.files ?? [])); e.target.value = '' }}
                 />
                 <span className="upload-icon"><Icon name="upload" size={30} /></span>
                 <strong>{busy ? '正在检查书页…' : '把书页拖到这里，或点击选择'}</strong>
-                <span className="upload-hint">PDF 不超过 30 MB，登录后由当前服务器本地解析 · JPG / PNG 每张不超过 20 MB · 最多 {MAX_PAGES} 页</span>
+                <span className="upload-hint">PDF 不超过 200 MB，登录后由当前服务器本地解析 · JPG / PNG 每张不超过 20 MB · 最多 {MAX_PAGES} 页</span>
                 <span className="choose-file">选择书页 <Icon name="plus" size={16} /></span>
               </label>
 
@@ -299,6 +297,13 @@ export default function ImportBookPage({
                   试用原创示例 <Icon name="arrow" size={14} />
                 </button>
               </div>
+
+              {errors.length > 0 && (
+                <div className="form-errors" role="alert">
+                  <strong><Icon name="alert" size={16} /> 请检查以下内容</strong>
+                  <ul>{errors.map(error => <li key={error}>{error}</li>)}</ul>
+                </div>
+              )}
 
               {pages.length > 0 ? (
                 <div className="page-preview">
@@ -355,17 +360,9 @@ export default function ImportBookPage({
                 <Icon name="info" size={17} />
                 <p>请使用自制或已获授权的书页。通用阅读功能处于原型阶段，尚未实测支持所有图书。</p>
               </div>
-              <label className="authorization">
-                <input type="checkbox" checked={authorized} onChange={e => setAuthorized(e.target.checked)} disabled={busy || done} />
-                <span>我确认拥有所选书页的使用授权，并已填写来源标识。</span>
-              </label>
 
-              {errors.length > 0 && (
-                <div className="form-errors" role="alert">
-                  <strong><Icon name="alert" size={16} /> 请检查以下内容</strong>
-                  <ul>{errors.map(error => <li key={error}>{error}</li>)}</ul>
-                </div>
-              )}
+
+
 
               {done && (
                 <div className="import-success" role="status">
@@ -393,7 +390,7 @@ export default function ImportBookPage({
               </div>
 
               <p className="local-only">
-                {serverSync ? <>点“继续校对书页”时会向后端建档和请求分类；草稿原图已同步到账号；点“开始分析与生成”时才向分析任务登记书页和校对文字。</> : isLive ? <>当前未配置令牌，只能保存本地书页预览；不能发起真实分析。<br />请在页面顶部填写令牌后重新导入。</> : <>本地演示不会上传图片或调用模型；书页会保存为草稿，可稍后继续。</>}
+                {serverSync ? <>点“继续校对书页”时会向后端建档和请求分类；草稿原图已同步到账号；点“开始分析与生成”时才向分析任务登记书页和校对文字。</> : isLive ? <>当前尚未登录，只能保存本地图片预览；PDF 解析和真实分析需先登录。<br />请先在页面顶部登录，再继续导入。</> : <>本地演示不会上传图片或调用模型；书页会保存为草稿，可稍后继续。</>}
               </p>
             </div>
           </aside>
@@ -403,7 +400,7 @@ export default function ImportBookPage({
       <div className="home-footnote">
         <Icon name="info" size={15} />
         <span>
-          {serverSync ? '真实模式：建档与分类会调用后端；分析和视频是否可用取决于后端配置，失败会如实显示。' : isLive ? '真实模式尚未填写令牌：本次只保存在浏览器，不会伪装成真实生成。' : '演示模式：可校对文字和体验模拟流程；不调用后端生成模型。'}
+          {serverSync ? '真实模式：建档与分类会调用后端；分析和视频是否可用取决于后端配置，失败会如实显示。' : isLive ? '真实模式尚未登录：本次只保存在浏览器，不会伪装成真实生成。' : '演示模式：可校对文字和体验模拟流程；不调用后端生成模型。'}
         </span>
       </div>
     </div>

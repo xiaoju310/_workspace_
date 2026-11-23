@@ -6,6 +6,7 @@ import json
 import re
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from pathlib import Path
 from typing import Literal
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -30,6 +31,13 @@ class BookVideoRequest(Consent):
 
 class VisionRequest(Consent):
     page_nos: list[int] = Field(min_length=1, max_length=12)
+    fast_mode: bool = True
+    concurrency: int = Field(default=2, ge=1, le=3)
+
+class VisionRetryRequest(Consent):
+    page_nos: list[int] = Field(min_length=1, max_length=12)
+    fast_mode: bool = True
+    concurrency: int = Field(default=2, ge=1, le=3)
 
 class Shot(BaseModel):
     page_no: int = Field(ge=1, le=2000)
@@ -183,6 +191,42 @@ def claim(run_id, stage):
         return task, dict(run)
 
 
+def vision_progress(c, run_id, batches, meanings):
+    """Old workers were serial: only the first missing page may have been sent."""
+    done = {p['page_no'] for p in meanings}
+    ledger = {r['page_no']: dict(r) for r in c.execute('SELECT * FROM vision_pages WHERE run_id=?', (run_id,))}
+    for batch in batches:
+        request = json.loads(batch['request_json'])
+        missing = [n for n in request['page_nos'] if n not in done]
+        for n in request['page_nos']:
+            if n in done and n not in ledger:
+                ledger[n] = {'page_no': n, 'job_id': batch['job_id'], 'status': 'SUCCEEDED', 'diagnostics_json': '{}'}
+        for index, n in enumerate(missing):
+            if n not in ledger:
+                ledger[n] = {'page_no': n, 'job_id': batch['job_id'],
+                             'status': 'UNCERTAIN' if request.get('ledger_version') or index == 0 or batch['status'] in ACTIVE else 'PENDING',
+                             'diagnostics_json': '{}'}
+    return [{'page_no': n, 'job_id': item['job_id'],
+             'status': 'SUCCEEDED' if n in done else ('UNCERTAIN' if item['status'] == 'SUBMITTING' and
+                 not any(b['job_id'] == item['job_id'] and b['status'] in ACTIVE for b in batches) else item['status']),
+             'diagnostics': json.loads(item['diagnostics_json'])} for n, item in sorted(ledger.items())]
+
+
+def reusable_vision(c, run, source_hash, model, page_nos):
+    """Only reuse saved results from the same book, exact source and model."""
+    wanted = set(page_nos)
+    found = {}
+    for row in c.execute('''SELECT w.run_id,w.vision_json FROM reading_workflows w
+            JOIN runs r ON r.id=w.run_id WHERE r.book_id=? AND w.run_id<>?
+            AND w.source_hash=? AND w.vision_json IS NOT NULL ORDER BY w.updated_at DESC''',
+            (run['book_id'], run['id'], source_hash)):
+        for entry in json.loads(row['vision_json']):
+            number = entry.get('page_no')
+            if number in wanted and number not in found and entry.get('model') == model:
+                found[number] = (entry, row['run_id'])
+    return found
+
+
 @router.get('/{run_id}/workflow')
 def get_workflow(run_id: str, actor: str = Depends(actor_id)):
     with get_connection() as c:
@@ -199,6 +243,15 @@ def get_workflow(run_id: str, actor: str = Depends(actor_id)):
             'events': [dict(x) for x in c.execute("SELECT event,safe_metadata_json,created_at FROM run_logs WHERE run_id=? AND (event LIKE 'vision_%' OR event LIKE 'storyboard_%' OR event LIKE 'video_page_%' OR event='book_video_completed' OR event='book_video_queued' OR event='touch_evidence_saved' OR event='text_evidence_saved' OR event='frame_qa_evidence_saved') ORDER BY created_at,rowid", (run_id,))],
             'clips': [dict(x) for x in c.execute('SELECT page_no,submission_started,CASE WHEN file_path IS NOT NULL THEN 1 ELSE 0 END AS downloaded,CASE WHEN task_id IS NOT NULL THEN 1 ELSE 0 END AS submitted FROM workflow_clips WHERE run_id=? ORDER BY page_no', (run_id,))]}
         result['coverage'] = story_coverage(pages_for(c, run['book_id']), result['storyboard'], result['vision'] or [])
+        batches = [dict(t) for t in c.execute("SELECT t.*,j.status FROM workflow_tasks t JOIN jobs j ON j.id=t.job_id WHERE t.run_id=? AND (t.stage='vision' OR t.stage LIKE 'vision_%') ORDER BY j.created_at,j.rowid", (run_id,))]
+        progress = vision_progress(c, run_id, batches, result['vision'] or [])
+        result['vision_progress'] = progress
+        result['vision_resume_available'] = any(p['status'] == 'PENDING' and any(b['job_id'] == p['job_id'] and b['status'] == 'FAILED' for b in batches) for p in progress)
+        uncertain = [p['page_no'] for p in progress if p['status'] == 'UNCERTAIN']
+        models = {json.loads(b['request_json'])['model'] for b in batches}
+        reusable = reusable_vision(c, run, row['source_hash'], next(iter(models)), uncertain) if row and current and len(models) == 1 and uncertain else {}
+        page_hashes = {p['page_no']: p['sha256'] for p in pages_for(c, run['book_id'])}
+        result['reusable_vision_page_nos'] = sorted(n for n, (entry, _) in reusable.items() if entry.get('source_sha256') == page_hashes.get(n))
         result['approved'] = bool(result['approved'] and result['coverage']['complete'] and (result['storyboard'] or {}).get('coverage_review_revision') == result['revision'])
         video_task = task_for(c, run_id, 'book_video')
         result['narration'] = bool(json.loads(video_task['request_json']).get('narration')) if video_task else False
@@ -229,8 +282,6 @@ def start_vision(run_id: str, payload: VisionRequest, tasks: BackgroundTasks, ac
                 return task_public(task_for(c, run_id, batch['stage']))
         if task_for(c, run_id, 'book_video'):
             raise HTTPException(409, '已创建视频任务，不能再更改分析依据')
-        if any(t['status'] == 'FAILED' for t in batches):
-            raise HTTPException(409, '已有分析批次失败或结果不明，不自动重发；请核对记录后创建新运行')
         attempted = {n for t in batches for n in json.loads(t['request_json'])['page_nos']}
         if attempted.intersection(payload.page_nos):
             raise HTTPException(409, '所选页含已提交的分析页，请只选择尚未处理的页；不会重复收费分析')
@@ -249,7 +300,133 @@ def start_vision(run_id: str, payload: VisionRequest, tasks: BackgroundTasks, ac
         except (ValueError, OSError):
             raise HTTPException(422, '书页文件损坏，请重新导入')
         stage = 'vision' if not batches else 'vision_' + hashlib.sha256(json_text(sorted(payload.page_nos)).encode()).hexdigest()[:24]
-        result = new_task(c, run_id, stage, {'page_nos': sorted(payload.page_nos), 'source_hash': source_hash, 'model': model})
+        result = new_task(c, run_id, stage, {'page_nos': sorted(payload.page_nos), 'source_hash': source_hash, 'model': model,
+            'fast_mode': payload.fast_mode, 'concurrency': payload.concurrency, 'ledger_version': 1})
+        for page in selected:
+            c.execute("INSERT INTO vision_pages(run_id,page_no,job_id,status,updated_at) VALUES(?,?,?,'PENDING',?)",
+                      (run_id,page['page_no'],result['job_id'],now_iso()))
+    tasks.add_task(run_vision, run_id, stage)
+    return task_public(result)
+
+
+@router.post('/{run_id}/workflow/vision/resume', status_code=202)
+def resume_vision(run_id: str, payload: Consent, tasks: BackgroundTasks, actor: str = Depends(actor_id)):
+    require_paid(payload)
+    with get_connection() as c:
+        c.execute('BEGIN IMMEDIATE')
+        run = owned_run(c, run_id, actor)
+        exclusive(c, run['book_id'])
+        if task_for(c, run_id, 'book_video'):
+            raise HTTPException(409, '已创建视频任务，不能再更改分析依据')
+        batches = [dict(t) for t in c.execute("SELECT t.*,j.status FROM workflow_tasks t JOIN jobs j ON j.id=t.job_id WHERE t.run_id=? AND (t.stage='vision' OR t.stage LIKE 'vision_%') ORDER BY j.created_at,j.rowid", (run_id,))]
+        row = workflow(c, run_id)
+        progress = vision_progress(c, run_id, batches, json.loads(row['vision_json']) if row and row['vision_json'] else [])
+        batch = next((b for b in batches if b['status'] == 'FAILED' and any(p['job_id'] == b['job_id'] and p['status'] == 'PENDING' for p in progress)), None)
+        if not batch:
+            raise HTTPException(409, '没有确认未发送的书页；成功页不重发，结果不明页请先核对供应商记录')
+        request = json.loads(batch['request_json'])
+        if request['source_hash'] != fingerprint(pages_for(c, run['book_id'])) or require_model() != request['model']:
+            raise HTTPException(409, '书页或模型已经变化，不能混入旧分析')
+        # Backfill only from the known serial legacy worker; never assume timeout means not billed.
+        for p in progress:
+            if p['job_id'] == batch['job_id']:
+                c.execute('INSERT OR IGNORE INTO vision_pages(run_id,page_no,job_id,status,updated_at) VALUES(?,?,?,?,?)',
+                          (run_id,p['page_no'],p['job_id'],p['status'],now_iso()))
+                if p['status'] == 'UNCERTAIN':
+                    c.execute("UPDATE vision_pages SET status='UNCERTAIN',updated_at=? WHERE run_id=? AND page_no=? AND status='SUBMITTING'",
+                              (now_iso(),run_id,p['page_no']))
+        c.execute("UPDATE jobs SET status='QUEUED',error_code=NULL,error_message=NULL,ended_at=NULL WHERE id=?", (batch['job_id'],))
+        log(c, run_id, 'vision_resumed', {'job_id': batch['job_id'], 'page_nos': [p['page_no'] for p in progress if p['job_id'] == batch['job_id'] and p['status'] == 'PENDING']})
+        result = task_public(task_for(c, run_id, batch['stage']))
+    tasks.add_task(run_vision, run_id, batch['stage'])
+    return result
+
+
+@router.post('/{run_id}/workflow/vision/reuse')
+def reuse_vision(run_id: str, actor: str = Depends(actor_id)):
+    """Fill uncertain pages from an already saved matching run; no provider call."""
+    with get_connection() as c:
+        c.execute('BEGIN IMMEDIATE')
+        run = owned_run(c, run_id, actor)
+        exclusive(c, run['book_id'])
+        if task_for(c, run_id, 'book_video'):
+            raise HTTPException(409, '已创建视频任务，不能再更改分析依据')
+        pages = pages_for(c, run['book_id'])
+        source_hash = fingerprint(pages)
+        row = workflow(c, run_id)
+        batches = [dict(t) for t in c.execute("SELECT t.*,j.status FROM workflow_tasks t JOIN jobs j ON j.id=t.job_id WHERE t.run_id=? AND (t.stage='vision' OR t.stage LIKE 'vision_%') ORDER BY j.created_at,j.rowid", (run_id,))]
+        if not row or row['source_hash'] != source_hash or not batches or any(b['status'] in ACTIVE for b in batches):
+            raise HTTPException(409, '分析任务或书页已变化，请刷新后重试')
+        models = {json.loads(b['request_json'])['model'] for b in batches}
+        if len(models) != 1:
+            raise HTTPException(409, '分析使用了不同模型，不能复用结果')
+        model = next(iter(models))
+        previous = json.loads(row['vision_json'] or '[]')
+        progress = vision_progress(c, run_id, batches, previous)
+        uncertain = [p for p in progress if p['status'] == 'UNCERTAIN']
+        matches = reusable_vision(c, run, source_hash, model, [p['page_no'] for p in uncertain])
+        by_page = {p['page_no']: p for p in pages}
+        matches = {n: item for n, item in matches.items() if item[0].get('source_sha256') == by_page[n]['sha256']}
+        if not matches:
+            raise HTTPException(409, '没有来源及模型一致的已保存结果')
+        combined = sorted(previous + [entry for entry, _ in matches.values()], key=lambda p: p['page_no'])
+        if len({p['page_no'] for p in combined}) != len(combined):
+            raise HTTPException(409, '分析结果已变化，请刷新后重试')
+        c.execute('UPDATE reading_workflows SET vision_json=?,storyboard_json=NULL,approved_revision=NULL,revision=revision+1,updated_at=? WHERE run_id=?',
+                  (json_text(combined), now_iso(), run_id))
+        for n, (entry, source_run_id) in matches.items():
+            page = next(p for p in uncertain if p['page_no'] == n)
+            c.execute('INSERT INTO vision_pages(run_id,page_no,job_id,status,diagnostics_json,updated_at) VALUES(?,?,?,?,?,?) '
+                      'ON CONFLICT(run_id,page_no) DO UPDATE SET status=excluded.status,diagnostics_json=excluded.diagnostics_json,updated_at=excluded.updated_at',
+                      (run_id,n,page['job_id'],'SUCCEEDED',json_text({'reused_from_run_id': source_run_id}),now_iso()))
+            log(c, run_id, 'vision_page_reused', {'page_no': n, 'source_run_id': source_run_id})
+        done = {p['page_no'] for p in combined}
+        for batch in batches:
+            if batch['status'] == 'FAILED' and set(json.loads(batch['request_json'])['page_nos']).issubset(done):
+                c.execute("UPDATE jobs SET status='SUCCEEDED',error_code=NULL,error_message=NULL,ended_at=? WHERE id=?",
+                          (now_iso(),batch['job_id']))
+        return {'reused_page_nos': sorted(matches)}
+
+
+@router.post('/{run_id}/workflow/vision/retry', status_code=202)
+def retry_uncertain_vision(run_id: str, payload: VisionRetryRequest, tasks: BackgroundTasks, actor: str = Depends(actor_id)):
+    """Explicit paid resubmission for selected uncertain pages only."""
+    require_paid(payload)
+    if len(set(payload.page_nos)) != len(payload.page_nos):
+        raise HTTPException(422, '页码不能重复')
+    with get_connection() as c:
+        c.execute('BEGIN IMMEDIATE')
+        run = owned_run(c, run_id, actor)
+        exclusive(c, run['book_id'])
+        if task_for(c, run_id, 'book_video'):
+            raise HTTPException(409, '已创建视频任务，不能再更改分析依据')
+        pages = pages_for(c, run['book_id'])
+        source_hash = fingerprint(pages)
+        row = workflow(c, run_id)
+        batches = [dict(t) for t in c.execute("SELECT t.*,j.status FROM workflow_tasks t JOIN jobs j ON j.id=t.job_id WHERE t.run_id=? AND (t.stage='vision' OR t.stage LIKE 'vision_%') ORDER BY j.created_at,j.rowid", (run_id,))]
+        if not row or row['source_hash'] != source_hash or not batches or any(b['status'] in ACTIVE for b in batches):
+            raise HTTPException(409, '分析任务或书页已变化，请刷新后重试')
+        models = {json.loads(b['request_json'])['model'] for b in batches}
+        if len(models) != 1 or require_model() not in models:
+            raise HTTPException(409, '视觉模型已变化，不能混入旧分析')
+        progress = vision_progress(c, run_id, batches, json.loads(row['vision_json'] or '[]'))
+        uncertain = {p['page_no']: p for p in progress if p['status'] == 'UNCERTAIN'}
+        if not set(payload.page_nos) <= set(uncertain):
+            raise HTTPException(409, '只能重试结果不明的页；成功页与未发送页不会重复提交')
+        selected = [p for p in pages if p['page_no'] in payload.page_nos]
+        for page in selected:
+            try:
+                validated_page(page)
+            except (ValueError, OSError):
+                raise HTTPException(422, '书页文件损坏，请重新导入')
+        stage = 'vision_retry_' + uuid.uuid4().hex
+        result = new_task(c, run_id, stage, {'page_nos': sorted(payload.page_nos), 'source_hash': source_hash,
+            'model': next(iter(models)), 'fast_mode': payload.fast_mode, 'concurrency': payload.concurrency, 'ledger_version': 1})
+        for n in payload.page_nos:
+            c.execute('INSERT INTO vision_pages(run_id,page_no,job_id,status,updated_at) VALUES(?,?,?,?,?) '
+                      'ON CONFLICT(run_id,page_no) DO UPDATE SET job_id=excluded.job_id,status=excluded.status,diagnostics_json=\'{}\',updated_at=excluded.updated_at',
+                      (run_id,n,result['job_id'],'PENDING',now_iso()))
+        log(c, run_id, 'vision_uncertain_retry_queued', {'page_nos': sorted(payload.page_nos), 'job_id': result['job_id']})
     tasks.add_task(run_vision, run_id, stage)
     return task_public(result)
 
@@ -260,46 +437,98 @@ def run_vision(run_id, stage='vision'):
         return
     task, run = claimed
     request = json.loads(task['request_json'])
-    try:
-        with get_connection() as c:
-            pages = pages_for(c, run['book_id'])
-        results = []
-        for page in pages:
-            if page['page_no'] not in request['page_nos']:
-                continue
+    failed = False
+
+    def analyze(page):
+        started = time.monotonic()
+        submitted = False
+        diagnostics = {}
+        try:
             if vision_settings()[1] != request['model']:
-                raise ValueError('model changed')
-            with get_connection() as c:
-                if fingerprint(pages_for(c, run['book_id'])) != request['source_hash']:
-                    raise ValueError('source changed')
+                raise cloud_vision.VisionError('MODEL_CHANGED')
             validated_page(page)
-            # 人工校对文字仅作参考，视觉模型不得覆盖主人保存的 OCR。
+            image = cloud_vision.image_data(Path(page['image_path']).read_bytes())
             ocr = json.loads(page['ocr_json'] or '{}')
-            result = cloud_vision.call_json('分析儿童读物书页。区分画面可见事实和不确定内容；识别角色、场景、动作、事件。看不清或文字无依据时明确不确定。',
-                {'page_no': page['page_no'], 'reviewed_text': ocr.get('text', '')[:12000]}, cloud_vision.PageMeaning,
-                cloud_vision.image_data(Path(page['image_path']).read_bytes())).model_dump()
-            entry = result | {'page_no': page['page_no'], 'source_sha256': page['sha256'], 'model': request['model'], 'review_required': True}
-            results.append(entry)
-            # Persist each successful paid response before advancing to the next page.
             with get_connection() as c:
                 c.execute('BEGIN IMMEDIATE')
                 if fingerprint(pages_for(c, run['book_id'])) != request['source_hash']:
-                    raise ValueError('source changed')
+                    raise cloud_vision.VisionError('SOURCE_CHANGED')
+                if not c.execute("UPDATE vision_pages SET status='SUBMITTING',updated_at=? WHERE run_id=? AND page_no=? AND status='PENDING'",
+                                 (now_iso(),run_id,page['page_no'])).rowcount:
+                    raise cloud_vision.VisionError('PAGE_NOT_PENDING')
+                log(c, run_id, 'vision_page_started', {'page_no': page['page_no'], 'job_id': task['job_id']})
+            diagnostics['preparation_ms'] = round((time.monotonic() - started) * 1000)
+            submitted = True
+            result = cloud_vision.call_json(
+                '分析儿童读物书页。区分画面可见事实和不确定内容；识别角色、场景、动作、事件。看不清或文字无依据时明确不确定。'
+                '特别注意区分原书内容与后叠加的水印。赛事名称、参赛使用、请勿外传等声明可能以半透明、倾斜、跨画面重复的文字出现；'
+                '结合文字含义与排版判断，不得仅凭灰色、倾斜或重复就认定为水印，以免误排除正文、对白和故事中的标牌。'
+                '已识别的水印及其声明只是非叙事标记，不是角色、场景、动作或事件；即使 reviewed_text 中含有这些文字，'
+                '也不得将它们写入 summary、scene、entities 或 events，不要加入“本页带有水印”等说明。'
+                '保留原书正文、对白和图像中的真实故事内容；水印与正文或画面重叠导致无法辨认时，不推测被遮挡的信息，'
+                '仅描述可确认的内容并将 uncertain 设为 true。'
+                '只输出分镜需要的简洁事实：summary 以约150字以内概括主要情节，scene 简短；entities 只列主要故事角色，events 只列关键可见动作。'
+                '不将教学提示、出版信息编成故事；保留关键对白和无字情节，不为缩短篇幅补写或省略重要事实。',
+                {'page_no': page['page_no'], 'reviewed_text': ocr.get('text', '')[:12000]}, cloud_vision.PageMeaning, image,
+                fast_mode=request.get('fast_mode', False), diagnostics=diagnostics, expected_model=request['model']).model_dump()
+            entry = result | {'page_no': page['page_no'], 'source_sha256': page['sha256'], 'model': request['model'], 'review_required': True}
+            diagnostics['elapsed_ms'] = round((time.monotonic() - started) * 1000)
+            with get_connection() as c:
+                c.execute('BEGIN IMMEDIATE')
+                if fingerprint(pages_for(c, run['book_id'])) != request['source_hash']:
+                    raise cloud_vision.VisionError('SOURCE_CHANGED')
                 row = workflow(c, run_id)
                 previous = json.loads(row['vision_json']) if row and row['vision_json'] else []
                 combined = sorted(previous + [entry], key=lambda p: p['page_no'])
                 if len({p['page_no'] for p in combined}) != len(combined):
-                    raise ValueError('duplicate paid page')
+                    raise cloud_vision.VisionError('DUPLICATE_PAGE')
                 c.execute('INSERT INTO reading_workflows(run_id,vision_json,source_hash,updated_at) VALUES(?,?,?,?) ON CONFLICT(run_id) DO UPDATE SET vision_json=excluded.vision_json,source_hash=excluded.source_hash,storyboard_json=NULL,approved_revision=NULL,revision=reading_workflows.revision+1,updated_at=excluded.updated_at', (run_id,json_text(combined),request['source_hash'],now_iso()))
-                log(c, run_id, 'vision_page_completed', {'page_no': page['page_no'], 'job_id': task['job_id']})
+                c.execute("UPDATE vision_pages SET status='SUCCEEDED',diagnostics_json=?,updated_at=? WHERE run_id=? AND page_no=?",
+                          (json_text(diagnostics),now_iso(),run_id,page['page_no']))
+                log(c, run_id, 'vision_page_completed', {'page_no': page['page_no'], 'job_id': task['job_id'], **diagnostics})
+            return True
+        except Exception as error:
+            diagnostics.update(elapsed_ms=round((time.monotonic() - started) * 1000),
+                               error_code=error.code if isinstance(error, cloud_vision.VisionError) else 'LOCAL_ERROR')
+            with get_connection() as c:
+                c.execute("UPDATE vision_pages SET status=?,diagnostics_json=?,updated_at=? WHERE run_id=? AND page_no=? AND status<>'SUCCEEDED'",
+                          ('UNCERTAIN' if submitted else 'PENDING',json_text(diagnostics),now_iso(),run_id,page['page_no']))
+                log(c, run_id, 'vision_page_failed', {'page_no': page['page_no'], 'job_id': task['job_id'], **diagnostics})
+            return False
+
+    try:
+        with get_connection() as c:
+            pages = pages_for(c, run['book_id'])
+            pending = {r['page_no'] for r in c.execute("SELECT page_no FROM vision_pages WHERE run_id=? AND job_id=? AND status='PENDING'", (run_id,task['job_id']))}
+        remaining = iter(p for p in pages if p['page_no'] in pending)
+        workers = max(1, min(3, request.get('concurrency', 1)))
+        # Only keep workers requests in flight. A failure stops scheduling new paid work;
+        # already submitted peers finish and persist even when another page fails.
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(analyze, p) for p in [next(remaining, None) for _ in range(workers)] if p is not None}
+            while futures:
+                completed, futures = wait(futures, return_when=FIRST_COMPLETED)
+                for future in completed:
+                    if not future.result():
+                        failed = True
+                if not failed:
+                    for _ in completed:
+                        page = next(remaining, None)
+                        if page is not None:
+                            futures.add(pool.submit(analyze, page))
         with get_connection() as c:
             c.execute('BEGIN IMMEDIATE')
-            if fingerprint(pages_for(c, run['book_id'])) != request['source_hash']:
-                raise ValueError('source changed')
-            c.execute("UPDATE jobs SET status='SUCCEEDED',ended_at=? WHERE id=?", (now_iso(),task['job_id']))
-            log(c, run_id, 'vision_completed', {'pages': len(results), 'job_id': task['job_id'], 'review_required': True})
+            row = workflow(c, run_id)
+            done = {p['page_no'] for p in json.loads(row['vision_json'] or '[]')} if row else set()
+            if fingerprint(pages_for(c, run['book_id'])) != request['source_hash'] or not set(request['page_nos']).issubset(done):
+                failed = True
+            if not failed:
+                c.execute("UPDATE jobs SET status='SUCCEEDED',ended_at=? WHERE id=?", (now_iso(),task['job_id']))
+                log(c, run_id, 'vision_completed', {'pages': len(request['page_nos']), 'job_id': task['job_id'], 'review_required': True})
+        if failed:
+            fail(task['job_id'], 'VISION_INTERRUPTED', '图文理解未完成。成功页已保存；可继续确认未发送的页。结果不明页不会自动重发，请查看逐页记录并核对供应商请求。')
     except Exception:
-        fail(task['job_id'], 'VISION_INTERRUPTED', '图文理解未完成（模型权限、网络、输出格式或书页变化）。为避免重复计费，不自动重发；请检查配置或创建新的分析运行。')
+        fail(task['job_id'], 'VISION_INTERRUPTED', '图文理解中断。成功页已保存；请刷新查看逐页状态，结果不明页不会自动重发。')
 
 
 @router.post('/{run_id}/workflow/storyboard')
@@ -316,8 +545,9 @@ def make_story(run_id: str, actor: str = Depends(actor_id)):
             raise HTTPException(409, '书页校对已变更，请重新分析后制作分镜')
         if row['storyboard_json']:
             return {'storyboard': json.loads(row['storyboard_json']), 'revision': row['revision']}
-        vision_task = task_for(c, run_id, 'vision')
-        if not vision_task or vision_task['status'] != 'SUCCEEDED' or c.execute("SELECT 1 FROM workflow_tasks t JOIN jobs j ON j.id=t.job_id WHERE t.run_id=? AND t.stage LIKE 'vision_%' AND j.status<>'SUCCEEDED'", (run_id,)).fetchone():
+        done = {p['page_no'] for p in json.loads(row['vision_json'])}
+        batches = c.execute("SELECT t.request_json,j.status FROM workflow_tasks t JOIN jobs j ON j.id=t.job_id WHERE t.run_id=? AND (t.stage='vision' OR t.stage LIKE 'vision_%')", (run_id,)).fetchall()
+        if not batches or any(b['status'] in ACTIVE or not set(json.loads(b['request_json'])['page_nos']).issubset(done) for b in batches):
             raise HTTPException(409, '图文理解还未完成')
         meanings = json.loads(row['vision_json'])
         guide = '；'.join(dict.fromkeys(e['name'] + '：' + e['description'] for p in meanings for e in p['entities']))[:2000]

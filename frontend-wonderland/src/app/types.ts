@@ -38,6 +38,8 @@ export interface ReadingBook extends Book {
   pages: PageDraft[]
   age_band: string
   run_id: string | null
+  /** 主人主动选择继续的历史运行；账号同步时保留此选择。 */
+  preferred_run_id?: string | null
   job_id: string | null
   video_url: string | null
   origin: 'mock' | 'real'

@@ -7,14 +7,14 @@ import threading
 from fastapi import HTTPException
 
 _GATE = threading.BoundedSemaphore(1)
-MAX_BYTES = 30 * 1024 * 1024
+MAX_BYTES = 200 * 1024 * 1024
 MAX_OUTPUT_BYTES = 64 * 1024 * 1024
 
 def render_pdf(raw: bytes, max_pages: int = 100):
     if not isinstance(max_pages, int) or isinstance(max_pages, bool) or not 1 <= max_pages <= 100:
         raise HTTPException(422, '剩余页数需要在 1–100 之间')
     if len(raw) > MAX_BYTES:
-        raise HTTPException(413, 'PDF 超过 30 MB，请拆分后重试')
+        raise HTTPException(413, 'PDF 超过 200 MB，请拆分后重试')
     if not raw.startswith(b'%PDF-'):
         raise HTTPException(422, '文件内容不是 PDF')
     if not _GATE.acquire(blocking=False):

@@ -36,7 +36,8 @@ import GenerationConfirm from '../components/GenerationConfirm'
 import GenerationRecords from '../components/GenerationRecords'
 import { draftStore } from '../features/books/draftStore'
 import { checkpointReadingPosition, normalizeReadingPosition, restoreReadingPositions, removeReadingCheckpoint } from '../features/books/readingPosition'
-import { enableAccountSync } from '../lib/accountDrafts'
+import { enableAccountSync, scopeApi } from '../lib/accountDrafts'
+import { bookResumePage, resumeSavedRun } from '../features/books/resumeRun'
 import { withoutBook } from '../features/books/deleteBook'
 import { useFocusReading } from '../features/books/useFocusReading'
 
@@ -341,7 +342,7 @@ export default function WorkspaceApp({ appMode = 'live', backendToken = '', acco
           const pageId=target.pages[index].id
           patchBook(target.id,current=>({...current,pages:current.pages.map(p=>p.id===pageId?{...p,...patch}:p)}))
         })
-        patchBook(target.id,current=>({...current,status:'GENERATING',safety_reviewed:false,pages_only:false,run_id:started.run_id,job_id:started.job_id}))
+        patchBook(target.id,current=>({...current,status:'GENERATING',safety_reviewed:false,pages_only:false,run_id:started.run_id,preferred_run_id:null,job_id:started.job_id}))
         setJob(current=>({...current,status:'running',run_id:started.run_id,server:true,events:[...current.events,{stage:'后端任务',message:'已上传书页和校对文字，后端分析任务已创建。',time:timestamp()}]}))
       }catch(e:any){
         patchBook(target.id,current=>({...current,status:'FAILED'}))
@@ -369,7 +370,7 @@ export default function WorkspaceApp({ appMode = 'live', backendToken = '', acco
 
 
     // 未在后端建档时没有任何分类模型参与：类型来自导入表单，置信度为 null，不再写死 0.72 与"根据排版特征分类"的说法
-    let classification:ReadingBook['classification']={predicted_type:input.type,confidence:null,reasons:['本地导入，未调用分类模型：类型来自导入时的选择，请主人确认。'],confirmed_type:null,owner_confirmed:false}
+    let classification:ReadingBook['classification']={predicted_type:'unknown',confidence:null,reasons:['尚未自动分类；请连接真实接口后识别，或在校对后确认类型。'],confirmed_type:null,owner_confirmed:false}
     let serverBookId:string|null=null
     if(appMode==='live'){
       if(apiClient.getToken()){
@@ -667,7 +668,17 @@ export default function WorkspaceApp({ appMode = 'live', backendToken = '', acco
   }
   function openBook(item:ReadingBook) {
     setSeekTo(null)
-    navigate(item.status==='READY'?'reader':'review',item.id)
+    navigate(bookResumePage(item),item.id)
+  }
+  async function resumeRun(runId:string) {
+    const api=scopeApi(draftScope)
+    const target=book
+    const next=await resumeSavedRun(api,target,runId)
+    api.getToken() // 账号切换后不得把迟到的恢复结果写入新账号。
+    setBooks(current=>current.map(b=>b.id===target.id?{...b,run_id:next.run_id,preferred_run_id:next.preferred_run_id,job_id:next.job_id,status:next.status,safety_reviewed:next.safety_reviewed,pages_only:next.pages_only,video_url:null,analysisMode:next.analysisMode}:b))
+    setJob(serverJobFor(next));setSeekTo(null)
+    navigate('progress',target.id)
+    notify('已打开原运行记录，可继续查看分析和编辑分镜；未提交生成任务。')
   }
   function startOver(item:ReadingBook) {
     const position={time_ms:0,page_index:0,video:false,updated_at:timestamp(),run_id:item.run_id}
@@ -708,13 +719,14 @@ export default function WorkspaceApp({ appMode = 'live', backendToken = '', acco
           <span className={`context-origin ${book.origin==='real'?'is-real':'is-mock'}`}>
             {book.origin==='real'?'真实建档 · 结果逐项核验':'模拟图书 · OCR/流程非真实生成'}
           </span>
+          {(page==='review'||page==='classification')&&book.server_book_id&&book.run_id&&<button className="button button-secondary" onClick={()=>navigate('progress',book.id)}>继续已保存任务</button>}
         </div>
       )}
       {missingPages?<div className="page-content"><div className="state-panel"><Icon name="image" size={32}/><h2>{books.length ? '本次书页预览已结束' : '书架里还没有图书'}</h2><p>{books.length ? '这本书来自旧版会话，旧版没有保存原图。请重新导入一次；新导入的书会自动保存本机草稿。' : '请先导入一本书，再开始阅读、分析或整理笔记。'}</p><button className="button button-primary" onClick={()=>navigate('import')}>重新导入书页</button></div></div>:<>
       {page==='home'&&<DraftShelf scope={draftScope} onOpen={id=>{setImportDraftId(id);setPage('import');setState('success');location.hash=`#/import?draft=${encodeURIComponent(id)}`}}/>}
       {page==='home'&&<HomePage appMode={appMode} books={books} notes={notes} onDeleteBook={deleteBook} state={state} setState={setState} onImport={()=>{setImportDraftId(null);navigate('import')}} onBook={openBook} onStartOver={startOver} onNote={id=>{const target=notes.find(n=>n.id===id);navigate('notes',target?.book_id)}}/>}
       {page==='import'&&<ImportBookPage key={JSON.stringify([draftScope,appMode,importDraftId??'new'])} requestedDraftId={importDraftId} draftScope={draftScope} state={state} setState={setState} appMode={appMode} serverSync={appMode==='live'&&Boolean(apiClient.getToken())} onHome={()=>navigate('home')} onComplete={completeImport}/>}
-      {appMode==='live'&&(page==='progress'||page==='reader')&&book.server_book_id&&<GenerationRecords key={draftScope+book.server_book_id} bookId={book.server_book_id}/>}
+      {appMode==='live'&&(page==='progress'||page==='reader')&&book.server_book_id&&<GenerationRecords key={draftScope+book.server_book_id} bookId={book.server_book_id} currentRunId={book.run_id} onResume={resumeRun}/>}
       {appMode==='live'&&(page==='progress'||page==='reader')&&book.run_id&&book.server_book_id&&<ReadingWorkflowPanel key={'workflow-'+book.run_id} runId={book.run_id} pages={book.pages.filter(p=>p.server_page_no).map(p=>({page_no:p.server_page_no!}))} onReady={()=>reloadVideo(book.run_id!)}/>}
       {appMode==='live'&&(page==='progress'||page==='reader')&&book.run_id&&book.server_book_id&&<VideoGenerationPanel key={book.run_id} runId={book.run_id} pages={book.pages.filter(p=>p.server_page_no).map(p=>({page_no:p.server_page_no!}))} onReady={()=>reloadVideo(book.run_id!)}/>}
       {page==='review'&&<ReviewPage {...workflow}/>}{page==='classification'&&<ClassificationPage {...workflow}/>}{page==='progress'&&<ProgressPage {...workflow}/>}

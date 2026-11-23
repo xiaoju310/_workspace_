@@ -250,7 +250,10 @@ export class ApiClient {
   libraryPage = (bookId:string,pageNo:number) => this.client.libraryPage(bookId,pageNo);
   async generationRecords(bookId:string) { return this.client.generationRecords(bookId); }
   async workflow(runId:string) { return this.client.workflow(runId); }
-  async understandPages(runId:string,pages:number[]) { return this.client.understandPages(runId,pages); }
+  async understandPages(runId:string,pages:number[],options?:{fast_mode:boolean;concurrency:number}) { return this.client.understandPages(runId,pages,options); }
+  async resumeVision(runId:string) { return this.client.resumeVision(runId); }
+  async reuseVision(runId:string) { return this.client.reuseVision(runId); }
+  async retryUncertainVision(runId:string,pages:number[],options?:{fast_mode:boolean;concurrency:number}) { return this.client.retryUncertainVision(runId,pages,options); }
   async makeStoryboard(runId:string) { return this.client.makeStoryboard(runId); }
   async saveStoryboard(runId:string,revision:number,story:import('../api/client').Storyboard) { return this.client.saveStoryboard(runId,revision,story); }
   async approveStoryboard(runId:string,revision:number,coverageConfirmed=false) { return this.client.approveStoryboard(runId,revision,coverageConfirmed); }

@@ -53,6 +53,27 @@ beforeEach(()=>{
 })
 afterEach(()=>{vi.useRealTimers();hooks.slots.forEach(slot=>slot?.cleanup?.());hooks.slots=[];syncedScopes.clear();apiClient.setToken('');vi.restoreAllMocks();vi.unstubAllGlobals()})
 describe('阅读导入页PDF流程',()=>{
+ it('接受超过旧100MB限制的PDF，并允许拖入',async()=>{
+  const book=pdf();Object.defineProperty(book,'size',{value:150*1024*1024})
+  render()
+  findBy(n=>n.props?.onDrop).props.onDrop({preventDefault:vi.fn(),dataTransfer:{files:[book]}})
+  await settle()
+  expect(apiClient.previewPdf).toHaveBeenCalledTimes(1)
+  expect(text()).toContain('绘本-001.jpg')
+ })
+ it('无授权选项不能继续，图书类型无需手工选择',async()=>{
+  render();add([pdf()]);await settle()
+  findBy(n=>n.type==='input'&&n.props.placeholder==='例如：森林里的来信').props.onChange({target:{value:'测试书'}})
+  findBy(n=>n.type==='select'&&n.props['aria-label']==='是否拥有使用授权').props.onChange({target:{value:'no'}})
+  render();findBy(n=>n.type==='form').props.onSubmit({preventDefault:vi.fn()});render()
+  expect(text()).toContain('请确认你拥有所选书页的使用授权')
+  expect(text()).toContain('自动识别');expect(props.onComplete).not.toHaveBeenCalled()
+ })
+ it('接受没有MIME的真实PNG，仍拒绝扩展名伪装',async()=>{
+  render();add([new File([new Uint8Array([137,80,78,71,13,10,26,10])],'page.png'),new File(['not png'],'broken.png')]);await settle()
+  expect(text()).toContain('page.png');expect(text()).toContain('文件内容与图片类型不符')
+  expect(vi.mocked(draftStore.saveImport).mock.calls.at(-1)![1].pages).toHaveLength(1)
+ })
  it('展开整份PDF并保存页序/原图到草稿，不提交正式分析',async()=>{
   render();add([pdf()]);await settle()
   expect(apiClient.previewPdf).toHaveBeenCalledWith(expect.any(File),100,expect.any(AbortSignal))
@@ -67,7 +88,7 @@ describe('阅读导入页PDF流程',()=>{
   expect(text()).not.toContain('绘本-001.jpg');expect(text()).toContain('第二本-001.jpg');expect(urls.size).toBe(1)
  })
  it('未登录本机模式、空文件和超大文件不发请求',async()=>{
-  const huge=new File(['x'],'huge.pdf',{type:'application/pdf'});Object.defineProperty(huge,'size',{value:30*1024*1024+1})
+  const huge=new File(['x'],'huge.pdf',{type:'application/pdf'});Object.defineProperty(huge,'size',{value:200*1024*1024+1})
   render();add([new File([],'empty.pdf',{type:'application/pdf'}),huge]);await settle()
   expect(apiClient.previewPdf).not.toHaveBeenCalled()
   props={...props,serverSync:false};render();add([pdf()]);await settle()
@@ -108,8 +129,7 @@ describe('PDF交付与切换隔离',()=>{
  it('确认预览后把有序JPEG原图交给后续校对，不重新解析PDF',async()=>{
   render();add([pdf()]);await settle()
   findBy(n=>n.type==='input'&&n.props.placeholder==='例如：森林里的来信').props.onChange({target:{value:'PDF测试书'}})
-  findBy(n=>n.type==='input'&&n.props.placeholder==='例如：自制内容 / 赛事授权样本编号').props.onChange({target:{value:'自制测试'}})
-  findBy(n=>n.type==='input'&&n.props.type==='checkbox').props.onChange({target:{checked:true}})
+  findBy(n=>n.type==='select'&&n.props['aria-label']==='是否拥有使用授权').props.onChange({target:{value:'yes'}})
   render();vi.useFakeTimers()
   findBy(n=>n.type==='form').props.onSubmit({preventDefault:vi.fn()})
   vi.advanceTimersByTime(700);vi.useRealTimers();render()
@@ -117,7 +137,7 @@ describe('PDF交付与切换隔离',()=>{
   await settle()
   expect(props.onComplete).toHaveBeenCalledTimes(1)
   const [input,draftId]=props.onComplete.mock.calls[0]
-  expect(input.title).toBe('PDF测试书');expect(input.authorization_ref).toBe('自制测试');expect(draftId).toMatch(/^import-/)
+  expect(input.title).toBe('PDF测试书');expect(input.authorization_ref).toBe('用户声明拥有使用授权');expect(input.type).toBe('unknown');expect(draftId).toMatch(/^import-/)
   expect(input.pages.map((p:any)=>p.name)).toEqual(['绘本-001.jpg','绘本-002.jpg'])
   expect(input.pages.every((p:any)=>p.file instanceof File&&p.file.type==='image/jpeg')).toBe(true)
   expect(apiClient.previewPdf).toHaveBeenCalledTimes(1)

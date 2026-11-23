@@ -83,7 +83,7 @@ export async function recoverServerBooks(snapshot:WorkspaceDraft, scope:string):
       books.push(book)
     }
     // Newer server tasks and approved notes should also be visible on a second device.
-    if(row.run&&book.run_id!==row.run.id){book={...book,run_id:row.run.id,job_id:null,status:'GENERATING',safety_reviewed:false};books[books.findIndex(b=>b.server_book_id===row.id)]=book}
+    if(row.run&&book.run_id!==row.run.id&&!(book.run_id&&book.preferred_run_id===book.run_id)){book={...book,run_id:row.run.id,preferred_run_id:null,job_id:null,status:'GENERATING',safety_reviewed:false};books[books.findIndex(b=>b.server_book_id===row.id)]=book}
     for(const raw of row.notes){
       if(notes.some(n=>n.server_id===raw.id))continue
       const out={...raw,content:JSON.parse(raw.content_json)}
