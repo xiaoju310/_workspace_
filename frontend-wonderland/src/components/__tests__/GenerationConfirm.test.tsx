@@ -73,15 +73,24 @@ describe('统一生成清单',()=>{
 })
 
 describe('生成入口均先预览清单',()=>{
-  async function workflow(value:WorkflowStatus=status,pages=[{page_no:8}]){
-    const api={workflow:vi.fn(async()=>value),understandPages:vi.fn(async()=>{}),makeStoryboard:vi.fn(),saveStoryboard:vi.fn(),approveStoryboard:vi.fn(),generateBookVideo:vi.fn(async()=>{}),resumeBookVideo:vi.fn(async()=>{}),enableCloudInteractions:vi.fn(),cloudInteractionsEnabled:()=>false}
-    component=()=>ReadingWorkflowPanel({runId:'r',pages,onReady:vi.fn(),api});render();hooks.effects[0]();await Promise.resolve();render();return api
+  async function workflow(value:WorkflowStatus=status,pages=[{page_no:8}],onWatchVideo?:()=>void){
+    const api={workflow:vi.fn(async()=>value),understandPages:vi.fn(async()=>{}),resumeVision:vi.fn(async()=>{}),reuseVision:vi.fn(async()=>{}),retryUncertainVision:vi.fn(async()=>{}),makeStoryboard:vi.fn(),saveStoryboard:vi.fn(),approveStoryboard:vi.fn(),generateBookVideo:vi.fn(async()=>{}),resumeBookVideo:vi.fn(async()=>{}),enableCloudInteractions:vi.fn(),cloudInteractionsEnabled:()=>false}
+    component=()=>ReadingWorkflowPanel({runId:'r',pages,onReady:vi.fn(),onWatchVideo,api});render();hooks.effects[0]();await Promise.resolve();render();return api
   }
+  it('已合成视频提供查看入口，只导航不再生成或修改确认',async()=>{
+    const watch=vi.fn()
+    const api=await workflow({...status,asset_id:'finished-video'},[{page_no:8}],watch)
+    button('查看已生成视频').props.onClick()
+    expect(watch).toHaveBeenCalledOnce()
+    expect(api.generateBookVideo).not.toHaveBeenCalled()
+    expect(api.resumeBookVideo).not.toHaveBeenCalled()
+    expect(api.approveStoryboard).not.toHaveBeenCalled()
+  })
   it('图文理解按钮不直接调用模型，确认后才提交',async()=>{
     const api=await workflow();button('理解所选书页').props.onClick();render()
     expect(api.understandPages).not.toHaveBeenCalled()
     const modal=nodes(n=>n.type===GenerationConfirm)[0];expect(modal.props.plan.pages).toEqual([8])
-    await modal.props.onConfirm();expect(api.understandPages).toHaveBeenCalledWith('r',[8])
+    await modal.props.onConfirm();expect(api.understandPages).toHaveBeenCalledWith('r',[8],{fast_mode:true,concurrency:2})
   })
   it('长书完成一批后只选择未分析页，确认清单不含已分析页',async()=>{
     const value={...status,vision:[{page_no:8,summary:'s',scene:'s',entities:[],events:[],uncertain:false}],tasks:[{stage:'vision',job_id:'j',status:'SUCCEEDED',error_code:null,error_message:null}]}
@@ -95,7 +104,7 @@ describe('生成入口均先预览清单',()=>{
     button('理解所选书页').props.onClick();render()
     const modal=nodes(n=>n.type===GenerationConfirm)[0]
     expect(modal.props.plan.pages).toEqual([9,10]);expect(api.understandPages).not.toHaveBeenCalled()
-    await modal.props.onConfirm();expect(api.understandPages).toHaveBeenCalledWith('r',[9,10])
+    await modal.props.onConfirm();expect(api.understandPages).toHaveBeenCalledWith('r',[9,10],{fast_mode:true,concurrency:2})
   })
   it('后续批次失败时禁用新的收费分析，仍显示已完成页数',async()=>{
     await workflow({...status,vision:[{page_no:8,summary:'s',scene:'s',entities:[],events:[],uncertain:false}],tasks:[{stage:'vision',job_id:'j',status:'SUCCEEDED',error_code:null,error_message:null},{stage:'vision_batch',job_id:'j2',status:'FAILED',error_code:'VISION_INTERRUPTED',error_message:'未完成'}]},[{page_no:8},{page_no:9}])
@@ -103,24 +112,93 @@ describe('生成入口均先预览清单',()=>{
     expect(button('理解所选书页').props.disabled).toBe(true)
     expect(text(tree)).toContain('已分析 1 / 2 页');expect(text(tree)).toContain('图文理解')
   })
+  it('快速模式和并发设置进入确认清单及请求',async()=>{
+    const api=await workflow()
+    nodes(n=>n.type==='select'&&n.props['aria-label']==='同时分析页数')[0].props.onChange({target:{value:'3'}})
+    const label=nodes(n=>n.type==='label'&&text(n).startsWith('快速模式'))[0]
+    nodes(n=>n.type==='input',label)[0].props.onChange({target:{checked:false}});render()
+    button('理解所选书页').props.onClick();render()
+    const modal=nodes(n=>n.type===GenerationConfirm)[0]
+    expect(modal.props.plan.services.join('')).toContain('保留模型默认思考模式')
+    expect(modal.props.plan.services.join('')).toContain('3 页')
+    await modal.props.onConfirm()
+    expect(api.understandPages).toHaveBeenCalledWith('r',[8],{fast_mode:false,concurrency:3})
+  })
+  it('恢复清单只包含未发送页，刷新不自动收费',async()=>{
+    const api=await workflow({...status,vision_resume_available:true,vision_progress:[
+      {page_no:8,job_id:'j',status:'SUCCEEDED',diagnostics:{elapsed_ms:1234}},
+      {page_no:9,job_id:'j',status:'UNCERTAIN',diagnostics:{error_code:'TIMEOUT'}},
+      {page_no:10,job_id:'j',status:'PENDING',diagnostics:{}}],
+      vision:[{page_no:8,summary:'s',scene:'s',entities:[],events:[],uncertain:false}],
+      tasks:[{stage:'vision',job_id:'j',status:'FAILED',error_code:'VISION_INTERRUPTED',error_message:null}]},[{page_no:8},{page_no:9},{page_no:10}])
+    expect(text(tree)).toContain('结果不明，请核对请求记录')
+    expect(api.resumeVision).not.toHaveBeenCalled()
+    button('继续未发送书页').props.onClick();render()
+    const modal=nodes(n=>n.type===GenerationConfirm)[0]
+    expect(modal.props.plan.pages).toEqual([10])
+    await modal.props.onConfirm()
+    expect(api.resumeVision).toHaveBeenCalledWith('r')
+    expect(api.understandPages).not.toHaveBeenCalled()
+  })
+  it('已有相同书页分析可免费复用，不触发收费请求',async()=>{
+    const api=await workflow({...status,reusable_vision_page_nos:[2],vision_progress:[
+      {page_no:2,job_id:'j',status:'UNCERTAIN',diagnostics:{}}],
+      tasks:[{stage:'vision',job_id:'j',status:'FAILED',error_code:'VISION_INTERRUPTED',error_message:null}]},[{page_no:2}])
+    button('免费复用已有分析：第 2 页').props.onClick()
+    await Promise.resolve()
+    expect(api.reuseVision).toHaveBeenCalledWith('r')
+    expect(api.retryUncertainVision).not.toHaveBeenCalled()
+  })
+  it('没有可复用结果时，结果不明页经过收费确认才重试',async()=>{
+    const api=await workflow({...status,reusable_vision_page_nos:[],vision_progress:[
+      {page_no:2,job_id:'j',status:'UNCERTAIN',diagnostics:{}}],
+      tasks:[{stage:'vision',job_id:'j',status:'FAILED',error_code:'VISION_INTERRUPTED',error_message:null}]},[{page_no:2}])
+    button('核对后重新分析结果不明页：第 2 页').props.onClick();render()
+    expect(api.retryUncertainVision).not.toHaveBeenCalled()
+    const modal=nodes(n=>n.type===GenerationConfirm)[0]
+    expect(modal.props.plan.pages).toEqual([2])
+    expect(modal.props.plan.warnings.join('')).toContain('再次提交可能重复计费')
+    await modal.props.onConfirm()
+    expect(api.retryUncertainVision).toHaveBeenCalledWith('r',[2],{fast_mode:true,concurrency:2})
+  })
   it('多页视频在清单中显示配音选择，确认后才提交',async()=>{
-    const api=await workflow();button('按已确认分镜生成视频').props.onClick();render()
+    const api=await workflow();button('一键生成全部视频').props.onClick();render()
     expect(api.generateBookVideo).not.toHaveBeenCalled()
-    const modal=nodes(n=>n.type===GenerationConfirm)[0];expect(modal.props.plan.narration).toBe('不包含')
-    await modal.props.onConfirm();expect(api.generateBookVideo).toHaveBeenCalledWith('r',false)
+    const modal=nodes(n=>n.type===GenerationConfirm)[0];expect(modal.props.plan.narration).toContain('添加柔和中文女声')
+    await modal.props.onConfirm();expect(api.generateBookVideo).toHaveBeenCalledWith('r',true)
   })
   it('恢复也需清单授权，沿用首次配音选择',async()=>{
     const api=await workflow({...status,narration:true,tasks:[{stage:'book_video',job_id:'j',status:'FAILED',error_code:null,error_message:null}],clips:[{page_no:8,submitted:1,downloaded:0,submission_started:1}]})
-    button('恢复多页视频进度').props.onClick();render();expect(api.resumeBookVideo).not.toHaveBeenCalled()
+    button('继续生成剩余视频').props.onClick();render();expect(api.resumeBookVideo).not.toHaveBeenCalled()
     const modal=nodes(n=>n.type===GenerationConfirm)[0];expect(modal.props.plan.narration).toContain('本机中文配音')
     await modal.props.onConfirm();expect(api.resumeBookVideo).toHaveBeenCalledWith('r')
+  })
+  it('配音默认开启；组件未就绪时阻止提交，不静默降为无声视频',async()=>{
+    const api=await workflow({...status,capabilities:{...status.capabilities,narration_available:false}})
+    const label=nodes(n=>n.type==='label'&&text(n).startsWith('添加柔和中文女声'))[0]
+    expect(nodes(n=>n.type==='input',label)[0].props.checked).toBe(true)
+    const consent=nodes(n=>n.type==='label'&&text(n).startsWith('我确认分镜已经检查'))[0]
+    nodes(n=>n.type==='input',consent)[0].props.onChange({target:{checked:true}});render()
+    expect(button('一键生成全部视频').props.disabled).toBe(true)
+    button('一键生成全部视频').props.onClick();render()
+    await expect(nodes(n=>n.type===GenerationConfirm)[0].props.onConfirm()).rejects.toThrow('自然女声组件尚未就绪')
+    expect(api.generateBookVideo).not.toHaveBeenCalled()
+  })
+  it('主人明确取消配音后生成无声视频',async()=>{
+    const api=await workflow()
+    const label=nodes(n=>n.type==='label'&&text(n).startsWith('添加柔和中文女声'))[0]
+    nodes(n=>n.type==='input',label)[0].props.onChange({target:{checked:false}});render()
+    button('一键生成全部视频').props.onClick();render()
+    const modal=nodes(n=>n.type===GenerationConfirm)[0]
+    expect(modal.props.plan.narration).toBe('不包含')
+    await modal.props.onConfirm();expect(api.generateBookVideo).toHaveBeenCalledWith('r',false)
   })
   it('漏页时禁止确认和整书生成，不能绕过确认弹窗',async()=>{
     const api=await workflow({...status,approved:false,coverage:{complete:false,missing_page_nos:[9],unanalyzed_page_nos:[9],invalid_mapping:false,pages:[{page_no:8,shot_numbers:[1]},{page_no:9,shot_numbers:[]}],note:'缺页'}})
     expect(text(tree)).toContain('第 9 页 → 尚未覆盖')
     expect(button('我已检查内容，确认当前分镜').props.disabled).toBe(true)
-    expect(button('按已确认分镜生成视频').props.disabled).toBe(true)
-    button('按已确认分镜生成视频').props.onClick();render()
+    expect(button('一键生成全部视频').props.disabled).toBe(true)
+    button('一键生成全部视频').props.onClick();render()
     await expect(nodes(n=>n.type===GenerationConfirm)[0].props.onConfirm()).rejects.toThrow('分镜或书页已变化')
     expect(api.generateBookVideo).not.toHaveBeenCalled()
   })
@@ -132,6 +210,48 @@ describe('生成入口均先预览清单',()=>{
     expect(button('我已检查内容，确认当前分镜').props.disabled).toBe(false)
     await button('我已检查内容，确认当前分镜').props.onClick()
     expect(api.approveStoryboard).toHaveBeenCalledWith('r',1,true)
+  })
+  it('保存后在确认按钮旁提示重新核对，不把费用授权当成分镜确认',async()=>{
+    const api=await workflow({...status,approved:false})
+    const review=()=>nodes(n=>n.type==='section'&&n.props['aria-label']==='保存后确认分镜')[0]
+    const check=()=>nodes(n=>n.type==='input'&&n.props.type==='checkbox',review())[0]
+    expect(text(review())).toContain('当前分镜已保存，但尚未确认')
+    check().props.onChange({target:{checked:true}});render()
+    expect(button('我已检查内容，确认当前分镜').props.disabled).toBe(false)
+    nodes(n=>n.type==='textarea'&&n.props.value==='p')[0].props.onChange({target:{value:'新动作'}});render()
+    expect(check().props.checked).toBe(false)
+    expect(check().props.disabled).toBe(true)
+    expect(text(review())).toContain('有未保存修改')
+    expect(button('我已检查内容，确认当前分镜').props.disabled).toBe(true)
+    const saved={...status,approved:false,revision:2,storyboard:{...status.storyboard!,shots:[{page_no:8,caption:'c',prompt:'新动作'}]}}
+    api.workflow.mockResolvedValue(saved)
+    await button('保存分镜修改').props.onClick();render()
+    hooks.effects[0]();await Promise.resolve();render()
+    expect(text(review())).toContain('当前分镜已保存，但尚未确认')
+    expect(check().props.disabled).toBe(false)
+    const fee=nodes(n=>n.type==='label'&&text(n).startsWith('我确认分镜已经检查'))[0]
+    nodes(n=>n.type==='input',fee)[0].props.onChange({target:{checked:true}});render()
+    expect(button('我已检查内容，确认当前分镜').props.disabled).toBe(true)
+    expect(button('一键生成全部视频').props.disabled).toBe(true)
+    check().props.onChange({target:{checked:true}});render()
+    await button('我已检查内容，确认当前分镜').props.onClick()
+    expect(api.approveStoryboard).toHaveBeenCalledExactlyOnceWith('r',2,true)
+    expect(api.generateBookVideo).not.toHaveBeenCalled()
+    expect(api.understandPages).not.toHaveBeenCalled()
+  })
+  it('已确认时核对框反映服务端状态',async()=>{
+    await workflow()
+    const review=nodes(n=>n.type==='section'&&n.props['aria-label']==='保存后确认分镜')[0]
+    expect(text(review)).toContain('当前分镜已确认')
+    expect(nodes(n=>n.type==='input',review)[0].props.checked).toBe(true)
+    expect(button('主人已确认当前分镜').props.disabled).toBe(true)
+  })
+  it('来源变化时明确提示且不能重新勾选核对',async()=>{
+    await workflow({...status,approved:false,source_current:false})
+    const review=nodes(n=>n.type==='section'&&n.props['aria-label']==='保存后确认分镜')[0]
+    expect(text(review)).toContain('书页已变化')
+    expect(nodes(n=>n.type==='input',review)[0].props.disabled).toBe(true)
+    expect(button('我已检查内容，确认当前分镜').props.disabled).toBe(true)
   })
   it('合并连续镜头保留全部来源页及内容，保存前不能确认',async()=>{
     const api=await workflow({...status,approved:false,storyboard:{character_guide:'',shots:[{page_no:8,caption:'小熊醒来',prompt:'睁眼'},{page_no:9,caption:'无字页：小熊开门',prompt:'走向门外'}]}})
@@ -147,14 +267,25 @@ describe('生成入口均先预览清单',()=>{
     const modal=nodes(n=>n.type===GenerationConfirm)[0];expect(modal.props.plan.pages).toEqual([12]);expect(modal.props.plan.services.join()).toContain('不重新上传书页或动作描述')
     await modal.props.onConfirm();expect(api.resumeVideo).toHaveBeenCalledTimes(1);expect(api.generateVideo).not.toHaveBeenCalled()
   })
-  it('单页短片设置完成仍不会提交，统一清单确认后才生成',async()=>{
-    const api={videoStatus:vi.fn(async()=>({status:'NOT_STARTED' as const})),generateVideo:vi.fn(async()=>({status:'QUEUED' as const})),resumeVideo:vi.fn()}
+  it('一次确认覆盖全部分镜和跨页来源，只提交一个整书任务，双击不会重复提交',async()=>{
+    const shots=[{page_no:8,source_page_nos:[8,9],caption:'两页故事',prompt:'连续动作'},{page_no:10,caption:'结尾',prompt:'挥手'}]
+    const api=await workflow({...status,storyboard:{character_guide:'',shots}},[{page_no:8},{page_no:9},{page_no:10}])
+    expect(nodes(n=>n.type==='button'&&text(n)==='生成单页视频')).toHaveLength(0)
+    const label=nodes(n=>n.type==='label'&&text(n).startsWith('我确认分镜已经检查'))[0]
+    nodes(n=>n.type==='input',label)[0].props.onChange({target:{checked:true}});render()
+    expect(button('一键生成全部视频').props.disabled).toBe(false)
+    button('一键生成全部视频').props.onClick();render()
+    const modal=nodes(n=>n.type===GenerationConfirm)[0]
+    expect(modal.props.plan.title).toBe('确认生成全部视频')
+    expect(modal.props.plan.pages).toEqual([8,9,10])
+    expect(api.generateBookVideo).not.toHaveBeenCalled()
+    await Promise.all([modal.props.onConfirm(),modal.props.onConfirm().catch(()=>{})])
+    expect(api.generateBookVideo).toHaveBeenCalledExactlyOnceWith('r',true)
+  })
+  it('没有历史单页任务时不显示单页入口',async()=>{
+    const api={videoStatus:vi.fn(async()=>({status:'NOT_STARTED' as const})),resumeVideo:vi.fn()}
     component=()=>VideoGenerationPanel({runId:'r',pages:[{page_no:8}],onReady:vi.fn(),api});render();hooks.effects[0]();await Promise.resolve();render()
-    button('生成单页视频').props.onClick();render()
-    nodes(n=>n.type==='input'&&n.props.type==='checkbox')[0].props.onChange({target:{checked:true}});render()
-    button('查看确认清单').props.onClick();render();expect(api.generateVideo).not.toHaveBeenCalled()
-    const modal=nodes(n=>n.type===GenerationConfirm)[0];expect(modal.props.plan.pages).toEqual([8]);expect(modal.props.plan.narration).toBe('不包含')
-    await modal.props.onConfirm();expect(api.generateVideo).toHaveBeenCalledWith('r',expect.objectContaining({page_no:8,confirm_paid:true}))
+    expect(tree).toBeNull();expect(api.resumeVideo).not.toHaveBeenCalled()
   })
   it('记录区显示真实状态与未知费用，不把任务数当计费次数',async()=>{
     const api={generationRecords:vi.fn(async()=>({book_id:'b',records:[{job_id:'j',run_id:'r',stage:'book_video',status:'FAILED',page_nos:[8,12],page_scope:'submitted',narration:true,created_at:'2026-11-19',error_code:'VIDEO_TIMEOUT',submitted_count:1,downloaded_count:0,uncertain_count:1,completed_vision_calls:null,amount:null}],amount:null,billing_note:'无账单，不是扣费次数'} as const))}

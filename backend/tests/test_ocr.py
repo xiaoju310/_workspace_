@@ -76,3 +76,59 @@ def test_ocr_does_not_require_temporary_directory(monkeypatch):
             return type("Result", (), {"txts": ["原文"], "scores": [.98]})()
     monkeypatch.setattr(ocr, "_engine", Engine())
     assert ocr.recognize_image(image_bytes(), "image/png")["text"] == "原文"
+
+
+def test_specific_watermark_clauses_and_mixed_body_text():
+    assert ocr.filter_watermark('纸书智伴赛款参赛使用，请勿外') == ''
+    assert ocr.filter_watermark('纸书智伴“赛题参赛使用，请勿外传') == ''
+    assert ocr.filter_watermark('测试员去大学参赛，请勿外传这份表格。') == '测试员去大学参赛，请勿外传这份表格。'
+
+
+def test_watermark_is_not_in_text_or_confidence(monkeypatch):
+    class Engine:
+        def __call__(self, image):
+            return type('Result', (), {'txts': ['测试员整理工具。', '纸书智伴赛题参赛使用，请勿外传'], 'scores': [.98, .5]})()
+    monkeypatch.setattr(ocr, '_engine', Engine())
+    result = ocr.recognize_image(image_bytes(), 'image/png')
+    assert result['text'] == '测试员整理工具。'
+    assert result['confidence'] == .98
+
+
+def test_punctuation_reread_and_left_page_order():
+    from types import SimpleNamespace
+    image = Image.new('RGB', (400, 200), 'white')
+    class Engine:
+        def __init__(self):
+            self.reset = False
+        def __call__(self, image, **kwargs):
+            if kwargs:
+                return SimpleNamespace(txts=['“请检查测试表格，核对后，再保存。”'])
+            return SimpleNamespace(txts=['条目、', '“请检查测试表格，核对后，再保存'],
+                                   scores=[.99, .98],
+                                   boxes=[[[250,10],[300,10],[300,30],[250,30]], [[10,50],[180,50],[180,70],[10,70]]])
+        def update_params(self, **kwargs):
+            self.reset = kwargs == dict(use_det=True, use_cls=True, use_rec=True)
+    engine = Engine()
+    try:
+        rows = ocr.recognize_layout(engine, image)
+        assert [r[0] for r in rows] == ['“请检查测试表格，核对后，再保存。”', '条目、']
+        assert engine.reset
+    finally:
+        image.close()
+
+
+def test_reread_does_not_replace_words_based_on_confidence():
+    from types import SimpleNamespace
+    class Engine:
+        def __call__(self, image, **kwargs):
+            if kwargs:
+                return SimpleNamespace(txts=['小禾拿起一本红色的书。'], scores=[1.0])
+            return SimpleNamespace(txts=['小禾拿起一本绿色的书走进教室'], scores=[.7],
+                                   boxes=[[[5,5],[180,5],[180,25],[5,25]]])
+        def update_params(self, **kwargs):
+            pass
+    image = Image.new('RGB', (200,100), 'white')
+    try:
+        assert ocr.recognize_layout(Engine(), image)[0][0] == '小禾拿起一本绿色的书走进教室'
+    finally:
+        image.close()

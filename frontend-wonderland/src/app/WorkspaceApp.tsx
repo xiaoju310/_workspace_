@@ -32,12 +32,15 @@ import type { RunVideoState } from './types'
 import DraftShelf from '../components/DraftShelf'
 import VideoGenerationPanel from '../components/VideoGenerationPanel'
 import ReadingWorkflowPanel from '../components/ReadingWorkflowPanel'
+import WorkspacePageContent from '../components/WorkspacePageContent'
 import GenerationConfirm from '../components/GenerationConfirm'
 import GenerationRecords from '../components/GenerationRecords'
 import { draftStore } from '../features/books/draftStore'
 import { checkpointReadingPosition, normalizeReadingPosition, restoreReadingPositions, removeReadingCheckpoint } from '../features/books/readingPosition'
-import { enableAccountSync } from '../lib/accountDrafts'
+import { enableAccountSync, scopeApi } from '../lib/accountDrafts'
+import { bookResumePage, resumeSavedRun } from '../features/books/resumeRun'
 import { withoutBook } from '../features/books/deleteBook'
+import { reviewSavedVideo } from '../features/books/videoReview'
 import { useFocusReading } from '../features/books/useFocusReading'
 
 /**
@@ -139,6 +142,8 @@ export default function WorkspaceApp({ appMode = 'live', backendToken = '', acco
     setBooks(current => current.map(item => item.id === book.id ? { ...item, vocabulary: update(item.vocabulary ?? []) } : item))
   }
   const video=book.run_id?videos[book.run_id]:undefined
+  const reviewContext=useRef({scope:draftScope,book,video})
+  reviewContext.current={scope:draftScope,book,video}
   const note=notes.find(item=>item.book_id===book.id)??null
   const grant=grants.find(item=>item.token===shareToken)??null
 
@@ -341,7 +346,7 @@ export default function WorkspaceApp({ appMode = 'live', backendToken = '', acco
           const pageId=target.pages[index].id
           patchBook(target.id,current=>({...current,pages:current.pages.map(p=>p.id===pageId?{...p,...patch}:p)}))
         })
-        patchBook(target.id,current=>({...current,status:'GENERATING',safety_reviewed:false,pages_only:false,run_id:started.run_id,job_id:started.job_id}))
+        patchBook(target.id,current=>({...current,status:'GENERATING',safety_reviewed:false,pages_only:false,run_id:started.run_id,preferred_run_id:null,job_id:started.job_id}))
         setJob(current=>({...current,status:'running',run_id:started.run_id,server:true,events:[...current.events,{stage:'后端任务',message:'已上传书页和校对文字，后端分析任务已创建。',time:timestamp()}]}))
       }catch(e:any){
         patchBook(target.id,current=>({...current,status:'FAILED'}))
@@ -369,7 +374,7 @@ export default function WorkspaceApp({ appMode = 'live', backendToken = '', acco
 
 
     // 未在后端建档时没有任何分类模型参与：类型来自导入表单，置信度为 null，不再写死 0.72 与"根据排版特征分类"的说法
-    let classification:ReadingBook['classification']={predicted_type:input.type,confidence:null,reasons:['本地导入，未调用分类模型：类型来自导入时的选择，请主人确认。'],confirmed_type:null,owner_confirmed:false}
+    let classification:ReadingBook['classification']={predicted_type:'unknown',confidence:null,reasons:['尚未自动分类；请连接真实接口后识别，或在校对后确认类型。'],confirmed_type:null,owner_confirmed:false}
     let serverBookId:string|null=null
     if(appMode==='live'){
       if(apiClient.getToken()){
@@ -667,7 +672,17 @@ export default function WorkspaceApp({ appMode = 'live', backendToken = '', acco
   }
   function openBook(item:ReadingBook) {
     setSeekTo(null)
-    navigate(item.status==='READY'?'reader':'review',item.id)
+    navigate(bookResumePage(item),item.id)
+  }
+  async function resumeRun(runId:string) {
+    const api=scopeApi(draftScope)
+    const target=book
+    const next=await resumeSavedRun(api,target,runId)
+    api.getToken() // 账号切换后不得把迟到的恢复结果写入新账号。
+    setBooks(current=>current.map(b=>b.id===target.id?{...b,run_id:next.run_id,preferred_run_id:next.preferred_run_id,job_id:next.job_id,status:next.status,safety_reviewed:next.safety_reviewed,pages_only:next.pages_only,video_url:null,analysisMode:next.analysisMode}:b))
+    setJob(serverJobFor(next));setSeekTo(null)
+    navigate('progress',target.id)
+    notify('已打开原运行记录，可继续查看分析和编辑分镜；未提交生成任务。')
   }
   function startOver(item:ReadingBook) {
     const position={time_ms:0,page_index:0,video:false,updated_at:timestamp(),run_id:item.run_id}
@@ -678,7 +693,25 @@ export default function WorkspaceApp({ appMode = 'live', backendToken = '', acco
     if(!checkpointSaved)notify('即时备份暂不可用，请等草稿保存完成后再关闭。')
   }
   const context={book,state,setState,navigate,notify,appMode}
+  const generationTools=<>
+      {appMode==='live'&&book.server_book_id&&<GenerationRecords key={draftScope+book.server_book_id} bookId={book.server_book_id} currentRunId={book.run_id} onResume={resumeRun}/>}
+      {appMode==='live'&&book.run_id&&book.server_book_id&&<ReadingWorkflowPanel onWatchVideo={()=>navigate('reader',book.id)} key={'workflow-'+book.run_id} runId={book.run_id} pages={book.pages.filter(p=>p.server_page_no).map(p=>({page_no:p.server_page_no!}))} onReady={()=>reloadVideo(book.run_id!)}/>}
+      {appMode==='live'&&book.run_id&&book.server_book_id&&<VideoGenerationPanel key={book.run_id} runId={book.run_id} pages={book.pages.filter(p=>p.server_page_no).map(p=>({page_no:p.server_page_no!}))} onReady={()=>reloadVideo(book.run_id!)}/>}
+  </>
   // 阅读页拿到的 book 带上已下载的视频地址；其它页面不受影响
+  const confirmVideoReview=()=>{
+    if(appMode!=='live'||video?.status!=='ready')return
+    const target={scope:draftScope,bookId:book.id,serverBookId:book.server_book_id,runId:book.run_id,video}
+    const latest=reviewContext.current
+    if(!reviewSavedVideo(latest.scope,latest.book,latest.video,target)){
+      notify('当前图书或视频已变化，请重新检查当前视频后确认。')
+      return
+    }
+    setBooks(current=>current.map(item=>item.id===target.bookId?(reviewSavedVideo(latest.scope,item,latest.video,target)??item):item))
+    setJob(current=>current.run_id!==target.runId?current:{...current,status:'ready',stage:5,progress:100,error:null,
+      events:[...current.events,{stage:'主人复核',message:'主人已明确确认本次已保存视频的内容复核。未授权云端问答与识物。',time:timestamp()}]})
+    notify('内容复核已确认，可以在本页开始互动伴读；未开启收费云端功能。')
+  }
   const readerBook=video?.status==='ready'?{...book,video_url:video.url}:book
   const workflow={...context,updateBook,job,setJob,onGenerate:()=>{if(generating.current||job.status==='running'){notify('本书任务正在处理，请先查看进度。');return}setGenerationRequest({id:book.id,scope:draftScope,signature:generationSignature})},onOpenPagesOnly:openPagesOnly}
   const missingPages=book.pages.length===0&&page!=='home'&&page!=='import'&&page!=='settings'&&page!=='shared'
@@ -708,17 +741,17 @@ export default function WorkspaceApp({ appMode = 'live', backendToken = '', acco
           <span className={`context-origin ${book.origin==='real'?'is-real':'is-mock'}`}>
             {book.origin==='real'?'真实建档 · 结果逐项核验':'模拟图书 · OCR/流程非真实生成'}
           </span>
+          {(page==='review'||page==='classification')&&book.server_book_id&&book.run_id&&<button className="button button-secondary" onClick={()=>navigate('progress',book.id)}>继续已保存任务</button>}
         </div>
       )}
       {missingPages?<div className="page-content"><div className="state-panel"><Icon name="image" size={32}/><h2>{books.length ? '本次书页预览已结束' : '书架里还没有图书'}</h2><p>{books.length ? '这本书来自旧版会话，旧版没有保存原图。请重新导入一次；新导入的书会自动保存本机草稿。' : '请先导入一本书，再开始阅读、分析或整理笔记。'}</p><button className="button button-primary" onClick={()=>navigate('import')}>重新导入书页</button></div></div>:<>
       {page==='home'&&<DraftShelf scope={draftScope} onOpen={id=>{setImportDraftId(id);setPage('import');setState('success');location.hash=`#/import?draft=${encodeURIComponent(id)}`}}/>}
       {page==='home'&&<HomePage appMode={appMode} books={books} notes={notes} onDeleteBook={deleteBook} state={state} setState={setState} onImport={()=>{setImportDraftId(null);navigate('import')}} onBook={openBook} onStartOver={startOver} onNote={id=>{const target=notes.find(n=>n.id===id);navigate('notes',target?.book_id)}}/>}
       {page==='import'&&<ImportBookPage key={JSON.stringify([draftScope,appMode,importDraftId??'new'])} requestedDraftId={importDraftId} draftScope={draftScope} state={state} setState={setState} appMode={appMode} serverSync={appMode==='live'&&Boolean(apiClient.getToken())} onHome={()=>navigate('home')} onComplete={completeImport}/>}
-      {appMode==='live'&&(page==='progress'||page==='reader')&&book.server_book_id&&<GenerationRecords key={draftScope+book.server_book_id} bookId={book.server_book_id}/>}
-      {appMode==='live'&&(page==='progress'||page==='reader')&&book.run_id&&book.server_book_id&&<ReadingWorkflowPanel key={'workflow-'+book.run_id} runId={book.run_id} pages={book.pages.filter(p=>p.server_page_no).map(p=>({page_no:p.server_page_no!}))} onReady={()=>reloadVideo(book.run_id!)}/>}
-      {appMode==='live'&&(page==='progress'||page==='reader')&&book.run_id&&book.server_book_id&&<VideoGenerationPanel key={book.run_id} runId={book.run_id} pages={book.pages.filter(p=>p.server_page_no).map(p=>({page_no:p.server_page_no!}))} onReady={()=>reloadVideo(book.run_id!)}/>}
+      <WorkspacePageContent page={page} tools={generationTools}>
       {page==='review'&&<ReviewPage {...workflow}/>}{page==='classification'&&<ClassificationPage {...workflow}/>}{page==='progress'&&<ProgressPage {...workflow}/>}
-      {page==='reader'&&<><InteractiveReaderPage key={`${draftScope}:${book.id}:${book.run_id??''}:${readerBook.video_url??'pages'}`} {...context} book={readerBook} pageIllustrationUrl={illustrationKey?illustrations[illustrationKey]:null} onReaderPageChange={onReaderPageChange} onReadingPosition={onReadingPosition} onVocabularyChange={onVocabularyChange} onBookmarksChange={onBookmarksChange} focusMode={focusReading.active} onFocusModeChange={focusReading.setActive} videoState={appMode==='live'&&book.run_id&&book.server_book_id?(video??{status:'loading'}):undefined} onReloadVideo={book.run_id?()=>reloadVideo(book.run_id!):undefined} segments={book.run_id?segmentsByRun[book.run_id]:undefined} interactions={interactions.filter(i=>i.book_id===book.id)} onInteraction={item=>setInteractions(current=>[item,...current])} seekTo={seekTo} onSeekHandled={()=>setSeekTo(null)} askQuestion={question} identifyTouch={touch} appMode={appMode}/><div className="reader-next"><button className="button button-secondary" onClick={generateNote}>整理阅读笔记<Icon name="note" size={16}/></button><button className="button button-ghost" onClick={()=>navigate('history')}>查看阅读历史<Icon name="arrow" size={16}/></button></div></>}
+      {page==='reader'&&<><InteractiveReaderPage key={`${draftScope}:${book.id}:${book.run_id??''}:${readerBook.video_url??'pages'}`} {...context} book={readerBook} pageIllustrationUrl={illustrationKey?illustrations[illustrationKey]:null} onReaderPageChange={onReaderPageChange} onReadingPosition={onReadingPosition} onVocabularyChange={onVocabularyChange} onBookmarksChange={onBookmarksChange} focusMode={focusReading.active} onFocusModeChange={focusReading.setActive} videoState={appMode==='live'&&book.run_id&&book.server_book_id?(video??{status:'loading'}):undefined} onConfirmVideoReview={appMode==='live'&&book.run_id&&book.server_book_id?confirmVideoReview:undefined} onReloadVideo={book.run_id?()=>reloadVideo(book.run_id!):undefined} segments={book.run_id?segmentsByRun[book.run_id]:undefined} interactions={interactions.filter(i=>i.book_id===book.id)} onInteraction={item=>setInteractions(current=>[item,...current])} seekTo={seekTo} onSeekHandled={()=>setSeekTo(null)} askQuestion={question} identifyTouch={touch} appMode={appMode}/><div className="reader-next"><button className="button button-secondary" onClick={generateNote}>整理阅读笔记<Icon name="note" size={16}/></button><button className="button button-ghost" onClick={()=>navigate('history')}>查看阅读历史<Icon name="arrow" size={16}/></button></div></>}
+      </WorkspacePageContent>
       {page==='history'&&<HistoryPage {...context} interactions={interactions.filter(i=>i.book_id===book.id)} onSeek={ms=>{setSeekTo(ms);navigate('reader')}} onExportServer={appMode==='live'&&book.run_id&&book.server_book_id?exportServerLog:undefined}/>}
       {page==='notes'&&<NoteReviewPage {...context} note={note} onSave={saveNote} onReview={reviewNote} onSeek={seek}/>}
       {page==='sharing'&&<ShareNotePage {...context} note={note} grants={grants.filter(g=>g.note_id===note?.id)} onCreate={createShare} onRevoke={revoke} onOpen={openGrant}/>}

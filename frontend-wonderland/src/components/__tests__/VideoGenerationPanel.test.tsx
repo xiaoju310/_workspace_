@@ -3,12 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 import VideoGenerationPanel from '../VideoGenerationPanel'
 import { createApiClient } from '../../api/client'
 
-describe('独立视频生成',()=>{
+describe('历史单页视频兼容',()=>{
   it('首次渲染只读取状态，不自动提交付费任务',()=>{
     const api={videoStatus:vi.fn(),generateVideo:vi.fn(),resumeVideo:vi.fn()}
     const html=renderToStaticMarkup(<VideoGenerationPanel runId="r" pages={[{page_no:1}]} onReady={()=>{}} api={api}/> )
-    expect(html).toContain('让书页动起来')
-    expect(html).toContain('不是全书视频，无配音')
+    expect(html).toBe('')
     expect(html).not.toContain('确认并生成')
     expect(api.generateVideo).not.toHaveBeenCalled()
   })

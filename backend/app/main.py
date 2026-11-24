@@ -78,6 +78,8 @@ def _note_out(row: sqlite3.Row) -> NoteOut:
 
 @app.on_event("startup")
 def on_startup() -> None:
+    from .services.local_vision import ensure_runtime
+    ensure_runtime()
     initialize_database()
     if os.getenv('AUTH_BACKEND') != 'legacy':
         initialize_accounts()

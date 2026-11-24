@@ -24,3 +24,17 @@ describe('专注阅读外壳', () => {
     expect(html).not.toContain('workspace-focus')
   })
 })
+
+it('侧栏由应用处理导航，不再让默认锚点覆盖选书路由',()=>{
+  const navigate=vi.fn(),preventDefault=vi.fn()
+  const tree=WorkspaceShell({page:'progress',state:'success',setState:vi.fn(),navigate,children:null})
+  function nodes(node:any):any[] {
+    if(!node||typeof node!=='object')return []
+    return [node,...[node.props?.children].flat(Infinity).flatMap(nodes)]
+  }
+  const reader=nodes(tree).find(n=>n.type==='a'&&n.props.href==='#/reader')
+  expect(reader).toBeDefined()
+  reader.props.onClick({preventDefault})
+  expect(preventDefault).toHaveBeenCalledOnce()
+  expect(navigate).toHaveBeenCalledExactlyOnceWith('reader')
+})

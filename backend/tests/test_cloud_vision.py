@@ -56,6 +56,54 @@ def test_vision_model_is_separate_and_preserves_video_config(monkeypatch,tmp_pat
     assert json.loads(config.read_text())['video_model']=='test-video-model'
 
 
+def test_fast_mode_is_opt_in_and_diagnostics_do_not_expose_provider_body(monkeypatch):
+    monkeypatch.setattr(vision,'vision_settings',lambda:('secret','fixture'))
+    calls=[]
+    class Response:
+        status_code=200
+        content=b'ok'
+        headers={'X-Request-Id':'req-123'}
+        def json(self):
+            return {'usage':{'prompt_tokens':100,'completion_tokens':20,'total_tokens':120,'private':'secret'},
+                    'choices':[{'finish_reason':'stop','message':{'content':json.dumps({'summary':'走路','scene':'森林','entities':[],'events':['走路'],'uncertain':False})}}]}
+    def post(*a,**kw):calls.append(kw);return Response()
+    monkeypatch.setattr(vision.requests,'post',post)
+    diagnostic={}
+    vision.call_json('test',{},vision.PageMeaning,fast_mode=True,diagnostics=diagnostic,expected_model='fixture')
+    assert calls[0]['json']['thinking']=={'type':'disabled'}
+    assert diagnostic=={'http_status':200,'request_id':'req-123','usage':{'prompt_tokens':100,'completion_tokens':20,'total_tokens':120}}
+    vision.call_json('test',{},vision.PageMeaning)
+    assert 'thinking' not in calls[1]['json']
+    with pytest.raises(vision.VisionError,match='MODEL_CHANGED'):
+        vision.call_json('test',{},vision.PageMeaning,expected_model='changed')
+    assert len(calls)==2
+
+
+@pytest.mark.parametrize('failure,expected', [('timeout','TIMEOUT'),('network','NETWORK'),('limit','RATE_LIMIT'),
+    ('http','HTTP_ERROR'),('json','INVALID_OUTPUT'),('length','OUTPUT_TRUNCATED')])
+def test_safe_failure_categories_and_no_automatic_retry(monkeypatch,failure,expected):
+    monkeypatch.setattr(vision,'vision_settings',lambda:('secret','fixture'))
+    calls=[]
+    class Response:
+        status_code=429 if failure=='limit' else 500 if failure=='http' else 200
+        content=b'sensitive provider body'
+        headers={'X-Request-Id':'https://private/?secret=key'}
+        def json(self):
+            if failure=='json':raise ValueError('private secret')
+            return {'choices':[{'finish_reason':'length','message':{'content':'truncated'}}]}
+    def post(*a,**kw):
+        calls.append(kw)
+        if failure=='timeout':raise vision.requests.ReadTimeout('private secret')
+        if failure=='network':raise vision.requests.ConnectionError('private secret')
+        return Response()
+    monkeypatch.setattr(vision.requests,'post',post)
+    diagnostic={}
+    with pytest.raises(vision.VisionError) as error:
+        vision.call_json('test',{},vision.PageMeaning,diagnostics=diagnostic)
+    assert str(error.value)==expected and len(calls)==1
+    assert 'secret' not in json.dumps(diagnostic)
+
+
 @pytest.mark.parametrize('box', [[0,0,1,1], [.1,.2,.4,.8], None])
 def test_touch_box_schema_accepts_normalized_bounds(box):
     result=vision.TouchMeaning(target_name='黄瓜',explanation='green',confidence=.9,uncertain=False,bounding_box=box)

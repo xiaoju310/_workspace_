@@ -153,9 +153,9 @@ def test_incremental_analysis_does_not_mix_changed_source_or_model(setup):
 def test_partial_paid_results_saved_but_failed_batch_never_retried(setup):
     client,run,_,calls,monkeypatch=setup
     original=cloud_vision.call_json
-    def model(instruction,data,schema,image=None):
+    def model(instruction,data,schema,image=None,**options):
         if data['page_no']==2:calls.append('failed');raise ValueError('private')
-        return original(instruction,data,schema,image)
+        return original(instruction,data,schema,image,**options)
     monkeypatch.setattr(cloud_vision,'call_json',model)
     response=analyze(client,run,[1,2]);assert response.status_code==202
     state=client.get(url(run)).json()

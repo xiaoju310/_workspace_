@@ -136,13 +136,14 @@ describe('Live 触控：不编造物体', () => {
     expect(body.output.producer).toBe('c_interaction_agent');
   });
 
-  it('时间轴有字幕时附真实依据', async () => {
+  it('没有视觉识别时不把字幕冒充识物依据', async () => {
     const { api } = setup();
     const r = await api.recognizeTouch(tpReq(0.5, 0.5), 'live', {
       segments: [{ id: 's', run_id: 'r1', page_no: 2, start_ms: 1000, end_ms: 3000, caption: '大鱼游过来', source: { producer: 'b' } }],
     });
-    expect(r.evidence?.snippet).toBe('大鱼游过来');
-    expect(r.explanation).toContain('大鱼游过来');
+    expect(r.evidence).toBeNull();
+    expect(r.explanation).not.toContain('大鱼游过来');
+    expect(r.explanation).toContain('本机千问');
   });
 
   it('越界/黑边坐标 → out_of_bounds 且不上报', async () => {

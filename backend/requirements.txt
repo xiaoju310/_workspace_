@@ -8,3 +8,6 @@ argon2-cffi>=23,<26
 requests>=2.32,<3
 
 pypdfium2>=4.30,<6
+
+# Online natural female narration; book narration text is sent only after confirmation.
+edge-tts>=7.2,<8

@@ -22,7 +22,7 @@ def setup(tmp_path, monkeypatch):
     monkeypatch.setattr(flow,'video_settings',lambda:('fixture-key','fixture-video'))
     monkeypatch.setattr(video_runtime,'ffmpeg_path',lambda:'fixture-ffmpeg')
     calls=[]
-    def model(instruction,data,schema,image=None):
+    def model(instruction,data,schema,image=None,**options):
         calls.append((instruction,data,schema,image))
         if schema is cloud_vision.PageMeaning:
             return schema(summary='小乌龟慢慢向前走',scene='森林小路',entities=[{'name':'乌龟','description':'绿色背甲','confidence':.8}],events=['乌龟向前走'],uncertain=False)
@@ -407,3 +407,77 @@ def test_touch_invalid_model_box_is_failure_without_retry(setup):
     assert response.status_code==502 and len(calls)==1
     with db.get_connection() as c:
         assert c.execute("SELECT count(*) AS n FROM run_logs WHERE run_id=? AND event='touch_evidence_saved'",(run,)).fetchone()['n']==0
+
+
+@pytest.mark.parametrize('poll_failure', [False, True])
+def test_video_failure_diagnostics_preserve_guard_and_hide_private_data(setup, poll_failure):
+    from app.ai.video_doubao import ArkAPIError
+    client, run, provider = video_setup(setup)
+    original = provider._json
+    def broken(method, path, payload=None):
+        if (method == 'GET') == poll_failure:
+            if method == 'POST':
+                provider.posts.append(payload)
+            raise ArkAPIError(400, 'InvalidParameter.Content', 'fixture-request-123')
+        return original(method, path, payload)
+    setup[4].setattr(provider, '_json', broken)
+    assert client.post(url(run, '/video'), json={'confirm_paid': True}).status_code == 202
+    state = client.get(url(run)).json()
+    task = next(t for t in state['tasks'] if t['stage'] == 'book_video')
+    assert task['status'] == 'FAILED' and task['error_code'] == 'BOOK_VIDEO_INTERRUPTED'
+    assert 'HTTP 400' in task['error_message'] and 'InvalidParameter.Content' in task['error_message']
+    event = next(e for e in state['events'] if e['event'] == 'video_page_error')
+    details = json.loads(event['safe_metadata_json'])
+    assert details['phase'] == ('poll' if poll_failure else 'submission')
+    assert details['page_no'] == 1 and details['http_status'] == 400
+    assert details['request_id'] == 'fixture-request-123' and details['elapsed_ms'] >= 0
+    assert bool(state['clips'][0]['submitted']) == poll_failure
+    assert state['clips'][0]['submission_started'] == 1
+    assert all(not clip['submission_started'] for clip in state['clips'][1:])
+    assert 'fixture-key' not in json.dumps(state)
+    if not poll_failure:
+        assert client.post(url(run, '/video/resume'), json={'confirm_paid': True}).status_code == 409
+        assert len(provider.posts) == 1
+
+
+@pytest.mark.parametrize('receipt_valid', [True, False])
+def test_task_receipt_recovers_database_write_failure_without_reposting(setup, receipt_valid):
+    import sqlite3
+    from app.services import submission_receipt
+    from app import main
+    client, run, provider = video_setup(setup)
+    original = flow.persist_video_submission
+    def broken(*args):
+        raise sqlite3.OperationalError('private-database-path')
+    setup[4].setattr(flow, 'persist_video_submission', broken)
+    assert client.post(url(run, '/video'), json={'confirm_paid': True}).status_code == 202
+    state = client.get(url(run)).json()
+    task = next(t for t in state['tasks'] if t['stage'] == 'book_video')
+    assert task['status'] == 'FAILED' and 'DATABASE_ERROR' in task['error_message']
+    assert '保存云端任务编号' in task['error_message'] and len(provider.posts) == 1
+    assert not state['clips'][0]['submitted']
+    assert 'private-database-path' not in json.dumps(state)
+    path = submission_receipt.receipt_path(main.DATA_ROOT / 'runs' / run, task['job_id'], 1)
+    record = json.loads(path.read_text())
+    assert set(record) == {'version', 'run_id', 'job_id', 'page_no', 'request_hash', 'task_id'}
+    if not receipt_valid:
+        record['request_hash'] = 'changed'
+        path.write_text(json.dumps(record))
+    setup[4].setattr(flow, 'persist_video_submission', original)
+    response = client.post(url(run, '/video/resume'), json={'confirm_paid': True})
+    if receipt_valid:
+        assert response.status_code == 202
+        assert client.get(url(run)).json()['asset_id']
+        assert len(provider.posts) == 2  # Only page 2 is newly submitted.
+    else:
+        assert response.status_code == 409 and len(provider.posts) == 1
+
+
+def test_receipt_io_failure_still_persists_task_in_database(setup):
+    from app.services import submission_receipt
+    client, run, provider = video_setup(setup)
+    def broken(*args):
+        raise OSError('private-local-path')
+    setup[4].setattr(submission_receipt, 'write', broken)
+    assert client.post(url(run, '/video'), json={'confirm_paid': True}).status_code == 202
+    assert client.get(url(run)).json()['asset_id'] and len(provider.posts) == 2

@@ -23,6 +23,7 @@ import { pageBasisLabel, pageNoOf, pageStartMs, resolvePageAtTime } from '../fea
 import type { PageBasis } from '../features/interaction/pageTimeline'
 import VocabularyCards from '../components/VocabularyCards'
 import ReadingBookmarks from '../components/ReadingBookmarks'
+import OwnerVideoPreview from '../components/OwnerVideoPreview'
 import { resumeTimeMs } from '../features/books/readingPosition'
 import { resolveEvidenceTarget, splitEvidenceText } from '../features/interaction/evidenceNavigation'
 
@@ -53,6 +54,7 @@ export default function InteractiveReaderPage({
   focusMode = false,
   onFocusModeChange,
   onReloadVideo,
+  onConfirmVideoReview,
   segments,
 }: ReaderProps) {
   useEffect(() => { if(book.run_id)apiClient.startReaderSession(book.run_id) },[book.id,book.run_id,appMode])
@@ -80,10 +82,25 @@ export default function InteractiveReaderPage({
   const [result, setResult] = useState<Interaction | null>(null)
   const [touchMode, setTouchMode] = useState(false)
   const [cloudTouchEnabled, setCloudTouchEnabled] = useState(false)
+  const [localTouchEnabled, setLocalTouchEnabled] = useState(false)
+  const [localVisionStatus, setLocalVisionStatus] = useState<'checking' | 'ready' | 'unavailable'>('checking')
+  useEffect(() => {
+    let active = true
+    setLocalVisionStatus('checking')
+    if (appMode === 'live' && book.run_id && apiClient.localVisionCapabilities) {
+      apiClient.localVisionCapabilities(book.run_id).then(value => {
+        if (active) setLocalVisionStatus(value.available ? 'ready' : 'unavailable')
+      }).catch(() => { if (active) setLocalVisionStatus('unavailable') })
+    } else setLocalVisionStatus('unavailable')
+    return () => { active = false }
+  }, [appMode, book.id, book.run_id])
   const [touchMarker, setTouchMarker] = useState<{ x: number; y: number; videoMs: number; pageIndex: number; point: TouchPoint } | null>(null)
   const operationPending = useRef(false)
   useEffect(() => {
-    const sync = () => setCloudTouchEnabled(appMode === 'live' && Boolean(book.run_id) && apiClient.cloudInteractionsEnabled(book.run_id!))
+    const sync = () => {
+      setCloudTouchEnabled(appMode === 'live' && Boolean(book.run_id) && apiClient.cloudInteractionsEnabled(book.run_id!))
+      setLocalTouchEnabled(appMode === 'live' && Boolean(book.run_id) && Boolean(apiClient.localInteractionsEnabled?.(book.run_id!)))
+    }
     sync()
     return apiClient.subscribeCloudInteractions(sync)
   }, [appMode, book.id, book.run_id])
@@ -652,12 +669,13 @@ export default function InteractiveReaderPage({
     return (
       <div className={`page-content reader-page${focusMode ? ' reader-focus' : ''}`}>
         <SceneBackdrop tone="deep" />
-        <section className="reader-state">
+        {videoState ? <OwnerVideoPreview key={videoState.status==='ready'?`${book.id}:${book.run_id}:${videoState.asset_id}:${videoState.sha256}:${videoState.url}`:videoState.status}
+          videoState={videoState} onReload={onReloadVideo} onConfirmReview={onConfirmVideoReview} onReview={()=>navigate('progress',book.id)}/> : <section className="reader-state">
           <Icon name="lock" size={32} />
-          <h2>这段阅读，还需要一点准备。</h2>
-          <p>完成书页校对、分类确认、生成流程与主人内容复核后，再开启伴读。</p>
-          <Button onClick={() => navigate('progress', book.id)}>查看生成进度<Icon name="arrow" size={17} /></Button>
-        </section>
+          <h2>互动伴读尚未开启。</h2>
+          <p>当前未完成生成或主人内容复核，请查看本次运行记录。已有视频不会因此重新生成。</p>
+          <Button onClick={() => navigate('progress', book.id)}>查看生成进度与内容复核<Icon name="arrow" size={17} /></Button>
+        </section>}
       </div>
     )
   }
@@ -698,9 +716,10 @@ export default function InteractiveReaderPage({
             {videoState.status === 'loading'
               ? '正在向后端查询本次运行的视频…'
               : videoState.status === 'none'
-                ? `本次运行尚无可播放视频（已登记产物 ${videoState.assetCount} 个）。可在上方“让书页动起来”中单独生成，当前显示静态书页。`
+                ? `本次运行尚无可播放视频（已登记产物 ${videoState.assetCount} 个）。当前是静态书页自动翻页，没有视频旁白。请前往生成工作台，选择已有分镜的运行，确认中文配音后生成全部视频。`
                 : `读取视频失败：${videoState.error}。当前显示静态书页。`}
           </span>
+          {videoState.status === 'none' && <Button variant="secondary" className="button--sm" onClick={()=>navigate('progress',book.id)}>前往生成带配音的视频</Button>}
           {videoState.status !== 'loading' && onReloadVideo && (
             <Button variant="secondary" className="button--sm" onClick={onReloadVideo}>重新检查视频</Button>
           )}
@@ -931,6 +950,18 @@ export default function InteractiveReaderPage({
             <button type="button" disabled={currentPage >= book.pages.length - 1} onClick={() => seek(pageStartMs(currentPage + 1, book.pages, isVideo ? segments : undefined, durationMs).ms)}>下一页</button>
           </nav>}
 
+          {appMode === 'live' && <div className="reader-local-vision">
+            <label className="reader-touch-consent">
+              <input type="checkbox" checked={localTouchEnabled}
+                disabled={!book.run_id || !book.server_book_id || Boolean(busy) || localVisionStatus !== 'ready'}
+                onChange={(event) => { if (book.run_id) apiClient.enableLocalInteractions(book.run_id, event.target.checked) }} />
+              开启本机千问识物与问答（不按次收费，内容不上传云端）
+            </label>
+            <p>{localVisionStatus === 'ready' ? '本机千问已就绪。首次问答或点击需要加载模型，可能稍慢；看不清时会如实说明。'
+              : localVisionStatus === 'checking' ? '正在检查本机千问…' : '本机千问尚未就绪，请重新启动软件后刷新。'}</p>
+            {localTouchEnabled && <p>当前普通问答和点选识物优先使用本机千问，失败不转收费云端。画面问答、文字框选仍是独立功能，不包含在此开关内。</p>}
+          </div>}
+
           {touchMode && (
             <section className="reader-touch-panel" aria-label="点击识物" aria-busy={busy === 'touch'}>
               <h3>点一点，认识画面中的物体</h3>
@@ -946,7 +977,7 @@ export default function InteractiveReaderPage({
                   我同意本次开启云端问答与识物，将书页/当前画面发送给豆包，可能按次收费；刷新或退出登录后失效。
                 </label>
               ) : <p>演示模式仅记录点击位置，不会真实识别物体，也不会调用收费模型。</p>}
-              {appMode === 'live' && !cloudTouchEnabled && <p>未开启云端识物：仅记录点击，不会猜测物体名称。真实识别需要服务器已配置视觉模型。</p>}
+              {appMode === 'live' && !cloudTouchEnabled && !localTouchEnabled && <p>尚未开启识物：仅记录点击，不会猜测名称，也不会将字幕当作识物结果。</p>}
               <div role="status" aria-live="polite">
                 {busy === 'touch' ? '已暂停画面，正在识别所点物体…' : touchMarker && result?.kind === 'touch' ? <><strong>{result.uncertain ? '暂时无法确定' : '识物结果'}</strong><p>{result.answer}</p>{result.recognized && !result.bounding_box && <p>已识别名称，但未取得可靠的物体边界框；不会用点击圆圈代替。</p>}</> : '开启后，直接点击画面中的物体。'}
               </div>

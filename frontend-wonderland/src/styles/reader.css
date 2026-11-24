@@ -836,3 +836,14 @@
 .visual-text-finder p { margin:6px 0; }
 
 .frame-question { bottom:auto; left:auto; top:8px; right:8px; }
+
+/* 复核前只向主人展示已有视频，不开放互动操作。 */
+.owner-video-preview { display: grid; gap: var(--s-4); }
+.owner-video-preview > video { display: block; width: 100%; max-height: 70vh; background: #152e31; border-radius: var(--r-lg); }
+.owner-video-preview > p { color: var(--ink-soft); line-height: 1.7; }
+
+.owner-video-preview__review { display: grid; gap: var(--s-4); padding: var(--s-4); border: 1px solid var(--ink-soft); border-radius: var(--r-lg); }
+.owner-video-preview__check { display: flex; align-items: flex-start; gap: 0.75rem; line-height: 1.7; cursor: pointer; }
+.owner-video-preview__check > input { flex: 0 0 auto; width: 1.25rem; height: 1.25rem; margin-top: 0.25rem; }
+.owner-video-preview__review > .button { justify-self: start; white-space: normal; }
+.owner-video-preview__review > p { color: var(--ink-soft); line-height: 1.7; }

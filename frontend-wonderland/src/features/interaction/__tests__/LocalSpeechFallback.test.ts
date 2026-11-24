@@ -10,8 +10,8 @@ describe('本机语音与配音契约',()=>{
     await api.generateBookVideo('run')
     await api.generateBookVideo('run',true)
     const calls=fetcher.mock.calls as unknown as [string,RequestInit][]
-    expect(JSON.parse(calls[0][1].body as string)).toEqual({confirm_paid:true,narration:false})
-    expect(JSON.parse(calls[1][1].body as string)).toEqual({confirm_paid:true,narration:true})
+    expect(JSON.parse(calls[0][1].body as string)).toEqual({confirm_paid:true,narration:false,narration_online_consent:false})
+    expect(JSON.parse(calls[1][1].body as string)).toEqual({confirm_paid:true,narration:true,narration_online_consent:true})
   })
   it('录音只上传到登录服务器，独立同意，不保存到云端模型',async()=>{
     const fetcher=vi.fn(async()=>new Response(JSON.stringify({text:'小乌龟',provider:'windows_system_speech',audio_storage:'temporary_deleted'}),{headers:{'Content-Type':'application/json'}}))

@@ -70,9 +70,13 @@ def concatenate(paths: list[Path], output: Path, narration: list[Path] | None = 
                 with wave.open(str(narration[index]), 'rb') as audio:
                     speech_seconds = audio.getnframes() / audio.getframerate()
                 # Keep every spoken word, with a short pause. Quantize to video frames for exact segments.
-                seconds = math.ceil(max(duration_ms(path)/1000, speech_seconds+.25)*24)/24
+                clip_seconds = duration_ms(path)/1000
+                seconds = math.ceil(max(clip_seconds, speech_seconds+.25)*24)/24
+                # Stretch the complete motion over narration, rather than freezing the final frame.
+                motion_filters = ('setpts=' + str(seconds/clip_seconds) + '*(PTS-STARTPTS),' + filters
+                    + ',tpad=stop_mode=clone:stop_duration=0.05')
                 command += ['-i', str(narration[index]), '-map', '0:v:0', '-map', '1:a:0',
-                    '-vf', filters+',tpad=stop_mode=clone:stop_duration='+str(seconds),
+                    '-vf', motion_filters,
                     '-af', 'apad,atrim=duration='+str(seconds), '-t', str(seconds),
                     '-c:a', 'aac', '-ar', '48000', '-ac', '2']
             command += ['-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', str(target)]

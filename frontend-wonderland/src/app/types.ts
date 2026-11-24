@@ -38,6 +38,8 @@ export interface ReadingBook extends Book {
   pages: PageDraft[]
   age_band: string
   run_id: string | null
+  /** 主人主动选择继续的历史运行；账号同步时保留此选择。 */
+  preferred_run_id?: string | null
   job_id: string | null
   video_url: string | null
   origin: 'mock' | 'real'
@@ -143,6 +145,8 @@ export interface ReaderProps extends PageContext {
   onReadingPosition?: (timeMs:number,pageIndex:number,video:boolean,videoKey?:string)=>void
   onReaderPageChange?: (pageIndex: number) => void
   onReloadVideo?: () => void
+  /** 主人明确确认当前已保存视频的内容复核；不授权云端调用。 */
+  onConfirmVideoReview?: () => void
   /** Live：当前 run 在 A 登记的时间轴(segments)；阅读页据此把视频时间换算成页码 */
   segments?: SegmentOut[]
   interactions: Interaction[]
