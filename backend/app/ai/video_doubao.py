@@ -53,14 +53,17 @@ def _safe_url(url: str) -> bool:
 
 
 # Expose only short, machine-readable provider codes; never echo response messages.
-_SAFE_ARK_CODE = re.compile(r"[A-Z][A-Za-z]{2,47}\Z")
+_SAFE_ARK_CODE = re.compile(r"[A-Z][A-Za-z0-9]*(?:[._][A-Za-z0-9]+)*\Z")
+_SAFE_REQUEST_ID = re.compile(r"[A-Za-z0-9_.:-]{1,160}\Z")
 
 
 class ArkAPIError(RuntimeError):
-    def __init__(self, status: int, provider_code: str | None = None) -> None:
+    def __init__(self, status: int, provider_code: str | None = None,
+                 request_id: str | None = None) -> None:
         self.status = status
-        self.provider_code = provider_code
-        super().__init__(f"Ark HTTP {status}" + (f" ({provider_code})" if provider_code else ""))
+        self.provider_code = provider_code if isinstance(provider_code, str) and len(provider_code) <= 100 and _SAFE_ARK_CODE.fullmatch(provider_code) else None
+        self.request_id = request_id if isinstance(request_id, str) and _SAFE_REQUEST_ID.fullmatch(request_id) else None
+        super().__init__(f"Ark HTTP {status}" + (f" ({self.provider_code})" if self.provider_code else ""))
 
 
 class DoubaoProvider:
@@ -103,9 +106,10 @@ class DoubaoProvider:
                 code = error.get("code") if isinstance(error, dict) else None
             except (ValueError, AttributeError, TypeError):
                 code = None
-            if not isinstance(code, str) or not _SAFE_ARK_CODE.fullmatch(code):
+            if not isinstance(code, str) or len(code) > 100 or not _SAFE_ARK_CODE.fullmatch(code):
                 code = None
-            raise ArkAPIError(response.status_code, code)
+            raise ArkAPIError(response.status_code, code,
+                              getattr(response, "headers", {}).get("X-Request-Id"))
         result = response.json()
         if not isinstance(result, dict):
             raise ValueError("Ark response is not an object")

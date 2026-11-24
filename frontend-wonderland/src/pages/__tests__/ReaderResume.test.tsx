@@ -33,6 +33,7 @@ vi.mock('react',async importOriginal=>{
 import InteractiveReaderPage from '../InteractiveReaderPage'
 import VocabularyCards from '../../components/VocabularyCards'
 import ReadingBookmarks from '../../components/ReadingBookmarks'
+import OwnerVideoPreview from '../../components/OwnerVideoPreview'
 
 let tree:ReactElement
 let props:ReaderProps
@@ -381,5 +382,47 @@ describe('专注阅读组件', () => {
     expect(button('专注阅读').props.disabled).toBe(true)
     recorder.props.onRecordingChange(false); render()
     expect(button('专注阅读').props.disabled).toBe(false)
+  })
+})
+
+
+describe('阅读页未复核时保留主人视频预览',()=>{
+  it.each(['GENERATING','READY','FAILED'] as const)('%s 不因未复核隐藏已有视频，也不自动开放互动',status=>{
+    props={...props,appMode:'live',onReloadVideo:vi.fn(),onConfirmVideoReview:vi.fn(),book:{...props.book,origin:'real',status,safety_reviewed:false}}
+    render()
+    const preview=findBy(n=>n.type===OwnerVideoPreview)
+    expect(preview).toBeTruthy()
+    expect(preview.props.videoState).toEqual(props.videoState)
+    expect(find('textarea')).toBeNull()
+    expect(props.book.safety_reviewed).toBe(false)
+    expect(preview.props.onConfirmReview).toBe(props.onConfirmVideoReview)
+    expect(props.onConfirmVideoReview).not.toHaveBeenCalled()
+    preview.props.onConfirmReview()
+    expect(props.onConfirmVideoReview).toHaveBeenCalledTimes(1)
+    preview.props.onReview()
+    expect(props.navigate).toHaveBeenCalledWith('progress',props.book.id)
+    preview.props.onReload()
+    expect(props.onReloadVideo).toHaveBeenCalledTimes(1)
+    expect(props.askQuestion).not.toHaveBeenCalled()
+    expect(props.identifyTouch).not.toHaveBeenCalled()
+  })
+  it('主人显式确认后在原页切换到互动播放器，不调用生成或收费交互',()=>{
+    props={...props,appMode:'live',book:{...props.book,origin:'real',status:'GENERATING',safety_reviewed:false},onConfirmVideoReview:()=>{
+      props={...props,book:{...props.book,status:'READY',safety_reviewed:true,pages_only:false}}
+    }}
+    render()
+    findBy(n=>n.type===OwnerVideoPreview).props.onConfirmReview();render()
+    expect(findBy(n=>n.type===OwnerVideoPreview)).toBeNull()
+    expect(find('video').props['aria-label']).toBe('互动阅读视频')
+    expect(find('textarea')).toBeTruthy()
+    expect(props.navigate).not.toHaveBeenCalled()
+    expect(props.askQuestion).not.toHaveBeenCalled()
+    expect(props.identifyTouch).not.toHaveBeenCalled()
+  })
+  it('已复核继续使用原有互动播放器',()=>{
+    props={...props,book:{...props.book,status:'READY',safety_reviewed:true}}
+    render()
+    expect(findBy(n=>n.type===OwnerVideoPreview)).toBeNull()
+    expect(find('video')).toBeTruthy()
   })
 })

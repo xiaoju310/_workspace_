@@ -54,7 +54,7 @@ export default function WorkspaceShell({
       <a className="skip-link" href="#main">跳到主要内容</a>
 
       {!focusMode && <aside className="sidebar">
-        <a className="brand" href="#/" onClick={() => navigate('home')}>
+        <a className="brand" href="#/" onClick={event => { event.preventDefault(); navigate('home') }}>
           <span className="brand-icon"><Icon name="book" size={24} /></span>
           <span>开卷有灵<small>KAIJUAN YOULING</small></span>
         </a>
@@ -66,7 +66,7 @@ export default function WorkspaceShell({
               href={`#/${link.page === 'home' ? '' : link.page}`}
               className={`nav-item ${current(link.page) ? 'active' : ''}`}
               aria-current={current(link.page) ? 'page' : undefined}
-              onClick={() => navigate(link.page)}
+              onClick={event => { event.preventDefault(); navigate(link.page) }}
             >
               <Icon name={link.icon} size={18} />
               {link.label}

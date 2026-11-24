@@ -10,6 +10,8 @@ export interface ReadingWorkflowApi {
   resumeVision?(runId:string):Promise<unknown>
   reuseVision?(runId:string):Promise<unknown>
   retryUncertainVision?(runId:string,pages:number[],options?:{fast_mode:boolean;concurrency:number}):Promise<unknown>
+  suggestCharacterGuide?(runId:string):Promise<{character_guide:string;warnings:string[];review_required:boolean}>
+  previewVideoPrompt?(runId:string,pageNo:number):Promise<{page_no:number;prompt:string;prompt_chars:number;frozen:boolean}>
   makeStoryboard(runId:string):Promise<unknown>
   saveStoryboard(runId:string,revision:number,story:Storyboard):Promise<unknown>
   approveStoryboard(runId:string,revision:number,coverageConfirmed?:boolean):Promise<unknown>
@@ -22,8 +24,8 @@ export interface ReadingWorkflowApi {
 }
 
 /** 云端操作均由主人主动触发；刷新只读状态，不自动重新请求收费模型。 */
-export default function ReadingWorkflowPanel({runId,pages,onReady,api=apiClient}:{
-  runId:string;pages:{page_no:number}[];onReady:()=>void;api?:ReadingWorkflowApi
+export default function ReadingWorkflowPanel({runId,pages,onReady,onWatchVideo,api=apiClient}:{
+  runId:string;pages:{page_no:number}[];onReady:()=>void;onWatchVideo?:()=>void;api?:ReadingWorkflowApi
 }) {
   const [value,setValue]=useState<WorkflowStatus|null>(null)
   const [coverageConfirmed,setCoverageConfirmed]=useState(false)
@@ -39,6 +41,8 @@ export default function ReadingWorkflowPanel({runId,pages,onReady,api=apiClient}
   const [cloud,setCloud]=useState(api.cloudInteractionsEnabled(runId))
   const [draft,setDraft]=useState<Storyboard|null>(null)
   const [dirty,setDirty]=useState(false)
+  const [promptPreview,setPromptPreview]=useState<{page_no:number;prompt:string;prompt_chars:number;frozen:boolean}|null>(null)
+  const [guideWarnings,setGuideWarnings]=useState<string[]>([])
   const [nonce,setNonce]=useState(0)
   const pending=useRef(false)
   const revision=useRef(-1)
@@ -54,7 +58,7 @@ export default function ReadingWorkflowPanel({runId,pages,onReady,api=apiClient}
         if(stopped)return
         setValue(status)
         if(status.revision!==revision.current){
-          revision.current=status.revision;setDraft(status.storyboard);setDirty(false);setCoverageConfirmed(false)
+          revision.current=status.revision;setDraft(status.storyboard);setDirty(false);setCoverageConfirmed(false);setPromptPreview(null);setGuideWarnings([])
         }
         if(status.asset_id&&ready.current!==status.asset_id){ready.current=status.asset_id;callback.current()}
         if(status.tasks.some(t=>['QUEUED','RUNNING','RETRYING'].includes(t.status)))timer=setTimeout(tick,3000)
@@ -75,7 +79,7 @@ export default function ReadingWorkflowPanel({runId,pages,onReady,api=apiClient}
   }
   function patch(index:number,key:'caption'|'prompt',text:string){
     if(!draft)return
-    setDraft({...draft,shots:draft.shots.map((s,i)=>i===index?{...s,[key]:text}:s)});setDirty(true)
+    setDraft({...draft,shots:draft.shots.map((s,i)=>i===index?{...s,[key]:text}:s)});setDirty(true);setCoverageConfirmed(false)
   }
   function mergeNext(index:number){
     if(!draft||!draft.shots[index+1])return
@@ -99,6 +103,15 @@ export default function ReadingWorkflowPanel({runId,pages,onReady,api=apiClient}
   const retryPages=uncertainPages.filter(n=>!reusablePages.includes(n))
   const visionBlocked=Boolean(video)||(value?.source_current===false&&Boolean(value?.vision))||(!value?.vision_progress&&Boolean(value?.tasks.some(t=>(t.stage==='vision'||t.stage.startsWith('vision_'))&&t.status==='FAILED')))
   const locked=busy||Boolean(active)
+  const approvalHint=busy?'正在保存或更新状态，请稍候。'
+    :active?'有任务正在处理，完成后才能确认分镜。'
+    :video?'已有视频任务使用原分镜，当前不能重新确认。'
+    :dirty?'有未保存修改，请先保存，再勾选下方逐页核对。'
+    :!value?.source_current?'书页已变化，请重新分析并整理分镜。'
+    :!coverageComplete?'逐页覆盖未通过，请先补齐未分析或未覆盖的书页。'
+    :value?.approved?'当前分镜已确认，可以继续到第 3 步检查生成授权。'
+    :!coverageConfirmed?'当前分镜已保存，但尚未确认。请勾选下方“我已逐页核对分镜”，再点击“确认当前分镜”。保存修改后需要重新勾选。'
+    :'逐页核对已勾选，请点击“我已检查内容，确认当前分镜”。确认分镜本身不收费，也不会自动开始生成。'
   const labels:Record<string,string>={QUEUED:'排队中',RUNNING:'处理中',RETRYING:'恢复中',SUCCEEDED:'已完成',FAILED:'未完成'}
   async function downloadEvidence(assetId:string){
     if(!api.getAssetContent)return
@@ -120,7 +133,7 @@ export default function ReadingWorkflowPanel({runId,pages,onReady,api=apiClient}
     if(confirmation==='vision-resume'&&(visionBlocked||!value.vision_resume_available||!api.resumeVision||!resumePages.length))throw new Error('没有可继续的未发送页，请刷新核对')
     if(confirmation==='vision-retry'&&(visionBlocked||!api.retryUncertainVision||!retryPages.length))throw new Error('没有需要重新分析的结果不明页，请刷新核对')
     if(!['vision','vision-resume','vision-retry'].includes(confirmation)&&(dirty||!value.approved||!value.source_current||!coverageComplete))throw new Error('分镜或书页已变化，请重新确认')
-    if(confirmation==='video'&&narration&&!value.capabilities.narration_available)throw new Error('本机中文配音尚未就绪，请检查语音组件后刷新进度')
+    if(confirmation==='video'&&narration&&!value.capabilities.narration_available)throw new Error('自然女声组件尚未就绪，请检查配音组件后刷新进度')
     pending.current=true;setBusy(true);setError('')
     try{
       if(confirmation==='vision')await api.understandPages(runId,freshSelected,{fast_mode:fastMode,concurrency})
@@ -132,8 +145,9 @@ export default function ReadingWorkflowPanel({runId,pages,onReady,api=apiClient}
     }finally{pending.current=false;setBusy(false)}
   }
   return <section className="reading-workflow-panel" aria-label="图文理解与分镜">
-    <div className="workflow-heading"><div><h2>猫头鹰的故事工坊</h2><p>看懂书页 → 检查分镜 → 主人确认 → 一键生成全部视频 → 合成完整视频（可选本机中文配音）</p></div><button className="button button-ghost" disabled={busy} onClick={()=>setNonce(n=>n+1)}>刷新进度</button></div>
+    <div className="workflow-heading"><div><h2>猫头鹰的故事工坊</h2><p>看懂书页 → 检查分镜 → 主人确认 → 一键生成全部视频 → 合成完整视频（可选柔和女声配音）</p></div><button className="button button-ghost" disabled={busy} onClick={()=>setNonce(n=>n+1)}>刷新进度</button></div>
     {confirmation&&value&&<GenerationConfirm plan={workflowPlan(confirmation,value,confirmation==='vision'?freshSelected:confirmation==='vision-resume'?resumePages:confirmation==='vision-retry'?retryPages:(value.storyboard?.shots.flatMap(s=>s.source_page_nos??[s.page_no])??[]),narration,{fast_mode:fastMode,concurrency})} onConfirm={confirmedAction} onCancel={()=>setConfirmation(null)}/>}
+    <p className="workflow-warning">新生成要求角色持续动作，不只移动镜头。已完成或已提交的旧片段不会自动重做；若旧视频人物不动，需要检查新分镜后在新的运行中确认生成，可能重新收费。</p>
     {!value&&<p role="status">正在读取故事工坊…</p>}
     {error&&<p role="alert" className="wf-error">{error}</p>}
     {value&&<>
@@ -162,12 +176,22 @@ export default function ReadingWorkflowPanel({runId,pages,onReady,api=apiClient}
             {value.coverage?.pages.map(p=><p key={p.page_no}>第 {p.page_no} 页 → {p.shot_numbers.length?`镜头 ${p.shot_numbers.join('、')}`:'尚未覆盖'}</p>)}
             {!coverageComplete&&<p role="alert">逐页覆盖未通过：未覆盖 {value.coverage?.missing_page_nos.join('、')||'待检查'}；未分析 {value.coverage?.unanalyzed_page_nos.join('、')||'无'}。不能确认或开始整书生成。</p>}
             <p>来源映射不证明画面已经体现全部情节。跨页合镜仍以主来源页图片生成，须人工确认其他来源页的重要内容在描述和实际成片中体现。</p>
-            <label><input type="checkbox" checked={coverageConfirmed} disabled={locked||dirty||Boolean(video)||!coverageComplete} onChange={e=>setCoverageConfirmed(e.target.checked)}/>我已逐页核对分镜，确认重要人物、事件、场景和重要无字情节均有所体现。</label>
           </section>
-          <label className="workflow-field">跨页角色设定<textarea value={draft.character_guide} maxLength={2000} disabled={locked||Boolean(video)} onChange={e=>{setDraft({...draft,character_guide:e.target.value});setDirty(true)}}/></label>
+          <p>角色设定只填写固定身份和外观，不填写整本书的动作、情绪或后续剧情。同名角色描述冲突时请对照原图核对；自动整理仅提供保守建议，不判断敏感词，也不保证通过平台审核。</p>
+          {api.suggestCharacterGuide&&<button className="button button-secondary" disabled={locked||Boolean(video)||!value.source_current} onClick={()=>action(async()=>{const suggestion=await api.suggestCharacterGuide!(runId);setDraft({...draft,character_guide:suggestion.character_guide});setGuideWarnings(suggestion.warnings);setDirty(true);setCoverageConfirmed(false);setPromptPreview(null)})}>本地整理角色外观（不收费，需保存并重新确认）</button>}
+          {guideWarnings.map((warning,index)=><p key={index}>{warning}</p>)}
+          {draft.limitations?.map((warning,index)=><p key={`limit-${index}`}>{warning}</p>)}
+          {Boolean(video)&&<p>已有视频任务使用原分镜和原提示词，修复不会改写或重发它。若需修改，请先核对云端状态并单独处理失败任务。</p>}
+          {api.previewVideoPrompt&&<details><summary>查看实际视频提示词（本地预览，不收费）</summary><p>显示服务器已保存的分镜，不包含未保存修改；已有视频任务显示原冻结请求。</p>{draft.shots.map(shot=><button key={shot.page_no} disabled={locked||dirty} onClick={()=>action(async()=>setPromptPreview(await api.previewVideoPrompt!(runId,shot.page_no)))}>预览镜头 {shot.page_no}</button>)}{promptPreview&&<section aria-label="实际视频提示词"><p>镜头 {promptPreview.page_no} · {promptPreview.prompt_chars} 字 · {promptPreview.frozen?'原任务已锁定':'新任务预览'}</p><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{promptPreview.prompt}</pre></section>}</details>}
+          <label className="workflow-field">跨页角色设定<textarea value={draft.character_guide} maxLength={2000} disabled={locked||Boolean(video)} onChange={e=>{setDraft({...draft,character_guide:e.target.value});setDirty(true);setCoverageConfirmed(false)}}/></label>
           {draft.shots.map((shot,index)=><article className="workflow-shot" key={shot.page_no}><h3>镜头 {index+1} · 主来源：第 {shot.page_no} 页</h3>{index<draft.shots.length-1&&<button type="button" disabled={locked||Boolean(video)} onClick={()=>mergeNext(index)}>与下一镜合并并保留来源页</button>}<label className="workflow-field">覆盖的来源页（跨页合镜填逗号分隔页码；主来源页须为首个页码）<input aria-label={`镜头 ${index+1} 来源页`} value={(shot.source_page_nos??[shot.page_no]).join(',')} disabled={locked||Boolean(video)} onChange={e=>{const ns=e.target.value.split(/[,，\s]+/).filter(Boolean).map(Number);setDraft({...draft,shots:draft.shots.map((s,i)=>i===index?{...s,source_page_nos:ns}:s)});setDirty(true);setCoverageConfirmed(false)}}/></label><label className="workflow-field">故事内容<textarea value={shot.caption} maxLength={1200} disabled={locked||Boolean(video)} onChange={e=>patch(index,'caption',e.target.value)}/></label><label className="workflow-field">动画动作描述<textarea value={shot.prompt} maxLength={2000} disabled={locked||Boolean(video)} onChange={e=>patch(index,'prompt',e.target.value)}/></label></article>)}
           <p>角色设定会复用于所有片段，但不能保证模型完全一致，请逐段检查人物、内容与儿童适宜性。</p>
+          <section aria-label="保存后确认分镜">
+            <h3>保存后确认分镜（不收费）</h3>
+            <p role="status">{approvalHint}</p>
+            <label className="workflow-consent"><input type="checkbox" checked={(!dirty&&value.approved)||coverageConfirmed} disabled={locked||dirty||value.approved||Boolean(video)||!value.source_current||!coverageComplete} onChange={e=>setCoverageConfirmed(e.target.checked)}/>我已逐页核对分镜，确认重要人物、事件、场景和重要无字情节均有所体现。</label>
           <div className="video-generation-actions"><button className="button button-secondary" disabled={locked||!dirty||Boolean(video)} onClick={()=>action(async()=>{await api.saveStoryboard(runId,value.revision,draft);revision.current=-1})}>保存分镜修改</button><button className="button button-primary" disabled={locked||dirty||value.approved||Boolean(video)||!value.source_current||!coverageComplete||!coverageConfirmed} onClick={()=>action(()=>api.approveStoryboard(runId,value.revision,coverageConfirmed))}>{value.approved?'主人已确认当前分镜':'我已检查内容，确认当前分镜'}</button></div>
+          </section>
           {dirty&&<p>有未保存修改，请先保存，再确认。</p>}
           {!value.source_current&&<p role="alert">书页已被重新校对，原分析和分镜已失效，不会继续生成。</p>}
         </>}
@@ -175,14 +199,15 @@ export default function ReadingWorkflowPanel({runId,pages,onReady,api=apiClient}
       <details open={Boolean(draft)}><summary>3 · 一键生成全部视频</summary>
         <p>一次确认后，系统自动按顺序生成全部 {draft?.shots.length??0} 个已确认分镜的视频，再合成完整视频，无需逐页点击。每个分镜约 5 秒，片段分别计费；全部导入页须已分析并通过分镜覆盖检查。遇到失败会保存进度，恢复时复用已提交片段。</p>
         {!value.capabilities.composition_available&&<p className="workflow-warning">视频合成工具尚未就绪。系统会在收费前拦截，请先在服务器配置 FFMPEG_PATH。</p>}
-        <label className="workflow-consent"><input type="checkbox" checked={video?(value.narration??narration):narration} disabled={locked||Boolean(video)} onChange={e=>setNarration(e.target.checked)}/>添加本机中文配音（默认开启）：朗读已确认分镜的“故事内容”，不调用收费语音服务。配音较长时会延长末帧，避免截断；恢复任务沿用首次选择。</label>
-        {!video&&narration&&value.capabilities.narration_available&&<p role="status">中文配音已就绪：整书生成时自动朗读每个分镜的故事内容，并将声音合入最终视频。</p>}
-        {!value.capabilities.narration_available&&<p role="alert">本机中文配音未就绪；请检查 Windows 中文语音组件及服务器运行环境，再刷新进度。已选择配音时不能提交生成；如需无声视频，请明确取消配音选项。</p>}
+        <label className="workflow-consent"><input type="checkbox" checked={video?(value.narration??narration):narration} disabled={locked||Boolean(video)} onChange={e=>setNarration(e.target.checked)}/>{video?'配音设置已锁定：恢复沿用首次选择，旧任务不会自动更换音色。':'添加柔和中文女声（默认开启）：使用晓晓自然女声，语速稍缓、音调稍低。确认生成后，会把已确认的“故事内容”发送到微软在线语音服务（edge-tts）；需要联网。旁白较长时延展整段动作，不长时间定格末帧。'}</label>
+        {!video&&narration&&value.capabilities.narration_available&&<p role="status">自然女声组件已安装：生成时联网合成每段故事内容，并将声音合入视频。尚未验证在线服务连通；失败时明确报错，不改用机械音。</p>}
+        {!value.capabilities.narration_available&&<p role="alert">自然女声组件未就绪；请安装新版后端依赖（edge-tts）并检查 FFmpeg，再刷新进度。已选择配音时不能提交生成；如需无声视频，请明确取消配音选项。</p>}
         <label className="workflow-consent"><input type="checkbox" checked={videoConsent} disabled={locked} onChange={e=>setVideoConsent(e.target.checked)}/>我确认分镜已经检查，允许发送相关书页，并承担多个视频片段的费用。恢复时尚未提交的片段也会收费。</label>
+        {!video&&(dirty||!value.approved)&&<p role="status">尚未完成第 2 步的分镜确认：请在分镜底部勾选逐页核对并点击确认。下方费用授权不能代替分镜确认。</p>}
         {!video&&<button className="button button-primary" disabled={locked||dirty||!coverageComplete||!value.approved||!videoConsent||!value.capabilities.video_configured||!value.capabilities.composition_available||(narration&&!value.capabilities.narration_available)} onClick={()=>setConfirmation('video')}>一键生成全部视频</button>}
         {video?.status==='FAILED'&&!['PROVIDER_TERMINAL','SUBMISSION_UNCERTAIN'].includes(video.error_code??'')&&<button className="button button-secondary" disabled={locked||!videoConsent} onClick={()=>setConfirmation('resume')}>继续生成剩余视频</button>}
         {!!value.clips.length&&<p role="status">片段进度：已下载 {value.clips.filter(c=>c.downloaded).length} / {value.clips.length}；已提交 {value.clips.filter(c=>c.submitted).length} / {value.clips.length}。</p>}
-        {value.asset_id&&<p role="status">已合成并保存，可在互动阅读中播放。时间轴按实际解码后的片段长度生成。</p>}
+        {value.asset_id&&<><p role="status">已合成并保存，可在互动阅读中播放。时间轴按实际解码后的片段长度生成。</p>{onWatchVideo&&<button className="button button-primary" onClick={onWatchVideo}>查看已生成视频</button>}</>}
       </details>
       <details><summary>4 · 可选：开启豆包问答与点击认物</summary><p>只在你本次开启期间，将每次问题或点击画面发送给豆包。每次可能收费；刷新页面或退出登录后需要重新授权。长书会从全书文字及已有图文分析中选取最相关的最多 12 页，并记录检索页码；这不是逐页穷尽总结。视频点击优先由服务器抽取真实帧，识别截图及来源将随本书产物保存，供主人导出核对。没有开启时继续使用本地文字问答，不伪装视觉识别。</p><label className="workflow-consent"><input type="checkbox" checked={cloud} disabled={!value.capabilities.vision_configured} onChange={e=>{setCloud(e.target.checked);api.enableCloudInteractions(runId,e.target.checked)}}/>我同意本次使用云端问答与认物，知道会上传书中内容/当前画面并可能按次收费。</label></details>
       <div className="workflow-task-list">{value.tasks.map(t=><p key={t.stage}><strong>{(t.stage==='vision'||t.stage.startsWith('vision_'))?'图文理解':'多页视频'}</strong>：{labels[t.status]??t.status}{t.error_message&&<span role="alert"> · {t.error_message}</span>}</p>)}</div>

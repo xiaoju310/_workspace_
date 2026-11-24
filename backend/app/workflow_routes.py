@@ -16,7 +16,7 @@ from .security import actor_id
 from .services.core import json_text, now_iso, sha256_file
 from .video_routes import owned_run, validated_page, provider_for, fail
 from .ai.doubao_settings import video_settings, vision_settings
-from .services import cloud_vision, video_runtime, local_speech
+from .services import cloud_vision, video_runtime, local_speech, local_vision, local_qa, narration, animation_prompt, video_diagnostics, submission_receipt
 from .services.book_retrieval import retrieve
 from .services.causal_evidence import is_causal_question, supported_cause
 
@@ -28,6 +28,7 @@ class Consent(BaseModel):
 
 class BookVideoRequest(Consent):
     narration: bool = False
+    narration_online_consent: bool = False
 
 class VisionRequest(Consent):
     page_nos: list[int] = Field(min_length=1, max_length=12)
@@ -255,9 +256,10 @@ def get_workflow(run_id: str, actor: str = Depends(actor_id)):
         result['approved'] = bool(result['approved'] and result['coverage']['complete'] and (result['storyboard'] or {}).get('coverage_review_revision') == result['revision'])
         video_task = task_for(c, run_id, 'book_video')
         result['narration'] = bool(json.loads(video_task['request_json']).get('narration')) if video_task else False
+        result['narration_provider'] = (json.loads(video_task['request_json']).get('narration_provider') or 'windows_system_speech') if video_task and result['narration'] else None
     key, model = vision_settings()
     vkey, vmodel = video_settings()
-    return result | {'capabilities': {'vision_configured': bool(key and model), 'video_configured': bool(vkey and vmodel), 'composition_available': bool(video_runtime.ffmpeg_path()), **local_speech.capabilities()}}
+    return result | {'capabilities': {'vision_configured': bool(key and model), 'video_configured': bool(vkey and vmodel), 'composition_available': bool(video_runtime.ffmpeg_path()), **local_speech.capabilities(), **narration.capabilities()}}
 
 
 @router.post('/{run_id}/workflow/vision', status_code=202)
@@ -531,6 +533,44 @@ def run_vision(run_id, stage='vision'):
         fail(task['job_id'], 'VISION_INTERRUPTED', '图文理解中断。成功页已保存；请刷新查看逐页状态，结果不明页不会自动重发。')
 
 
+@router.get('/{run_id}/workflow/character-guide')
+def suggest_character_guide(run_id: str, actor: str = Depends(actor_id)):
+    with get_connection() as c:
+        run = owned_run(c, run_id, actor)
+        row = workflow(c, run_id)
+        if not row or not row['vision_json'] or row['source_hash'] != fingerprint(pages_for(c, run['book_id'])):
+            raise HTTPException(409, '请先完成当前书页分析')
+        try:
+            guide, warnings = animation_prompt.character_guide(json.loads(row['vision_json']))
+        except animation_prompt.PromptReviewError as exc:
+            raise HTTPException(422, str(exc))
+    return {'character_guide': guide, 'warnings': warnings, 'review_required': True}
+
+
+@router.get('/{run_id}/workflow/prompts/{page_no}')
+def preview_video_prompt(run_id: str, page_no: int, actor: str = Depends(actor_id)):
+    with get_connection() as c:
+        owned_run(c, run_id, actor)
+        task = task_for(c, run_id, 'book_video')
+        row = workflow(c, run_id)
+        if task:
+            request = json.loads(task['request_json'])
+        elif row and row['storyboard_json']:
+            request = {'story': json.loads(row['storyboard_json']), 'motion_prompt_version': 3}
+        else:
+            raise HTTPException(409, '请先整理分镜')
+        shot = next((s for s in request['story']['shots'] if s['page_no'] == page_no), None)
+        if not shot:
+            raise HTTPException(404, '镜头不存在')
+        try:
+            text = animation_prompt.frozen_video_prompt(request, shot)
+        except animation_prompt.PromptReviewError as exc:
+            raise HTTPException(422, str(exc))
+    return {'page_no': page_no, 'prompt': text, 'prompt_chars': len(text),
+        'prompt_sha256': hashlib.sha256(text.encode('utf-8')).hexdigest(),
+        'motion_prompt_version': request.get('motion_prompt_version', 1), 'frozen': bool(task)}
+
+
 @router.post('/{run_id}/workflow/storyboard')
 def make_story(run_id: str, actor: str = Depends(actor_id)):
     with get_connection() as c:
@@ -550,11 +590,15 @@ def make_story(run_id: str, actor: str = Depends(actor_id)):
         if not batches or any(b['status'] in ACTIVE or not set(json.loads(b['request_json'])['page_nos']).issubset(done) for b in batches):
             raise HTTPException(409, '图文理解还未完成')
         meanings = json.loads(row['vision_json'])
-        guide = '；'.join(dict.fromkeys(e['name'] + '：' + e['description'] for p in meanings for e in p['entities']))[:2000]
-        shots = [{'page_no': p['page_no'], 'caption': p['summary'],
-            'prompt': ('保持原书角色外观、服装、配色和绘本画风。场景：' + p['scene'] + '。仅表现书页已有内容：' + '；'.join(p['events']) + '。温柔可爱、平稳镜头，不添加角色或额外文字。')[:2000]} for p in meanings]
+        try:
+            guide, guide_warnings = animation_prompt.character_guide(meanings)
+            shots = [{'page_no': p['page_no'], 'caption': p['summary'],
+                'prompt': animation_prompt.shot_prompt(p['scene'], p['events'])} for p in meanings]
+        except animation_prompt.PromptReviewError as exc:
+            raise HTTPException(422, str(exc))
+
         story = {'character_guide': guide, 'shots': shots, 'method': 'evidence_based_storyboard', 'review_required': True,
-            'limitations': ['跨页角色一致性为提示约束，不保证模型绝对一致；需要人工逐段验收', '不把模型置信度当成真实准确率']}
+            'limitations': ['跨页角色一致性为提示约束，不保证模型绝对一致；需要人工逐段验收', '不把模型置信度当成真实准确率', *guide_warnings]}
         coverage = story_coverage(pages_for(c, run['book_id']), story, json.loads(row['vision_json']))
         if coverage['invalid_mapping']:
             raise HTTPException(422, '来源页必须已分析、按原书顺序且不重复；主来源页须为镜头覆盖的首个书页')
@@ -628,19 +672,26 @@ def start_book_video(run_id: str, payload: BookVideoRequest, tasks: BackgroundTa
         require_coverage(pages, story, json.loads(row['vision_json'] or '[]'))
         if story.get('coverage_review_revision') != row['revision']:
             raise HTTPException(409, '请重新逐页复核并确认当前分镜，旧版确认不代表通过覆盖检查')
+        try:
+            for shot in story['shots']:
+                animation_prompt.video_prompt(story['character_guide'], shot['prompt'])
+        except animation_prompt.PromptReviewError as exc:
+            raise HTTPException(422, str(exc))
         exclusive(c, run['book_id'])
         model = require_model('video')
         if not video_runtime.ffmpeg_path():
             raise HTTPException(503, '尚未安装视频合成工具，请设置 FFMPEG_PATH 后再生成，避免先扣费后无法合成')
-        speech = local_speech.capabilities() if payload.narration else {}
+        if payload.narration and not payload.narration_online_consent:
+            raise HTTPException(422, '自然女声需将旁白文字发送到微软在线语音服务，请阅读新版确认清单并明确同意。')
+        speech = narration.capabilities() if payload.narration else {}
         if payload.narration and not speech.get('narration_available'):
-            raise HTTPException(503, '本机中文配音未就绪，尚未提交收费片段。请安装中文语音组件或关闭配音。')
+            raise HTTPException(503, '自然女声组件未就绪，尚未提交收费片段。请安装 edge-tts 并检查 FFmpeg，或明确关闭配音。')
         try:
             for shot in story['shots']:
                 validated_page(next(p for p in pages if p['page_no'] == shot['page_no']))
         except (ValueError, OSError, StopIteration):
             raise HTTPException(422, '分镜引用的书页文件不可用')
-        result = new_task(c, run_id, 'book_video', {'story': story, 'model': model, 'source_hash': row['source_hash'], 'narration': payload.narration, 'narration_voice': speech.get('voices', [None])[0] if payload.narration else None})
+        result = new_task(c, run_id, 'book_video', {'story': story, 'model': model, 'source_hash': row['source_hash'], 'motion_prompt_version': 3, 'narration': payload.narration, 'narration_provider': speech.get('narration_provider'), 'narration_voice': speech.get('voices', [None])[0] if payload.narration else None})
         for shot in story['shots']:
             c.execute('INSERT INTO workflow_clips(run_id,page_no) VALUES(?,?)', (run_id,shot['page_no']))
     tasks.add_task(run_book_video, run_id)
@@ -657,8 +708,19 @@ def resume_book_video(run_id: str, payload: Consent, tasks: BackgroundTasks, act
             raise HTTPException(409, '没有可恢复的视频任务')
         if task['error_code'] in {'PROVIDER_TERMINAL', 'SUBMISSION_UNCERTAIN'}:
             raise HTTPException(409, '提供方已终止或提交结果不明，请先到方舟控制台核对，不会自动重新付费')
-        if c.execute('SELECT 1 FROM workflow_clips WHERE run_id=? AND submission_started=1 AND task_id IS NULL', (run_id,)).fetchone():
-            raise HTTPException(409, '存在提交结果不明的片段，不能自动恢复')
+        request = json.loads(task['request_json'])
+        from . import main
+        root = (main.DATA_ROOT / 'runs' / run_id).resolve()
+        uncertain = c.execute('SELECT page_no FROM workflow_clips WHERE run_id=? AND submission_started=1 AND task_id IS NULL', (run_id,)).fetchall()
+        for clip in uncertain:
+            try:
+                recovered = submission_receipt.read(root, run_id, task['job_id'], clip['page_no'], request)
+            except (ValueError, OSError):
+                raise HTTPException(409, '本地任务凭据无法核验，请先人工核对，不会重复提交')
+            if not recovered:
+                raise HTTPException(409, '存在提交结果不明的片段，不能自动恢复')
+            c.execute('UPDATE workflow_clips SET task_id=? WHERE run_id=? AND page_no=?', (recovered, run_id, clip['page_no']))
+            log(c, run_id, 'video_page_submission_recovered', {'page_no': clip['page_no']})
         # 已提交的片段只查询；还没提交的片段必须再次得到主人收费授权。
         pending_submission = c.execute('SELECT 1 FROM workflow_clips WHERE run_id=? AND submission_started=0', (run_id,)).fetchone()
         if pending_submission:
@@ -682,6 +744,12 @@ class BatchError(Exception):
         self.code = code
 
 
+def persist_video_submission(run_id, number, task_id):
+    with get_connection() as c:
+        c.execute('UPDATE workflow_clips SET task_id=? WHERE run_id=? AND page_no=?', (task_id,run_id,number))
+        log(c, run_id, 'video_page_submitted', {'page_no': number})
+
+
 def run_book_video(run_id):
     claimed = claim(run_id, 'book_video')
     if not claimed:
@@ -689,6 +757,8 @@ def run_book_video(run_id):
     task, run = claimed
     request = json.loads(task['request_json'])
     audio_paths = []
+    phase, number = 'narration', None
+    phase_started = time.monotonic()
     try:
         from . import main
         root = (main.DATA_ROOT / 'runs' / run_id).resolve()
@@ -697,11 +767,13 @@ def run_book_video(run_id):
             for index, shot in enumerate(request['story']['shots']):
                 audio = root / f'narration-{task["job_id"]}-{index}.wav'
                 audio_paths.append(audio)
-                local_speech.synthesize(shot['caption'], audio, request['narration_voice'])
+                narration.synthesize(shot['caption'], audio, request['narration_voice'], provider=request.get('narration_provider') or 'windows_system_speech')
+        phase, phase_started = 'provider_prepare', time.monotonic()
         provider = provider_for(request['model'])
         paths = []
         for shot in request['story']['shots']:
             number = shot['page_no']
+            phase, phase_started = 'prepare_page', time.monotonic()
             with get_connection() as c:
                 clip = dict(c.execute('SELECT * FROM workflow_clips WHERE run_id=? AND page_no=?', (run_id,number)).fetchone())
                 page = c.execute('SELECT * FROM pages WHERE book_id=? AND page_no=?', (run['book_id'],number)).fetchone()
@@ -716,30 +788,42 @@ def run_book_video(run_id):
                 if clip['submission_started']:
                     raise BatchError('SUBMISSION_UNCERTAIN')
                 image = validated_page(page)
-                prompt = ('跨页统一角色设定：' + request['story']['character_guide'] + '。本页动作：' + shot['prompt'])[:4000]
+                prompt = animation_prompt.frozen_video_prompt(request, shot)
                 with get_connection() as c:
                     c.execute('BEGIN IMMEDIATE')
                     if fingerprint(pages_for(c, run['book_id'])) != request['source_hash']:
                         raise ValueError('source changed')
                     c.execute('UPDATE workflow_clips SET submission_started=1 WHERE run_id=? AND page_no=?', (run_id,number))
+                    log(c, run_id, 'video_page_submitting', {'page_no': number, 'model': request['model'],
+                        'prompt_chars': len(prompt), 'prompt_sha256': hashlib.sha256(prompt.encode('utf-8')).hexdigest(),
+                        'duration': 5, 'resolution': '720p'})
+                phase, phase_started = 'submission', time.monotonic()
                 data = provider._json('POST', '/contents/generations/tasks', {'model': request['model'],
                     'content': [{'type': 'text', 'text': prompt}, {'type': 'image_url', 'image_url': {'url': image}, 'role': 'first_frame'}],
                     'duration': 5, 'resolution': '720p', 'watermark': True})
                 task_id = data.get('id')
                 if not isinstance(task_id, str) or not re.fullmatch(r'cgt-[A-Za-z0-9-]+', task_id):
                     raise BatchError('SUBMISSION_UNCERTAIN')
-                with get_connection() as c:
-                    c.execute('UPDATE workflow_clips SET task_id=? WHERE run_id=? AND page_no=?', (task_id,run_id,number))
-                    log(c, run_id, 'video_page_submitted', {'page_no': number})
+                phase, phase_started = 'persist_submission', time.monotonic()
+                # Save a minimal independent receipt before SQLite. If the receipt disk write
+                # fails, still try SQLite immediately; never repeat the paid POST here.
+                try:
+                    submission_receipt.write(root, run_id, task['job_id'], number, request, task_id)
+                except OSError:
+                    pass
+                persist_video_submission(run_id, number, task_id)
             deadline = time.monotonic() + provider.max_wait
             while True:
+                phase, phase_started = 'poll', time.monotonic()
                 data = provider._json('GET', '/contents/generations/tasks/' + task_id)
                 state = data.get('status')
                 if state == 'succeeded':
                     url = (data.get('content') or {}).get('video_url')
                     if not isinstance(url, str):
                         raise ValueError('missing video')
+                    phase, phase_started = 'download', time.monotonic()
                     provider._download_video(url, output)
+                    phase, phase_started = 'probe', time.monotonic()
                     video_runtime.duration_ms(output)  # 解码坏文件不能进入时间轴。
                     with get_connection() as c:
                         c.execute('UPDATE workflow_clips SET file_path=?,sha256=? WHERE run_id=? AND page_no=?', (str(output),sha256_file(output),run_id,number))
@@ -751,29 +835,37 @@ def run_book_video(run_id):
                 if state not in {'queued', 'running'} or time.monotonic() >= deadline:
                     raise BatchError('VIDEO_TIMEOUT')
                 time.sleep(provider.poll_interval)
+        phase, number, phase_started = 'compose', None, time.monotonic()
         output = root / f'book-{task["job_id"]}.mp4'
         if request.get('narration'):
             durations = video_runtime.concatenate(paths, output, narration=audio_paths)
         else:
             durations = video_runtime.concatenate(paths, output)
+        phase, phase_started = 'save', time.monotonic()
         asset, now, start = str(uuid.uuid4()), now_iso(), 0
         with get_connection() as c:
             c.execute('BEGIN IMMEDIATE')
             if fingerprint(pages_for(c, run['book_id'])) != request['source_hash']:
                 raise ValueError('source changed')
-            c.execute("INSERT INTO media_assets(id,run_id,asset_type,file_path,mime_type,sha256,duration_ms,metadata_json,created_at) VALUES(?,?,'video',?,'video/mp4',?,?,?,?)", (asset,run_id,str(output),sha256_file(output),sum(durations),json_text({'producer': 'book_storyboard', 'model': request['model'], 'pages': [n for s in request['story']['shots'] for n in (s.get('source_page_nos') or [s['page_no']])], 'coverage_review_revision': request['story'].get('coverage_review_revision'), 'duration_source': 'decoded_video', 'narration': bool(request.get('narration')), 'narration_provider': 'windows_system_speech' if request.get('narration') else None, 'narration_voice': request.get('narration_voice')}),now))
+            c.execute("INSERT INTO media_assets(id,run_id,asset_type,file_path,mime_type,sha256,duration_ms,metadata_json,created_at) VALUES(?,?,'video',?,'video/mp4',?,?,?,?)", (asset,run_id,str(output),sha256_file(output),sum(durations),json_text({'producer': 'book_storyboard', 'model': request['model'], 'pages': [n for s in request['story']['shots'] for n in (s.get('source_page_nos') or [s['page_no']])], 'coverage_review_revision': request['story'].get('coverage_review_revision'), 'duration_source': 'decoded_video', 'narration': bool(request.get('narration')), 'narration_provider': (request.get('narration_provider') or 'windows_system_speech') if request.get('narration') else None, 'narration_voice': request.get('narration_voice')}),now))
             c.execute('DELETE FROM segments WHERE run_id=?', (run_id,))
             for shot, duration in zip(request['story']['shots'], durations):
                 c.execute('INSERT INTO segments(id,run_id,page_no,start_ms,end_ms,caption,source_json,created_at) VALUES(?,?,?,?,?,?,?,?)', (str(uuid.uuid4()),run_id,shot['page_no'],start,start+duration,shot['caption'],json_text({'producer': 'book_storyboard', 'asset_id': asset, 'page_no': shot['page_no'], 'source_page_nos': shot.get('source_page_nos') or [shot['page_no']]}),now))
                 start += duration
             c.execute("UPDATE jobs SET status='SUCCEEDED',ended_at=? WHERE id=?", (now,task['job_id']))
             log(c, run_id, 'book_video_completed', {'asset_id': asset, 'duration_ms': start, 'pages': len(paths)})
-    except local_speech.SpeechError:
-        fail(task['job_id'], 'LOCAL_NARRATION_UNAVAILABLE', '本机配音未完成，没有提交新的收费片段。请检查 Windows 中文语音组件后恢复。')
+    except narration.SpeechError:
+        fail(task['job_id'], 'LOCAL_NARRATION_UNAVAILABLE', '配音未完成，本次没有提交新的收费片段。自然女声需联网且不会回退机械音；请检查配音组件和网络后恢复。旧任务仍沿用原配音设置。')
     except BatchError as exc:
         fail(task['job_id'], exc.code, '多页视频未完成。已提交任务号和已下载片段已保存；恢复时不重发已提交片段。提供方终止或提交不明确时需人工核对。')
-    except Exception:
-        fail(task['job_id'], 'BOOK_VIDEO_INTERRUPTED', '多页视频处理暂停，已保存进度。请检查模型权限、网络或合成工具后恢复；已提交片段不会重新收费提交。')
+    except Exception as exc:
+        details = video_diagnostics.failure_details(exc)
+        with get_connection() as c:
+            log(c, run_id, 'video_page_error', details | {'job_id': task['job_id'],
+                'phase': phase, 'page_no': number,
+                'elapsed_ms': max(0, round((time.monotonic() - phase_started) * 1000))})
+        fail(task['job_id'], 'BOOK_VIDEO_INTERRUPTED',
+             video_diagnostics.failure_message(details, phase, number))
 
     finally:
         for audio in audio_paths:
@@ -855,6 +947,37 @@ def recognize_touch(run_id: str, payload: TouchRequest, actor: str = Depends(act
         raise
     except Exception:
         raise HTTPException(502, '认物服务未完成，请检查视觉模型权限和网络；本次不自动重试')
+    return persist_touch_result(run_id, payload, run, page, asset, raw, result, started, 'cloud_vision')
+
+
+@router.get('/{run_id}/interaction/local-capabilities')
+def local_vision_capabilities(run_id: str, actor: str = Depends(actor_id)):
+    with get_connection() as c:
+        owned_run(c, run_id, actor)
+    return local_vision.capabilities()
+
+
+class LocalTouchRequest(TouchRequest):
+    confirm_local: bool = False
+
+
+@router.post('/{run_id}/interaction/local-touch')
+def recognize_local_touch(run_id: str, payload: LocalTouchRequest, actor: str = Depends(actor_id)):
+    started = time.perf_counter()
+    # Explicit local opt-in is independent of paid cloud consent.
+    if payload.confirm_local is not True:
+        raise HTTPException(422, '请先开启本次本机千问识物；不会自动调用收费云端。')
+    run, page, asset, raw, image = interaction_frame(run_id, payload, actor)
+    try:
+        result = local_vision.recognize_touch(image, payload.touch_point.model_dump())
+    except local_vision.LocalVisionError as exc:
+        raise HTTPException(exc.status, str(exc)) from None
+    except Exception:
+        raise HTTPException(502, '本机千问识别未完成；没有调用收费模型，请稍后重试。') from None
+    return persist_touch_result(run_id, payload, run, page, asset, raw, result, started, 'local_qwen')
+
+
+def persist_touch_result(run_id, payload, run, page, asset, raw, result, started, provider):
     uncertain = result.uncertain or result.confidence < 0.6 or not result.target_name.strip()
     bounding_box = result.bounding_box if not uncertain else None
     if bounding_box:
@@ -869,12 +992,14 @@ def recognize_touch(run_id: str, payload: TouchRequest, actor: str = Depends(act
     folder.mkdir(parents=True, exist_ok=True)
     saved = folder / (evidence_id + '.image')
     saved.write_bytes(raw)
-    record = {'producer':'touch_evidence', 'frame_source':frame_source,
+    record = {'producer':'touch_evidence', 'recognition_provider':provider, 'frame_source':frame_source,
         'source_asset_id': asset['id'] if asset else None, 'source_asset_sha256':asset['sha256'] if asset else None,
         'page_no':page['page_no'], 'video_ms':payload.video_ms, 'point':payload.touch_point.model_dump(),
         'target_name':'' if uncertain else result.target_name, 'confidence':result.confidence,
         'bounding_box':bounding_box, 'localization_status':localization_status,
         'explanation':result.explanation, 'status':'uncertain' if uncertain else 'success'}
+    if provider == 'local_qwen':
+        record['visual_preprocessor'] = local_vision.PREPROCESSOR
     try:
         with get_connection() as c:
             c.execute("INSERT INTO media_assets(id,run_id,asset_type,file_path,mime_type,sha256,metadata_json,created_at) VALUES(?,?,'image',?,?,?,?,?)",
@@ -887,7 +1012,7 @@ def recognize_touch(run_id: str, payload: TouchRequest, actor: str = Depends(act
         saved.unlink(missing_ok=True)
         raise
     source.update({'frame_source':frame_source, 'frame_sha256':digest, 'evidence_asset_id':evidence_id})
-    return {'run_id': run_id, 'video_ms': payload.video_ms, 'status': 'uncertain' if uncertain else 'success',
+    return {'run_id': run_id, 'recognition_provider':provider, 'video_ms': payload.video_ms, 'status': 'uncertain' if uncertain else 'success',
         'target_name': '' if uncertain else result.target_name, 'explanation': result.explanation, 'confidence': result.confidence,
         'evidence': source, 'latency_ms': round((time.perf_counter()-started)*1000), 'cache_hit': False, 'frame_source': frame_source,
         'bounding_box':bounding_box, 'localization_status':localization_status}
@@ -990,6 +1115,68 @@ def locate_frame_text(run_id: str, payload: TextLocateRequest, actor: str = Depe
         {'query_text': query, 'matches': matches, 'status': status})
     return {'run_id': run_id, **record, 'evidence_asset_id': evidence_id,
         'note': '仅查找本次原画面，不是全片检索；模型框选仍需人工核验，不以字幕替代原画面文字。'}
+
+
+class LocalQuestionRequest(QuestionRequest):
+    confirm_local: bool = False
+
+
+@router.post('/{run_id}/interaction/local-qa')
+def local_question(run_id: str, payload: LocalQuestionRequest, actor: str = Depends(actor_id)):
+    started = time.perf_counter()
+    if payload.confirm_local is not True:
+        raise HTTPException(422, '请先开启本机千问问答；不会自动调用收费云端。')
+    if not payload.query_text.strip():
+        raise HTTPException(422, '问题不能为空')
+    with get_connection() as c:
+        run = owned_run(c, run_id, actor)
+        pages = pages_for(c, run['book_id'])
+        if payload.current_page_no is not None and payload.current_page_no not in {p['page_no'] for p in pages}:
+            raise HTTPException(422, '当前页不属于这本书，请重新选择书页')
+        source_hash = fingerprint(pages)
+        row = workflow(c, run_id)
+        # Stale visual analysis is ignored, never used as evidence or a reason to pay for regeneration.
+        meanings = json.loads(row['vision_json']) if row and row['source_hash'] == source_hash and row['vision_json'] else []
+        history = [dict(x) for x in c.execute(
+            "SELECT question,answer,page_nos_json FROM reading_dialogue WHERE run_id=? AND session_id=? AND source_hash=? AND kind='local_question' ORDER BY id DESC LIMIT 3",
+            (run_id, payload.session_id, source_hash))] if payload.session_id else []
+        history.reverse()
+        search = payload.query_text + ' ' + ' '.join(h['question'][:180] for h in history)
+        material, retrieval = retrieve(pages, meanings, search, payload.current_page_no)
+        material = local_qa.material_for_model(material, payload.current_page_no)
+    retrieval_ms = round((time.perf_counter() - started) * 1000)
+    llm_started = time.perf_counter()
+    result, citations = None, []
+    if material:
+        try:
+            result = local_qa.answer_question(payload.query_text, material, history, payload.current_page_no)
+        except local_vision.LocalVisionError as exc:
+            raise HTTPException(exc.status, str(exc)) from None
+        except Exception:
+            raise HTTPException(502, '本机千问问答未完成；没有调用收费服务，请稍后重试。') from None
+        citations = local_qa.verified_citations(result, material)
+    llm_ms = round((time.perf_counter() - llm_started) * 1000) if result else None
+    valid = bool(citations)
+    answer = result.answer.strip() if valid else (
+        'I could not find reliable evidence in this book. Please clarify who or what you mean, or check the original page.'
+        if re.search(r'[a-zA-Z]', payload.query_text) and not re.search(r'[\u3400-\u9fff]', payload.query_text)
+        else '这本书现有资料不足以可靠回答，请说明你指的是谁或什么，或一起查看原书页。')
+    with get_connection() as c:
+        owned_run(c, run_id, actor)
+        if fingerprint(pages_for(c, run['book_id'])) != source_hash:
+            raise HTTPException(409, '书页已变化，请重新提问')
+        if valid:
+            save_dialogue(c, run_id, payload.session_id, source_hash, 'local_question', payload.query_text,
+                answer, list(dict.fromkeys(x.page_no for x in citations)))
+        items = [evidence(c, run_id, x.page_no, x.quote, result.confidence,
+            'page' if x.source == 'text' else 'script') for x in citations]
+    return {'run_id': run_id, 'question': payload.query_text, 'answer': answer,
+        'status': 'success' if valid else 'no_evidence', 'confidence': result.confidence if valid else 0,
+        'answer_source': 'local_qwen', 'evidence': items, 'retrieval': {**retrieval, 'method': 'local_qwen_grounded_v1',
+            'selected_page_nos': [p['page_no'] for p in material]},
+        'latency': {'asr_ms': None, 'retrieval_ms': retrieval_ms, 'llm_first_token_ms': None,
+            'llm_total_ms': llm_ms, 'tts_first_audio_ms': None, 'tts_total_ms': None,
+            'total_roundtrip_ms': round((time.perf_counter()-started)*1000)}, 'cache_hit': False}
 
 
 @router.post('/{run_id}/interaction/qa')

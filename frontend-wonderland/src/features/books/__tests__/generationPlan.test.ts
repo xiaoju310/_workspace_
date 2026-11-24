@@ -19,8 +19,14 @@ describe('生成计划不伪造费用和复用',()=>{
     const p=workflowPlan('vision',value,[8,12],true)
     expect(p.pages).toEqual([8,12]);expect(p.narration).toBe('不包含');expect(p.services.join()).toContain('校对文字发送')
   })
-  it('首次多页视频配音是本机服务，复用分镜而非承诺免费',()=>{
-    expect(workflowPlan('video',value,[1,2],true).narration).toContain('不调用收费语音服务')
+  it('首次多页视频明确披露在线女声外发文字',()=>{
+    expect(workflowPlan('video',value,[1,2],true).narration).toContain('旁白文字会发送到微软在线语音服务')
     expect(workflowPlan('video',value,[1,2],false).narration).toBe('不包含')
   })
+})
+
+it('在线女声恢复披露外发，并且不误称本机配音',()=>{
+  const p=workflowPlan('resume',{...value,narration_provider:'edge_neural'},[1,2],true)
+  expect(p.narration).toContain('微软在线语音服务')
+  expect(p.narration).not.toContain('本机中文配音')
 })

@@ -173,9 +173,9 @@ describe('点击识物阅读流程',()=>{
     props={...props,appMode:'live',book:{...props.book,server_book_id:'server-book'}}
     vi.spyOn(apiClient,'speechCapabilities').mockResolvedValue({asr_available:false} as any)
     start();apiClient.enableCloudInteractions('run-a',true);render()
-    expect(findBy(n=>n.props?.className==='reader-touch-consent').props.children[0].props.checked).toBe(true)
+    expect(findBy(n=>n.type==='label'&&JSON.stringify(n.props.children).includes('我同意本次开启云端')).props.children[0].props.checked).toBe(true)
     apiClient.setToken('changed-user');render()
-    expect(findBy(n=>n.props?.className==='reader-touch-consent').props.children[0].props.checked).toBe(false)
+    expect(findBy(n=>n.type==='label'&&JSON.stringify(n.props.children).includes('我同意本次开启云端')).props.children[0].props.checked).toBe(false)
   })
   it('旧截图迟到不会解除新点击的锁或重复调用',async()=>{
     const old=deferred<typeof shot>(),fresh=deferred<typeof shot>()
@@ -241,5 +241,32 @@ describe('自动语音问答',()=>{
     expect(recorder().props.language).toBe('en-US');expect(recorder().key).not.toBe(oldRecorder.key)
     oldRecorder.props.onRecordingComplete(new Blob(['voice']),'audio/wav','旧结果',{durationMs:100,transcriptIsFinal:true})
     expect(props.askQuestion).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('本机千问开关',()=>{
+  afterEach(()=>apiClient.enableLocalInteractions('run-a',false))
+  it('展示模型就绪状态，必须主动开启且不勾选云端',async()=>{
+    vi.spyOn(apiClient,'localVisionCapabilities').mockResolvedValue({available:true,configured:true,model:'qwen3-vl:4b'})
+    props={...props,appMode:'live',book:{...props.book,server_book_id:'server-a'}}
+    render();await Promise.resolve();render()
+    button('点击识物').props.onClick();render()
+    // Find the local label by its explanatory text, not checkbox order.
+    const label=findBy(n=>n.type==='label'&&JSON.stringify(n.props.children).includes('开启本机千问识物'))
+    const checkbox=find('input',label)
+    expect(checkbox.props.disabled).toBe(false)
+    expect(checkbox.props.checked).toBe(false)
+    checkbox.props.onChange({target:{checked:true}});render()
+    expect(apiClient.localInteractionsEnabled('run-a')).toBe(true)
+    expect(apiClient.cloudInteractionsEnabled('run-a')).toBe(false)
+  })
+  it('模型未就绪时不允许开启',async()=>{
+    vi.spyOn(apiClient,'localVisionCapabilities').mockResolvedValue({available:false,configured:true,model:'qwen3-vl:4b'})
+    props={...props,appMode:'live',book:{...props.book,server_book_id:'server-a'}}
+    render();await Promise.resolve();render();button('点击识物').props.onClick();render()
+    const label=findBy(n=>n.type==='label'&&JSON.stringify(n.props.children).includes('开启本机千问识物'))
+    expect(find('input',label).props.disabled).toBe(true)
+    expect(apiClient.localInteractionsEnabled('run-a')).toBe(false)
   })
 })

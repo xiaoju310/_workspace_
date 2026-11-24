@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from test_reading_workflow import setup, prepare, video_setup, url
 from app import db, workflow_routes as flow
-from app.services import local_speech, video_runtime
+from app.services import local_speech, video_runtime, narration
 from app.services.book_retrieval import retrieve
 from app.services.core import sha256_file
 
@@ -79,20 +79,20 @@ def test_speech_failure_reports_safe_error(setup):
 def test_narration_preflight_and_immutable_resume_snapshot(setup):
     client,run,provider=video_setup(setup)
     monkeypatch=setup[-1]
-    monkeypatch.setattr(local_speech,'capabilities',lambda:{'narration_available':False})
-    assert client.post(url(run,'/video'),json={'confirm_paid':True,'narration':True}).status_code==503
+    monkeypatch.setattr(narration,'capabilities',lambda:{'narration_available':False})
+    assert client.post(url(run,'/video'),json={'confirm_paid':True,'narration':True,'narration_online_consent':True}).status_code==503
     assert not provider.posts
-    monkeypatch.setattr(local_speech,'capabilities',lambda:{'narration_available':True,'voices':['fixture-voice']})
+    monkeypatch.setattr(narration,'capabilities',lambda:{'narration_available':True,'voices':[narration.VOICE], 'narration_provider':narration.PROVIDER})
     spoken=[]
-    def synthesize(text,output,voice):
+    def synthesize(text,output,voice,provider):
         spoken.append((text,voice));output.write_bytes(b'fixture-wav');return 1
-    monkeypatch.setattr(local_speech,'synthesize',synthesize)
+    monkeypatch.setattr(narration,'synthesize',synthesize)
     def compose(paths,output,narration):
         assert len(narration)==2 and all(p.read_bytes()==b'fixture-wav' for p in narration)
         output.write_bytes(b'with-audio');return [2000,2500]
     monkeypatch.setattr(video_runtime,'concatenate',compose)
     provider.interrupt=True
-    client.post(url(run,'/video'),json={'confirm_paid':True,'narration':True})
+    client.post(url(run,'/video'),json={'confirm_paid':True,'narration':True,'narration_online_consent':True})
     assert len(provider.posts)==1
     provider.interrupt=False
     client.post(url(run,'/video/resume'),json={'confirm_paid':True,'narration':False})
@@ -102,18 +102,20 @@ def test_narration_preflight_and_immutable_resume_snapshot(setup):
         asset=c.execute('SELECT * FROM media_assets WHERE id=?',(state['asset_id'],)).fetchone()
         request=json.loads(c.execute("SELECT request_json FROM workflow_tasks WHERE run_id=? AND stage='book_video'",(run,)).fetchone()[0])
     assert request['narration'] and json.loads(asset['metadata_json'])['narration']
+    assert request['narration_provider'] == narration.PROVIDER
+    assert request['narration_voice'] == narration.VOICE
     assert not list(Path(asset['file_path']).parent.glob('narration-*.wav'))
 
 
 def test_local_narration_failure_never_submits_paid_clip(setup):
     client,run,provider=video_setup(setup)
     monkeypatch=setup[-1]
-    monkeypatch.setattr(local_speech,'capabilities',lambda:{'narration_available':True,'voices':['fixture-voice']})
-    def failed(text,output,voice):
+    monkeypatch.setattr(narration,'capabilities',lambda:{'narration_available':True,'voices':[narration.VOICE], 'narration_provider':narration.PROVIDER})
+    def failed(text,output,voice,provider):
         output.write_bytes(b'partial')
         raise local_speech.SpeechError('unavailable')
-    monkeypatch.setattr(local_speech,'synthesize',failed)
-    client.post(url(run,'/video'),json={'confirm_paid':True,'narration':True})
+    monkeypatch.setattr(narration,'synthesize',failed)
+    client.post(url(run,'/video'),json={'confirm_paid':True,'narration':True,'narration_online_consent':True})
     state=client.get(url(run)).json()
     assert not provider.posts
     assert next(t for t in state['tasks'] if t['stage']=='book_video')['error_code']=='LOCAL_NARRATION_UNAVAILABLE'

@@ -73,10 +73,19 @@ describe('统一生成清单',()=>{
 })
 
 describe('生成入口均先预览清单',()=>{
-  async function workflow(value:WorkflowStatus=status,pages=[{page_no:8}]){
+  async function workflow(value:WorkflowStatus=status,pages=[{page_no:8}],onWatchVideo?:()=>void){
     const api={workflow:vi.fn(async()=>value),understandPages:vi.fn(async()=>{}),resumeVision:vi.fn(async()=>{}),reuseVision:vi.fn(async()=>{}),retryUncertainVision:vi.fn(async()=>{}),makeStoryboard:vi.fn(),saveStoryboard:vi.fn(),approveStoryboard:vi.fn(),generateBookVideo:vi.fn(async()=>{}),resumeBookVideo:vi.fn(async()=>{}),enableCloudInteractions:vi.fn(),cloudInteractionsEnabled:()=>false}
-    component=()=>ReadingWorkflowPanel({runId:'r',pages,onReady:vi.fn(),api});render();hooks.effects[0]();await Promise.resolve();render();return api
+    component=()=>ReadingWorkflowPanel({runId:'r',pages,onReady:vi.fn(),onWatchVideo,api});render();hooks.effects[0]();await Promise.resolve();render();return api
   }
+  it('已合成视频提供查看入口，只导航不再生成或修改确认',async()=>{
+    const watch=vi.fn()
+    const api=await workflow({...status,asset_id:'finished-video'},[{page_no:8}],watch)
+    button('查看已生成视频').props.onClick()
+    expect(watch).toHaveBeenCalledOnce()
+    expect(api.generateBookVideo).not.toHaveBeenCalled()
+    expect(api.resumeBookVideo).not.toHaveBeenCalled()
+    expect(api.approveStoryboard).not.toHaveBeenCalled()
+  })
   it('图文理解按钮不直接调用模型，确认后才提交',async()=>{
     const api=await workflow();button('理解所选书页').props.onClick();render()
     expect(api.understandPages).not.toHaveBeenCalled()
@@ -155,7 +164,7 @@ describe('生成入口均先预览清单',()=>{
   it('多页视频在清单中显示配音选择，确认后才提交',async()=>{
     const api=await workflow();button('一键生成全部视频').props.onClick();render()
     expect(api.generateBookVideo).not.toHaveBeenCalled()
-    const modal=nodes(n=>n.type===GenerationConfirm)[0];expect(modal.props.plan.narration).toContain('添加本机中文配音')
+    const modal=nodes(n=>n.type===GenerationConfirm)[0];expect(modal.props.plan.narration).toContain('添加柔和中文女声')
     await modal.props.onConfirm();expect(api.generateBookVideo).toHaveBeenCalledWith('r',true)
   })
   it('恢复也需清单授权，沿用首次配音选择',async()=>{
@@ -166,18 +175,18 @@ describe('生成入口均先预览清单',()=>{
   })
   it('配音默认开启；组件未就绪时阻止提交，不静默降为无声视频',async()=>{
     const api=await workflow({...status,capabilities:{...status.capabilities,narration_available:false}})
-    const label=nodes(n=>n.type==='label'&&text(n).startsWith('添加本机中文配音'))[0]
+    const label=nodes(n=>n.type==='label'&&text(n).startsWith('添加柔和中文女声'))[0]
     expect(nodes(n=>n.type==='input',label)[0].props.checked).toBe(true)
     const consent=nodes(n=>n.type==='label'&&text(n).startsWith('我确认分镜已经检查'))[0]
     nodes(n=>n.type==='input',consent)[0].props.onChange({target:{checked:true}});render()
     expect(button('一键生成全部视频').props.disabled).toBe(true)
     button('一键生成全部视频').props.onClick();render()
-    await expect(nodes(n=>n.type===GenerationConfirm)[0].props.onConfirm()).rejects.toThrow('本机中文配音尚未就绪')
+    await expect(nodes(n=>n.type===GenerationConfirm)[0].props.onConfirm()).rejects.toThrow('自然女声组件尚未就绪')
     expect(api.generateBookVideo).not.toHaveBeenCalled()
   })
   it('主人明确取消配音后生成无声视频',async()=>{
     const api=await workflow()
-    const label=nodes(n=>n.type==='label'&&text(n).startsWith('添加本机中文配音'))[0]
+    const label=nodes(n=>n.type==='label'&&text(n).startsWith('添加柔和中文女声'))[0]
     nodes(n=>n.type==='input',label)[0].props.onChange({target:{checked:false}});render()
     button('一键生成全部视频').props.onClick();render()
     const modal=nodes(n=>n.type===GenerationConfirm)[0]
@@ -201,6 +210,48 @@ describe('生成入口均先预览清单',()=>{
     expect(button('我已检查内容，确认当前分镜').props.disabled).toBe(false)
     await button('我已检查内容，确认当前分镜').props.onClick()
     expect(api.approveStoryboard).toHaveBeenCalledWith('r',1,true)
+  })
+  it('保存后在确认按钮旁提示重新核对，不把费用授权当成分镜确认',async()=>{
+    const api=await workflow({...status,approved:false})
+    const review=()=>nodes(n=>n.type==='section'&&n.props['aria-label']==='保存后确认分镜')[0]
+    const check=()=>nodes(n=>n.type==='input'&&n.props.type==='checkbox',review())[0]
+    expect(text(review())).toContain('当前分镜已保存，但尚未确认')
+    check().props.onChange({target:{checked:true}});render()
+    expect(button('我已检查内容，确认当前分镜').props.disabled).toBe(false)
+    nodes(n=>n.type==='textarea'&&n.props.value==='p')[0].props.onChange({target:{value:'新动作'}});render()
+    expect(check().props.checked).toBe(false)
+    expect(check().props.disabled).toBe(true)
+    expect(text(review())).toContain('有未保存修改')
+    expect(button('我已检查内容，确认当前分镜').props.disabled).toBe(true)
+    const saved={...status,approved:false,revision:2,storyboard:{...status.storyboard!,shots:[{page_no:8,caption:'c',prompt:'新动作'}]}}
+    api.workflow.mockResolvedValue(saved)
+    await button('保存分镜修改').props.onClick();render()
+    hooks.effects[0]();await Promise.resolve();render()
+    expect(text(review())).toContain('当前分镜已保存，但尚未确认')
+    expect(check().props.disabled).toBe(false)
+    const fee=nodes(n=>n.type==='label'&&text(n).startsWith('我确认分镜已经检查'))[0]
+    nodes(n=>n.type==='input',fee)[0].props.onChange({target:{checked:true}});render()
+    expect(button('我已检查内容，确认当前分镜').props.disabled).toBe(true)
+    expect(button('一键生成全部视频').props.disabled).toBe(true)
+    check().props.onChange({target:{checked:true}});render()
+    await button('我已检查内容，确认当前分镜').props.onClick()
+    expect(api.approveStoryboard).toHaveBeenCalledExactlyOnceWith('r',2,true)
+    expect(api.generateBookVideo).not.toHaveBeenCalled()
+    expect(api.understandPages).not.toHaveBeenCalled()
+  })
+  it('已确认时核对框反映服务端状态',async()=>{
+    await workflow()
+    const review=nodes(n=>n.type==='section'&&n.props['aria-label']==='保存后确认分镜')[0]
+    expect(text(review)).toContain('当前分镜已确认')
+    expect(nodes(n=>n.type==='input',review)[0].props.checked).toBe(true)
+    expect(button('主人已确认当前分镜').props.disabled).toBe(true)
+  })
+  it('来源变化时明确提示且不能重新勾选核对',async()=>{
+    await workflow({...status,approved:false,source_current:false})
+    const review=nodes(n=>n.type==='section'&&n.props['aria-label']==='保存后确认分镜')[0]
+    expect(text(review)).toContain('书页已变化')
+    expect(nodes(n=>n.type==='input',review)[0].props.disabled).toBe(true)
+    expect(button('我已检查内容，确认当前分镜').props.disabled).toBe(true)
   })
   it('合并连续镜头保留全部来源页及内容，保存前不能确认',async()=>{
     const api=await workflow({...status,approved:false,storyboard:{character_guide:'',shots:[{page_no:8,caption:'小熊醒来',prompt:'睁眼'},{page_no:9,caption:'无字页：小熊开门',prompt:'走向门外'}]}})

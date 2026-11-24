@@ -145,6 +145,8 @@ export interface ReaderProps extends PageContext {
   onReadingPosition?: (timeMs:number,pageIndex:number,video:boolean,videoKey?:string)=>void
   onReaderPageChange?: (pageIndex: number) => void
   onReloadVideo?: () => void
+  /** 主人明确确认当前已保存视频的内容复核；不授权云端调用。 */
+  onConfirmVideoReview?: () => void
   /** Live：当前 run 在 A 登记的时间轴(segments)；阅读页据此把视频时间换算成页码 */
   segments?: SegmentOut[]
   interactions: Interaction[]

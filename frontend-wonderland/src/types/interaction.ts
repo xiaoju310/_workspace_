@@ -111,7 +111,7 @@ export interface AskQuestionResponse {
   cache_hit: boolean;
   is_demo_mock?: boolean; // 显式标识是否为本地离线演示数据
   /** 答案来源：外部模型服务 / 基于当前书页的本地抽取式检索 / 演示夹具 */
-  answer_source?: 'model_service' | 'local_extractive' | 'demo_fixture';
+  answer_source?: 'model_service' | 'local_extractive' | 'local_qwen' | 'demo_fixture';
   /** 是否已成功写入后端 A (POST /api/runs/{run_id}/interactions) */
   persisted?: boolean;
   persist_error?: string;

@@ -29,6 +29,7 @@ export interface WorkflowStatus {
   vision_progress?:{page_no:number;job_id:string;status:string;diagnostics:{elapsed_ms?:number;preparation_ms?:number;error_code?:string;http_status?:number;request_id?:string;usage?:{prompt_tokens?:number;completion_tokens?:number;total_tokens?:number}}}[]
   coverage?:{complete:boolean;missing_page_nos:number[];unanalyzed_page_nos:number[];invalid_mapping:boolean;pages:{page_no:number;shot_numbers:number[]}[];note:string}
   narration?:boolean
+  narration_provider?:string|null
   vision:null|{page_no:number;summary:string;scene:string;uncertain:boolean;entities:{name:string;description:string;confidence:number}[];events:string[]}[]
   storyboard:Storyboard|null;revision:number;approved:boolean;source_current:boolean;asset_id:string|null
   tasks:{stage:string;job_id:string;status:string;error_code:string|null;error_message:string|null}[]
@@ -126,14 +127,19 @@ export function createApiClient(baseUrl:string,options:ApiOptions={}) {
     resumeVision:(runId:string)=>request<unknown>(`/api/runs/${id(runId)}/workflow/vision/resume`,json('POST',{confirm_paid:true})),
     reuseVision:(runId:string)=>request<{reused_page_nos:number[]}>(`/api/runs/${id(runId)}/workflow/vision/reuse`,{method:'POST'}),
     retryUncertainVision:(runId:string,pageNos:number[],options?:{fast_mode:boolean;concurrency:number})=>request<unknown>(`/api/runs/${id(runId)}/workflow/vision/retry`,json('POST',{page_nos:pageNos,confirm_paid:true,...options})),
+    suggestCharacterGuide:(runId:string)=>request<{character_guide:string;warnings:string[];review_required:boolean}>(`/api/runs/${id(runId)}/workflow/character-guide`),
+    previewVideoPrompt:(runId:string,pageNo:number)=>request<{page_no:number;prompt:string;prompt_chars:number;frozen:boolean}>(`/api/runs/${id(runId)}/workflow/prompts/${pageNo}`),
     makeStoryboard:(runId:string)=>request<unknown>(`/api/runs/${id(runId)}/workflow/storyboard`,{method:'POST'}),
     saveStoryboard:(runId:string,revision:number,story:Storyboard)=>request<unknown>(`/api/runs/${id(runId)}/workflow/storyboard`,json('PUT',{expected_revision:revision,character_guide:story.character_guide,shots:story.shots})),
     approveStoryboard:(runId:string,revision:number,coverageConfirmed=false)=>request<unknown>(`/api/runs/${id(runId)}/workflow/storyboard/approve`,json('POST',{expected_revision:revision,coverage_confirmed:coverageConfirmed})),
-    generateBookVideo:(runId:string,narration=false)=>request<unknown>(`/api/runs/${id(runId)}/workflow/video`,json('POST',{confirm_paid:true,narration})),
+    generateBookVideo:(runId:string,narration=false)=>request<unknown>(`/api/runs/${id(runId)}/workflow/video`,json('POST',{confirm_paid:true,narration,narration_online_consent:narration})),
     resumeBookVideo:(runId:string)=>request<unknown>(`/api/runs/${id(runId)}/workflow/video/resume`,json('POST',{confirm_paid:true})),
+    localQuestion:(runId:string,body:Record<string,unknown>)=>request<import('../types/interaction').AskQuestionResponse>(`/api/runs/${id(runId)}/interaction/local-qa`,json('POST',body),true,false,150000),
     semanticQuestion:(runId:string,body:Record<string,unknown>)=>request<import('../types/interaction').AskQuestionResponse>(`/api/runs/${id(runId)}/interaction/qa`,json('POST',body),true,false,115000),
     askFrame:(runId:string,body:Record<string,unknown>)=>request<import('../features/interaction/frameAnswerTypes').FrameQuestionResult>(`/api/runs/${id(runId)}/interaction/frame-qa`,json('POST',body),true,false,120000),
     locateFrameText:(runId:string,body:Record<string,unknown>)=>request<import('../features/interaction/visualText').VisualTextResult>(`/api/runs/${id(runId)}/interaction/text`,json('POST',body),true,false,120000),
+    localVisionCapabilities:(runId:string)=>request<{available:boolean;configured:boolean;model:string}>(`/api/runs/${id(runId)}/interaction/local-capabilities`),
+    localTouch:(runId:string,body:Record<string,unknown>)=>request<import('../types/interaction').TouchRecognitionResponse>(`/api/runs/${id(runId)}/interaction/local-touch`,json('POST',body),true,false,150000),
     semanticTouch:(runId:string,body:Record<string,unknown>)=>request<import('../types/interaction').TouchRecognitionResponse>(`/api/runs/${id(runId)}/interaction/touch`,json('POST',body),true,false,115000),
     videoStatus:(runId:string)=>request<VideoGenerationStatus>(`/api/runs/${id(runId)}/video`),
     generateVideo:(runId:string,input:{page_no:number;prompt:string;duration:5;confirm_paid:boolean})=>request<VideoGenerationStatus>(`/api/runs/${id(runId)}/video`,json('POST',input)),

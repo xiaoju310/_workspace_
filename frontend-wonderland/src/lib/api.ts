@@ -9,7 +9,6 @@ import type {
   BackendNoteOut,
   BackendShareOut,
   ClassificationOut,
-  EvidenceSource,
   SegmentOut,
   TouchRecognitionRequest,
   TouchRecognitionResponse,
@@ -210,6 +209,7 @@ export class ApiClient {
 
   setToken(token: string) {
     this.cloudConsent.clear();
+    this.localConsent.clear();
     this.readerSessions.clear();
     this.cloudConsentListeners.forEach(listener => listener());
     this.token = token.trim();
@@ -227,6 +227,13 @@ export class ApiClient {
   // 授权只保存在当前运行的内存里，刷新/退出后失效，不自动启用收费交互。
   private readerSessions = new Map<string,string>();
   startReaderSession(runId:string) { this.readerSessions.set(runId,crypto.randomUUID()); }
+  private localConsent = new Set<string>();
+  enableLocalInteractions(runId:string,enabled:boolean) {
+    enabled ? this.localConsent.add(runId) : this.localConsent.delete(runId);
+    this.cloudConsentListeners.forEach(listener => listener());
+  }
+  localInteractionsEnabled(runId:string) { return this.localConsent.has(runId); }
+  localVisionCapabilities = (runId:string) => this.client.localVisionCapabilities(runId);
   private cloudConsent = new Set<string>();
   private cloudConsentListeners = new Set<() => void>();
   subscribeCloudInteractions = (listener: () => void) => {
@@ -254,6 +261,8 @@ export class ApiClient {
   async resumeVision(runId:string) { return this.client.resumeVision(runId); }
   async reuseVision(runId:string) { return this.client.reuseVision(runId); }
   async retryUncertainVision(runId:string,pages:number[],options?:{fast_mode:boolean;concurrency:number}) { return this.client.retryUncertainVision(runId,pages,options); }
+  async suggestCharacterGuide(runId:string) { return this.client.suggestCharacterGuide(runId); }
+  async previewVideoPrompt(runId:string,pageNo:number) { return this.client.previewVideoPrompt(runId,pageNo); }
   async makeStoryboard(runId:string) { return this.client.makeStoryboard(runId); }
   async saveStoryboard(runId:string,revision:number,story:import('../api/client').Storyboard) { return this.client.saveStoryboard(runId,revision,story); }
   async approveStoryboard(runId:string,revision:number,coverageConfirmed=false) { return this.client.approveStoryboard(runId,revision,coverageConfirmed); }
@@ -297,7 +306,10 @@ export class ApiClient {
     }
 
     let data: AskQuestionResponse;
-    if (this.cloudConsent.has(params.run_id)) {
+    if (this.localConsent.has(params.run_id)) {
+      data = await this.client.localQuestion(params.run_id, {...params,query_text:query,session_id:this.readerSessions.get(params.run_id),confirm_local:true,confirm_paid:false});
+      data.answer_source = 'local_qwen';
+    } else if (this.cloudConsent.has(params.run_id)) {
       data = await this.client.semanticQuestion(params.run_id, {...params,query_text:query,session_id:this.readerSessions.get(params.run_id),confirm_paid:true});
       data.answer_source = 'model_service';
     } else if (this.modelServiceUrl && !isCausalQuestion(query)) {
@@ -405,40 +417,24 @@ export class ApiClient {
     }
 
     let data: TouchRecognitionResponse;
-    if (this.cloudConsent.has(params.run_id)) {
+    const useLocal = this.localConsent.has(params.run_id);
+    if (useLocal || this.cloudConsent.has(params.run_id)) {
       if(!ctx.frame)throw new Error('缺少点击画面的来源，无法可靠识别。请重新打开阅读页面。');
-      const frameImage = ctx.frame?.snapshot ? await blobToBase64(ctx.frame.snapshot) : undefined;
-      data = await this.client.semanticTouch(params.run_id, {...params,
-        current_page_no:ctx.frame?.page_no,
+      const frameImage = ctx.frame.snapshot ? await blobToBase64(ctx.frame.snapshot) : undefined;
+      const body = {...params,
+        current_page_no:ctx.frame.page_no,
         session_id:this.readerSessions.get(params.run_id),
-        video_ms:ctx.frame?.kind==='video'?(ctx.frame.frame_time_ms ?? params.video_ms):params.video_ms,
-        frame_kind:ctx.frame?.kind === 'video' ? 'video' : 'page',
-        frame_image_base64:frameImage, asset_id:ctx.frame?.asset_id ?? undefined, asset_sha256:ctx.frame?.asset_sha256 ?? undefined, confirm_paid:true});
+        video_ms:ctx.frame.kind==='video'?(ctx.frame.frame_time_ms ?? params.video_ms):params.video_ms,
+        frame_kind:ctx.frame.kind === 'video' ? 'video' : 'page',
+        frame_image_base64:frameImage, asset_id:ctx.frame.asset_id ?? undefined, asset_sha256:ctx.frame.asset_sha256 ?? undefined,
+        confirm_paid:!useLocal, confirm_local:useLocal};
+      // Local failures propagate; never retry with the paid provider.
+      data = useLocal ? await this.client.localTouch(params.run_id, body) : await this.client.semanticTouch(params.run_id, body);
     } else {
-      // 没有视觉模型：只记录点击，绝不编造物体名称/置信度/包围框
-      const seg = (ctx.segments ?? []).find((s) => params.video_ms >= s.start_ms && params.video_ms < s.end_ms);
-      const evidence: EvidenceSource | null = seg
-        ? {
-            page_no: seg.page_no,
-            video_start_ms: seg.start_ms,
-            video_end_ms: seg.end_ms,
-            evidence_type: 'script',
-            confidence: 0,
-            snippet: seg.caption,
-          }
-        : null;
       data = {
-        run_id: params.run_id,
-        video_ms: params.video_ms,
-        status: 'uncertain',
-        target_name: '',
-        explanation: seg
-          ? `云端识物尚未开启，仅记录了点击位置。该时刻的画面字幕：“${seg.caption}”`
-          : '云端识物尚未开启，仅记录了点击位置，无法确定点中的物体。',
-        confidence: 0,
-        evidence,
-        latency_ms: 0,
-        cache_hit: false,
+        run_id: params.run_id, video_ms: params.video_ms, status: 'uncertain', target_name: '',
+        explanation: '识物尚未开启，请在画面下方开启本机千问识物；当前仅记录点击位置。',
+        confidence: 0, evidence: null, latency_ms: 0, cache_hit: false,
       };
     }
     data.is_demo_mock = false;
@@ -468,7 +464,7 @@ export class ApiClient {
         confidence: data.confidence,
         evidence: data.evidence ? [data.evidence] : [],
         cache_hit: Boolean(data.cache_hit),
-        recognition: this.modelServiceUrl || this.cloudConsent.has(params.run_id) ? 'model_service' : 'not_connected',
+        recognition: useLocal ? 'local_qwen' : this.cloudConsent.has(params.run_id) ? 'model_service' : 'not_connected',
       },
       latencyMs
     );
@@ -603,4 +599,3 @@ export class ApiClient {
 }
 
 export const apiClient = new ApiClient();
-

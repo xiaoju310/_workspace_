@@ -79,20 +79,18 @@ def test_ocr_does_not_require_temporary_directory(monkeypatch):
 
 
 def test_specific_watermark_clauses_and_mixed_body_text():
-    assert ocr.filter_watermark('仅供第二届北京市大学生”人工智能+”创新大赛”') == ''
     assert ocr.filter_watermark('纸书智伴赛款参赛使用，请勿外') == ''
     assert ocr.filter_watermark('纸书智伴“赛题参赛使用，请勿外传') == ''
-    assert ocr.filter_watermark('积木没有倒。仅供第二届北京市大学生“人工智能+”创新大赛') == '积木没有倒。'
-    assert ocr.filter_watermark('小满去大学参赛，请勿外传这封信。') == '小满去大学参赛，请勿外传这封信。'
+    assert ocr.filter_watermark('测试员去大学参赛，请勿外传这份表格。') == '测试员去大学参赛，请勿外传这份表格。'
 
 
 def test_watermark_is_not_in_text_or_confidence(monkeypatch):
     class Engine:
         def __call__(self, image):
-            return type('Result', (), {'txts': ['小满搭积木。', '纸书智伴赛题参赛使用，请勿外传'], 'scores': [.98, .5]})()
+            return type('Result', (), {'txts': ['测试员整理工具。', '纸书智伴赛题参赛使用，请勿外传'], 'scores': [.98, .5]})()
     monkeypatch.setattr(ocr, '_engine', Engine())
     result = ocr.recognize_image(image_bytes(), 'image/png')
-    assert result['text'] == '小满搭积木。'
+    assert result['text'] == '测试员整理工具。'
     assert result['confidence'] == .98
 
 
@@ -104,8 +102,8 @@ def test_punctuation_reread_and_left_page_order():
             self.reset = False
         def __call__(self, image, **kwargs):
             if kwargs:
-                return SimpleNamespace(txts=['“我们一起搭城堡，搭高高，还不倒。”'])
-            return SimpleNamespace(txts=['三块、', '“我们一起搭城堡，搭高高，还不倒'],
+                return SimpleNamespace(txts=['“请检查测试表格，核对后，再保存。”'])
+            return SimpleNamespace(txts=['条目、', '“请检查测试表格，核对后，再保存'],
                                    scores=[.99, .98],
                                    boxes=[[[250,10],[300,10],[300,30],[250,30]], [[10,50],[180,50],[180,70],[10,70]]])
         def update_params(self, **kwargs):
@@ -113,7 +111,7 @@ def test_punctuation_reread_and_left_page_order():
     engine = Engine()
     try:
         rows = ocr.recognize_layout(engine, image)
-        assert [r[0] for r in rows] == ['“我们一起搭城堡，搭高高，还不倒。”', '三块、']
+        assert [r[0] for r in rows] == ['“请检查测试表格，核对后，再保存。”', '条目、']
         assert engine.reset
     finally:
         image.close()

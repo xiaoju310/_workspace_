@@ -9,7 +9,7 @@ describe('图文分析分镜与多页视频',()=>{
     const api={workflow:vi.fn(),understandPages:vi.fn(),makeStoryboard:vi.fn(),saveStoryboard:vi.fn(),approveStoryboard:vi.fn(),generateBookVideo:vi.fn(),resumeBookVideo:vi.fn(),enableCloudInteractions:vi.fn(),cloudInteractionsEnabled:()=>false}
     const html=renderToStaticMarkup(<ReadingWorkflowPanel runId="r" pages={[{page_no:1}]} onReady={()=>{}} api={api}/> )
     expect(html).toContain('猫头鹰的故事工坊')
-    expect(html).toContain('可选本机中文配音')
+    expect(html).toContain('可选柔和女声配音')
     expect(api.understandPages).not.toHaveBeenCalled()
     expect(api.generateBookVideo).not.toHaveBeenCalled()
     expect(api.enableCloudInteractions).not.toHaveBeenCalled()
@@ -51,4 +51,18 @@ it('生成记录只读请求使用本人凭据和编码后的书籍标识',async
   expect(calls[0][0]).toBe('http://127.0.0.1:8000/api/books/b%2F1/generation-records')
   expect(new Headers(calls[0][1].headers).get('Authorization')).toBe('Bearer fixture')
   expect(calls[0][1].body).toBeUndefined()
+})
+
+
+it('提示词预览和外观建议仅查询本人服务器，不发送生成请求',async()=>{
+  const fetcher=vi.fn(async()=>new Response('{}',{status:200,headers:{'Content-Type':'application/json'}}))
+  const api=createApiClient('http://127.0.0.1:8000',{getToken:()=> 'fixture',fetch:fetcher as typeof fetch})
+  await api.suggestCharacterGuide('r/1')
+  await api.previewVideoPrompt('r/1',2)
+  const calls=fetcher.mock.calls as unknown as [string,RequestInit][]
+  expect(calls.map(c=>c[0])).toEqual([
+    'http://127.0.0.1:8000/api/runs/r%2F1/workflow/character-guide',
+    'http://127.0.0.1:8000/api/runs/r%2F1/workflow/prompts/2',
+  ])
+  expect(calls.every(c=>!c[1].body&&new Headers(c[1].headers).get('Authorization')==='Bearer fixture')).toBe(true)
 })
